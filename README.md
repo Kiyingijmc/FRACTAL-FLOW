@@ -1,2 +1,42 @@
-# FRACTAL-FLOW
-Hierarchical, state-driven Forex scalping system with adaptive market structure, pullback/resumption detection, dynamic risk, news protection, portfolio arbitration, and MT5 execution
+# FRACTAL FLOW CONTEXT PACKAGE
+
+This package is the durable engineering memory for the FRACTAL FLOW project.
+
+## Contents
+
+- `AGENTS.md` — persistent coding-agent instructions and non-negotiable invariants.
+- `docs/00_CONSTITUTION.md` — system constitution.
+- `docs/01_ARCHITECTURE.md` — system architecture and module boundaries.
+- `docs/02_ENGINE_CONTRACTS.md` — contracts for every major engine.
+- `docs/03_STATE_MACHINE.md` — canonical states and transitions.
+- `docs/04_STRUCTURE_ENGINE.md` — adaptive structure.
+- `docs/05_FLOW_ENGINE.md` — flow ownership.
+- `docs/06_PULLBACK_ENGINE.md` — PDE, weakening and resumption.
+- `docs/07_REGIME_ENGINE.md` — regime, role and location.
+- `docs/08_OPPORTUNITY_ENGINE.md` — opportunities, setup families and opportunity space.
+- `docs/09_TRADEABILITY.md` — spread/cost/execution/opportunity economics.
+- `docs/10_NEWS_SHIELD.md` — scheduled/observed news protection.
+- `docs/11_RISK_ENGINE.md` — risk and account feasibility.
+- `docs/12_PORTFOLIO_ARBITRATION.md` — portfolio/correlation arbitration.
+- `docs/13_EXECUTION.md` — MT5 execution.
+- `docs/14_RECONCILIATION.md` — orphan lifecycle and restart safety.
+- `docs/15_POSITION_MANAGEMENT.md` — TP, trailing, runners and health.
+- `docs/16_TTL.md` — trade decay and expiry.
+- `docs/17_TRADINGVIEW_MT5.md` — platform boundary.
+- `docs/18_RESEARCH.md` — research and anti-lookahead protocol.
+- `docs/19_ADVERSARIAL_TESTING.md` — hostile-market/system test matrix.
+- `docs/DECISION_LOG.md` — major decisions, rejected shortcuts and open calibration questions.
+- `CODEX_HANDOFF.md` — direct handoff instructions for Codex.
+
+## Important
+
+This package is intentionally more authoritative than a raw conversation transcript.
+
+The conversation contains brainstorming and historical alternatives. This package records the resulting architecture and preserves important rejected ideas so they are not accidentally reintroduced.
+
+If future discussion changes the architecture:
+1. update the relevant canonical document
+2. increment its version
+3. update `DECISION_LOG.md`
+4. update `AGENTS.md` if an invariant changes
+5. update tests before or with implementation
