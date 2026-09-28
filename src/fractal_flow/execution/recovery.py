@@ -122,8 +122,14 @@ class ValidatorCapability:
             session_id=session_id,
             evidence_digest=evidence_digest,
             signature=sig,
-            _role_key=self._role_key,
         )
+
+    def verify_token(self, token: "_AuthorityToken", expected_session: str, expected_evidence_digest: str) -> bool:
+        if token.validator_id != self.validator_id or token.session_id != expected_session or token.evidence_digest != expected_evidence_digest:
+            return False
+        msg = f"FRACTAL_TOK|v1|{self.validator_id}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
+        expected_sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(token.signature, expected_sig)
 
 
 class AuthorityBootstrap:
@@ -231,43 +237,22 @@ class SealedObservation:
 
 # --- Sealed Authority Token & Observation Boundary ---
 
-_MODULE_SECRET: bytes = uuid.uuid4().bytes
-_VALIDATOR_SECRET: object = object()
-
-
 @dataclass(frozen=True)
 class _AuthorityToken:
-    """Opaque, unforgeable capability token proving evidence was produced by an authorized validator during active session for exact evidence payload."""
+    """Opaque, unforgeable capability token proving evidence was produced by an authorized validator during active session for exact evidence payload.
+
+    Contains NO verification key within itself.
+    """
     validator_id: str
     session_id: str
     evidence_digest: str
     signature: str
-    _role_key: Optional[bytes] = field(default=None, repr=False, compare=False)
 
     def __copy__(self) -> None:
         return None
 
     def __deepcopy__(self, memo: Any) -> None:
         return None
-
-    @classmethod
-    def issue(cls, validator_id: str, session_id: str, evidence_digest: str, secret_key: object) -> "_AuthorityToken":
-        if secret_key is not _VALIDATOR_SECRET:
-            raise RecoveryEvidenceError("Unauthorized authority token issuance attempt rejected.")
-        msg = f"{validator_id}|{session_id}|{evidence_digest}".encode("utf-8")
-        sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
-        return cls(validator_id=validator_id, session_id=session_id, evidence_digest=evidence_digest, signature=sig)
-
-    def verify(self, expected_validator: str, expected_session: str, expected_evidence_digest: str) -> bool:
-        if self.validator_id != expected_validator or self.session_id != expected_session or self.evidence_digest != expected_evidence_digest:
-            return False
-        if self._role_key:
-            msg = f"FRACTAL_TOK|v1|{expected_validator}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
-            expected_sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
-            return hmac.compare_digest(self.signature, expected_sig)
-        msg = f"{expected_validator}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
-        expected_sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
-        return hmac.compare_digest(self.signature, expected_sig)
 
 
 @dataclass(frozen=True)
@@ -288,7 +273,7 @@ class _RecoveryAuthorityBundle:
     def __deepcopy__(self, memo: Any) -> None:
         return None
 
-    def is_valid(self, recovery_evidence: "RecoveryEvidence", required_session: str) -> bool:
+    def is_valid(self, recovery_evidence: "RecoveryEvidence", required_session: str, validator_capabilities: Dict[str, ValidatorCapability]) -> bool:
         if not required_session or self.session_id != required_session:
             return False
 
@@ -305,8 +290,11 @@ class _RecoveryAuthorityBundle:
         for expected_val, tok, ev_obj in validators:
             if tok is None:
                 return False
+            cap = validator_capabilities.get(expected_val)
+            if cap is None:
+                return False
             expected_digest = compute_evidence_digest(ev_obj)
-            if not tok.verify(expected_val, required_session, expected_digest):
+            if not cap.verify_token(tok, required_session, expected_digest):
                 return False
 
         return True
@@ -418,11 +406,11 @@ class RecoveryEvidence:
     protective_monitoring_active: bool = True
     additional_details: Dict[str, Any] = field(default_factory=dict)
 
-    def has_valid_authority_capability(self, required_session: str) -> bool:
+    def has_valid_authority_capability(self, required_session: str, validator_capabilities: Dict[str, ValidatorCapability]) -> bool:
         """Verifies that this composite evidence object encapsulates a valid, un-forged, active authority bundle matching current evidence payload."""
         if self._authority_bundle is None:
             return False
-        return self._authority_bundle.is_valid(self, required_session)
+        return self._authority_bundle.is_valid(self, required_session, validator_capabilities)
 
     def is_satisfactory(self, required_session: Optional[str] = None) -> bool:
         """Returns True only if all required typed subsystem evidence components and valid provenances are satisfied."""
@@ -526,6 +514,7 @@ class RecoveryEvidenceAssembler:
         config: ConfigurationEvidence,
         protective: ProtectiveMonitoringEvidence,
         session_id: str,
+        validator_capabilities: Optional[Dict[str, ValidatorCapability]] = None,
     ) -> RecoveryEvidence:
 
         bundle = _RecoveryAuthorityBundle(
@@ -550,7 +539,7 @@ class RecoveryEvidenceAssembler:
             _authority_bundle=bundle,
         )
 
-        if not bundle.is_valid(evidence, session_id):
+        if validator_capabilities and not bundle.is_valid(evidence, session_id, validator_capabilities):
             raise RecoveryEvidenceError("Recovery evidence assembly failed: invalid, forged, or payload-mismatched subsystem authority token(s)")
 
         if not evidence.is_satisfactory(required_session=session_id):
@@ -563,7 +552,10 @@ class RecoveryEvidenceAssembler:
 
 class JournalRecoveryValidator:
     @staticmethod
-    def validate(journal: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> JournalRecoveryEvidence:
+    def validate(journal: Any, session_id: str, capability: ValidatorCapability) -> JournalRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("JournalRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         faulted = getattr(journal, "_faulted", False)
         seq = journal._global_sequence if hasattr(journal, "_global_sequence") else 0
         valid = (journal is not None) and (not faulted)
@@ -579,10 +571,7 @@ class JournalRecoveryValidator:
         unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
@@ -592,11 +581,14 @@ class SnapshotRecoveryValidator:
     def validate(
         snapshot_engine: Any,
         session_id: str,
+        capability: ValidatorCapability,
         journal: Any = None,
         aggregate_type: str = "",
         aggregate_id: str = "",
-        capability: Optional[ValidatorCapability] = None,
     ) -> SnapshotRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("SnapshotRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         fallback = getattr(snapshot_engine, "_snapshot_fallback_used", False)
         valid = getattr(snapshot_engine, "_snapshot_valid", True) and (snapshot_engine is not None)
 
@@ -625,17 +617,17 @@ class SnapshotRecoveryValidator:
         unsealed = SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class RiskLedgerRecoveryValidator:
     @staticmethod
-    def reconstruct(risk_ledger: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> RiskLedgerRecoveryEvidence:
+    def reconstruct(risk_ledger: Any, session_id: str, capability: ValidatorCapability) -> RiskLedgerRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("RiskLedgerRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         entries = getattr(risk_ledger, "_entries_by_id", {})
         count = len(entries)
         # Inspect real risk ledger invariants if available
@@ -652,17 +644,17 @@ class RiskLedgerRecoveryValidator:
         unsealed = RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class IntentRecoveryValidator:
     @staticmethod
-    def reconstruct(intent_repo: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> IntentRecoveryEvidence:
+    def reconstruct(intent_repo: Any, session_id: str, capability: ValidatorCapability) -> IntentRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("IntentRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         valid = intent_repo is not None
         count = 0
         if hasattr(intent_repo, "get_all_intents"):
@@ -681,17 +673,17 @@ class IntentRecoveryValidator:
         unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class BrokerReconciliationValidator:
     @staticmethod
-    def reconcile(reconciliation_report: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> BrokerReconciliationEvidence:
+    def reconcile(reconciliation_report: Any, session_id: str, capability: ValidatorCapability) -> BrokerReconciliationEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECONCILIATION_VALIDATOR:
+            raise RecoveryEvidenceError("BrokerReconciliationValidator requires a valid RECONCILIATION_VALIDATOR capability.")
+
         from src.fractal_flow.execution.reconciliation import ReconciliationReport
         if not isinstance(reconciliation_report, ReconciliationReport) or not reconciliation_report.has_valid_authority_stamp():
             prov = EvidenceProvenance(
@@ -733,10 +725,7 @@ class BrokerReconciliationValidator:
         )
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
@@ -746,9 +735,12 @@ class ConfigurationValidator:
     def validate(
         config_obj_or_id: Any,
         session_id: str,
+        capability: ValidatorCapability,
         expected_config_id: Optional[str] = None,
-        capability: Optional[ValidatorCapability] = None,
     ) -> ConfigurationEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("ConfigurationValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         config_id = ""
         valid = False
         identity_matched = False
@@ -778,17 +770,17 @@ class ConfigurationValidator:
         )
         if valid:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("ConfigurationValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class ProtectiveMonitoringValidator:
     @staticmethod
-    def validate(protective_subsystem: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> ProtectiveMonitoringEvidence:
+    def validate(protective_subsystem: Any, session_id: str, capability: ValidatorCapability) -> ProtectiveMonitoringEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
+            raise RecoveryEvidenceError("ProtectiveMonitoringValidator requires a valid RECOVERY_VALIDATOR capability.")
+
         active = False
         if isinstance(protective_subsystem, bool):
             active = protective_subsystem
@@ -810,10 +802,7 @@ class ProtectiveMonitoringValidator:
         unsealed = ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
         if active:
             digest = compute_evidence_digest(unsealed)
-            if capability:
-                token = capability.sign_token(session_id, digest)
-            else:
-                token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, digest, _VALIDATOR_SECRET)
+            token = capability.sign_token(session_id, digest)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
@@ -821,11 +810,12 @@ class ProtectiveMonitoringValidator:
 class RecoveryEngine:
     """Manages system recovery lifecycle and gates strategic execution authorization based on verifiable sealed evidence capabilities."""
 
-    def __init__(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> None:
+    def __init__(self, initial_state: RecoveryState = RecoveryState.NORMAL, validator_capabilities: Optional[Dict[str, ValidatorCapability]] = None) -> None:
         self.state = initial_state
         self.strategic_authorization_enabled = (initial_state == RecoveryState.NORMAL)
         self.last_evidence: Optional[RecoveryEvidence] = None
         self.session_id: str = str(uuid.uuid4())
+        self.validator_capabilities: Dict[str, ValidatorCapability] = validator_capabilities or {}
 
     def trigger_system_restart(self) -> None:
         """Triggers recovery mode on system restart and disables strategic authorization."""
@@ -853,7 +843,7 @@ class RecoveryEngine:
             self.strategic_authorization_enabled = False
             raise RecoveryEvidenceError("Recovery evidence must be an instance of RecoveryEvidence")
 
-        if not evidence.has_valid_authority_capability(required_session=self.session_id):
+        if not evidence.has_valid_authority_capability(required_session=self.session_id, validator_capabilities=self.validator_capabilities):
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
             raise RecoveryEvidenceError("Recovery evidence authority capability invalid or un-forged. System placed in SAFE state.")

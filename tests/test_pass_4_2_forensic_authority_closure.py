@@ -60,6 +60,7 @@ from src.fractal_flow.execution.recovery import (
     AuthorityBootstrap,
     CapabilityRole,
     SealedObservation,
+    ValidatorCapability,
 )
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
@@ -67,11 +68,30 @@ from src.fractal_flow.persistence.interfaces import DurableExecutionIntentReposi
 from src.fractal_flow.domain.event import Event
 
 
-# --- Helper functions for valid evidence creation ---
+# --- Helper functions for valid capability and evidence creation ---
+
+def _setup_test_capabilities() -> tuple[AuthorityBootstrap, dict[str, ValidatorCapability]]:
+    bootstrap = AuthorityBootstrap()
+    recovery_cap = bootstrap.mint_validator_capability(CapabilityRole.RECOVERY_VALIDATOR, "RecoveryValidator_1")
+    recon_cap = bootstrap.mint_validator_capability(CapabilityRole.RECONCILIATION_VALIDATOR, "ReconciliationValidator_1")
+    bootstrap.finalize()
+
+    caps = {
+        "JournalRecoveryValidator": recovery_cap,
+        "SnapshotRecoveryValidator": recovery_cap,
+        "RiskLedgerRecoveryValidator": recovery_cap,
+        "IntentRecoveryValidator": recovery_cap,
+        "BrokerReconciliationValidator": recon_cap,
+        "ConfigurationValidator": recovery_cap,
+        "ProtectiveMonitoringValidator": recovery_cap,
+    }
+    return bootstrap, caps
+
 
 def _create_assembled_evidence(
     session_id: str,
     recon_report: ReconciliationReport,
+    validator_caps: dict[str, ValidatorCapability],
     journal_obj: Any = None,
     journal_head_seq: int = 0,
     snapshot_engine_obj: Any = None,
@@ -80,13 +100,13 @@ def _create_assembled_evidence(
     config_id: str = "cfg_1",
     protective_active: bool = True,
 ) -> RecoveryEvidence:
-    j_ev = JournalRecoveryValidator.validate(journal_obj or type("MockJournal", (), {"_faulted": False, "_global_sequence": journal_head_seq})(), session_id)
-    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj or type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), session_id)
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj or type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), session_id)
-    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj or type("MockRepo", (), {})(), session_id)
-    b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id)
-    c_ev = ConfigurationValidator.validate(config_id, session_id)
-    p_ev = ProtectiveMonitoringValidator.validate(protective_active, session_id)
+    j_ev = JournalRecoveryValidator.validate(journal_obj or type("MockJournal", (), {"_faulted": False, "_global_sequence": journal_head_seq})(), session_id, validator_caps["JournalRecoveryValidator"])
+    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj or type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), session_id, validator_caps["SnapshotRecoveryValidator"])
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj or type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), session_id, validator_caps["RiskLedgerRecoveryValidator"])
+    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj or type("MockRepo", (), {})(), session_id, validator_caps["IntentRecoveryValidator"])
+    b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id, validator_caps["BrokerReconciliationValidator"])
+    c_ev = ConfigurationValidator.validate(config_id, session_id, validator_caps["ConfigurationValidator"])
+    p_ev = ProtectiveMonitoringValidator.validate(protective_active, session_id, validator_caps["ProtectiveMonitoringValidator"])
 
     return RecoveryEvidenceAssembler.assemble(
         journal=j_ev,
@@ -97,6 +117,7 @@ def _create_assembled_evidence(
         config=c_ev,
         protective=p_ev,
         session_id=session_id,
+        validator_capabilities=validator_caps,
     )
 
 
@@ -158,8 +179,16 @@ def test_compute_evidence_digest_strict_type_canonicalization() -> None:
 
 # --- 2. Cryptographic Token ↔ Evidence Digest Binding & Transplantation Tests ---
 
+def test_validator_capability_required_fails_closed_when_missing() -> None:
+    # Calling validator without ValidatorCapability must raise RecoveryEvidenceError
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), "session_1", capability=None)  # type: ignore
+    assert "requires a valid RECOVERY_VALIDATOR capability" in str(exc.value)
+
+
 def test_token_transplantation_on_modified_evidence_rejected() -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -167,7 +196,7 @@ def test_token_transplantation_on_modified_evidence_rejected() -> None:
     query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
 
-    legitimate = _create_assembled_evidence(session_id, report)
+    legitimate = _create_assembled_evidence(session_id, report, validator_caps=caps)
 
     # Attempt transplantation attack: dataclass.replace to tamper with evidence fields while retaining token
     tampered_journal = replace(
@@ -188,19 +217,20 @@ def test_token_transplantation_on_modified_evidence_rejected() -> None:
 
 
 def test_token_transplantation_valid_flag_tamper_rejected() -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
 
     # Create invalid evidence from a faulted journal
-    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": True, "_global_sequence": 10})(), session_id)
+    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": True, "_global_sequence": 10})(), session_id, caps["JournalRecoveryValidator"])
     assert j_ev.valid is False
 
     # Create legitimate evidence for other subsystems
     query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
-    legitimate_good = _create_assembled_evidence(session_id, report)
+    legitimate_good = _create_assembled_evidence(session_id, report, validator_caps=caps)
 
     # Attempt transplanting authority token from legitimate good evidence onto invalid journal evidence with forced valid=True
     forged_j_ev = replace(
@@ -219,22 +249,24 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
             config=legitimate_good.config_evidence,
             protective=legitimate_good.protective_evidence,
             session_id=session_id,
+            validator_capabilities=caps,
         )
 
 
 def test_subsystem_state_forgery_attacks_rejected() -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
 
     # 1. Faulted Risk Ledger
     faulted_risk = type("MockFaultedRisk", (), {"_entries_by_id": {}, "_faulted": True, "remaining_risk": -10.0})()
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(faulted_risk, session_id)
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(faulted_risk, session_id, caps["RiskLedgerRecoveryValidator"])
     assert r_ev.valid is False
 
     # 2. Inactive Protective Monitoring
     inactive_prot = type("MockInactiveProt", (), {"is_active": lambda self: False})()
-    p_ev = ProtectiveMonitoringValidator.validate(inactive_prot, session_id)
+    p_ev = ProtectiveMonitoringValidator.validate(inactive_prot, session_id, caps["ProtectiveMonitoringValidator"])
     assert p_ev.valid is False
 
     # 3. Manually Constructed ReconciliationReport Lacking Authority Stamp
@@ -252,12 +284,13 @@ def test_subsystem_state_forgery_attacks_rejected() -> None:
         broker_deals_seen=0,
         generated_at=1000,
     )
-    b_ev = BrokerReconciliationValidator.reconcile(unauthenticated_report, session_id)
+    b_ev = BrokerReconciliationValidator.reconcile(unauthenticated_report, session_id, caps["BrokerReconciliationValidator"])
     assert b_ev.valid is False
 
 
 def test_caller_cannot_forge_authoritative_evidence() -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
@@ -272,7 +305,8 @@ def test_caller_cannot_forge_authoritative_evidence() -> None:
 
 
 def test_fabricated_seven_validator_bundle_rejected() -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -296,24 +330,16 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
     with pytest.raises(RecoveryEvidenceError) as exc:
         RecoveryEvidenceAssembler.assemble(
             journal=j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
-            broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id
+            broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id,
+            validator_capabilities=caps,
         )
     assert "forged" in str(exc.value).lower()
 
 
-def test_token_issuance_direct_call_rejected() -> None:
-    with pytest.raises(RecoveryEvidenceError) as exc:
-        _AuthorityToken.issue("JournalRecoveryValidator", "session_1", "digest_123", secret_key="unauthorized_caller")
-    assert "Unauthorized authority token issuance" in str(exc.value)
-
-
 def test_copy_or_deepcopy_strips_authority_token() -> None:
-    engine = RecoveryEngine()
-    engine.trigger_system_restart()
-    session_id = engine.session_id
-
-    module_secret = getattr(sys.modules["src.fractal_flow.execution.recovery"], "_VALIDATOR_SECRET")
-    tok = _AuthorityToken.issue("JournalRecoveryValidator", session_id, "digest_123", module_secret)
+    _, caps = _setup_test_capabilities()
+    cap = caps["JournalRecoveryValidator"]
+    tok = cap.sign_token("session_1", "digest_123")
     assert tok is not None
     assert copy.copy(tok) is None
     assert copy.deepcopy(tok) is None
@@ -364,6 +390,7 @@ def test_orphan_record_details_mutation_rejected() -> None:
 # --- 4. Orphan Propagation & Authorization Blocking ---
 
 def test_orphan_count_flows_into_recovery_evidence() -> None:
+    _, caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -388,13 +415,14 @@ def test_orphan_count_flows_into_recovery_evidence() -> None:
     )
 
     assert report.orphaned_count == 1
-    broker_ev = BrokerReconciliationValidator.reconcile(report, session_id="session_1")
+    broker_ev = BrokerReconciliationValidator.reconcile(report, session_id="session_1", capability=caps["BrokerReconciliationValidator"])
     assert broker_ev.orphaned_count == 1
     assert broker_ev.valid is False
 
 
 def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
@@ -409,13 +437,13 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     )
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
 
-    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), engine.session_id)
-    s_ev = SnapshotRecoveryValidator.validate(type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), engine.session_id)
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), engine.session_id)
-    i_ev = IntentRecoveryValidator.reconstruct(type("MockRepo", (), {})(), engine.session_id)
-    b_ev = BrokerReconciliationValidator.reconcile(report, engine.session_id)
-    c_ev = ConfigurationValidator.validate("cfg_1", engine.session_id)
-    p_ev = ProtectiveMonitoringValidator.validate(True, engine.session_id)
+    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), engine.session_id, caps["JournalRecoveryValidator"])
+    s_ev = SnapshotRecoveryValidator.validate(type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), engine.session_id, caps["SnapshotRecoveryValidator"])
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), engine.session_id, caps["RiskLedgerRecoveryValidator"])
+    i_ev = IntentRecoveryValidator.reconstruct(type("MockRepo", (), {})(), engine.session_id, caps["IntentRecoveryValidator"])
+    b_ev = BrokerReconciliationValidator.reconcile(report, engine.session_id, caps["BrokerReconciliationValidator"])
+    c_ev = ConfigurationValidator.validate("cfg_1", engine.session_id, caps["ConfigurationValidator"])
+    p_ev = ProtectiveMonitoringValidator.validate(True, engine.session_id, caps["ProtectiveMonitoringValidator"])
 
     evidence = RecoveryEvidence(
         journal_evidence=j_ev, snapshot_evidence=s_ev, risk_evidence=r_ev, intent_evidence=i_ev,
@@ -431,6 +459,7 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
 # --- 5. UNKNOWN Broker State Blocking ---
 
 def test_unknown_broker_state_blocks_authorization() -> None:
+    _, caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -448,7 +477,7 @@ def test_unknown_broker_state_blocks_authorization() -> None:
     assert report.unknown_count == 1
     assert report.authoritative is False
 
-    b_ev = BrokerReconciliationValidator.reconcile(report, "session_1")
+    b_ev = BrokerReconciliationValidator.reconcile(report, "session_1", caps["BrokerReconciliationValidator"])
     assert b_ev.valid is False
 
 
@@ -568,13 +597,14 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
 # --- 8. Session Binding ---
 
 def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     old_session = engine.session_id
 
     query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
-    old_evidence = _create_assembled_evidence(old_session, report)
+    old_evidence = _create_assembled_evidence(old_session, report, validator_caps=caps)
 
     # Trigger second restart -> new session ID
     engine.trigger_system_restart()
@@ -716,14 +746,15 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
 # --- 12. Valid Legitimate Authorization Path ---
 
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
-    engine = RecoveryEngine()
+    _, caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
     query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
 
-    evidence = _create_assembled_evidence(session_id=engine.session_id, recon_report=report)
+    evidence = _create_assembled_evidence(session_id=engine.session_id, recon_report=report, validator_caps=caps)
 
     engine.complete_recovery_with_evidence(evidence)
 
