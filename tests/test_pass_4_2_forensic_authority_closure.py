@@ -11,6 +11,7 @@ import uuid
 import json
 import copy
 import sys
+from decimal import Decimal
 from typing import Any
 from dataclasses import replace
 
@@ -56,6 +57,9 @@ from src.fractal_flow.execution.recovery import (
     ProtectiveMonitoringEvidence,
     _AuthorityToken,
     compute_evidence_digest,
+    AuthorityBootstrap,
+    CapabilityRole,
+    SealedObservation,
 )
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
@@ -96,7 +100,63 @@ def _create_assembled_evidence(
     )
 
 
-# --- 1. Cryptographic Token ↔ Evidence Digest Binding & Transplantation Tests ---
+# --- 1. Capability Bootstrap & Role Escalation Tests ---
+
+def test_authority_bootstrap_role_escalation_and_finalization() -> None:
+    bootstrap = AuthorityBootstrap()
+    risk_cap = bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem")
+
+    # Attempting to mint same role twice must be rejected
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem2")
+    assert "already been minted" in str(exc.value)
+
+    # Finalize bootstrap
+    bootstrap.finalize()
+
+    # Attempting minting post-finalization must be rejected
+    with pytest.raises(RecoveryEvidenceError) as exc2:
+        bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    assert "finalized" in str(exc2.value)
+
+    # Verify risk_cap holds only role-scoped key, not master key
+    assert not hasattr(risk_cap, "_master_key")
+    assert risk_cap.role == CapabilityRole.RISK_LEDGER
+
+
+def test_sealed_observation_signature_verification() -> None:
+    bootstrap = AuthorityBootstrap()
+    risk_cap = bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedger_1")
+    bootstrap.finalize()
+
+    obs = SealedObservation.create(risk_cap, "session_123", 1000, {"balance": Decimal("500.00")})
+
+    # Verify valid signature using role key
+    assert obs.verify(CapabilityRole.RISK_LEDGER, "session_123", risk_cap._role_key) is True
+
+    # Reject wrong role or wrong session
+    assert obs.verify(CapabilityRole.JOURNAL, "session_123", risk_cap._role_key) is False
+    assert obs.verify(CapabilityRole.RISK_LEDGER, "session_wrong", risk_cap._role_key) is False
+
+
+def test_compute_evidence_digest_strict_type_canonicalization() -> None:
+    # Decimal canonicalization
+    d1 = {"risk": Decimal("100.00")}
+    d2 = {"risk": Decimal("100")}
+    assert compute_evidence_digest(d1) == compute_evidence_digest(d2)
+
+    # Fail closed on NaN or infinity
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        compute_evidence_digest({"nan_val": float("nan")})
+    assert "Non-finite float" in str(exc.value)
+
+    # Fail closed on unsupported object
+    with pytest.raises(RecoveryEvidenceError) as exc2:
+        compute_evidence_digest({"raw_obj": object()})
+    assert "Unsupported type" in str(exc2.value)
+
+
+# --- 2. Cryptographic Token ↔ Evidence Digest Binding & Transplantation Tests ---
 
 def test_token_transplantation_on_modified_evidence_rejected() -> None:
     engine = RecoveryEngine()
@@ -259,7 +319,7 @@ def test_copy_or_deepcopy_strips_authority_token() -> None:
     assert copy.deepcopy(tok) is None
 
 
-# --- 2. Orphan Lifecycle & Transition Matrix Tests ---
+# --- 3. Orphan Lifecycle & Transition Matrix Tests ---
 
 def test_orphan_legal_state_machine_transitions() -> None:
     orphan = OrphanRecord(
@@ -301,7 +361,7 @@ def test_orphan_record_details_mutation_rejected() -> None:
         orphan.details["key"] = "tampered"  # type: ignore
 
 
-# --- 3. Orphan Propagation & Authorization Blocking ---
+# --- 4. Orphan Propagation & Authorization Blocking ---
 
 def test_orphan_count_flows_into_recovery_evidence() -> None:
     intent = ExecutionIntent(
@@ -368,7 +428,7 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     assert engine.state == RecoveryState.SAFE
 
 
-# --- 4. UNKNOWN Broker State Blocking ---
+# --- 5. UNKNOWN Broker State Blocking ---
 
 def test_unknown_broker_state_blocks_authorization() -> None:
     intent = ExecutionIntent(
@@ -392,7 +452,7 @@ def test_unknown_broker_state_blocks_authorization() -> None:
     assert b_ev.valid is False
 
 
-# --- 5. Broker Authority & Query Quality ---
+# --- 6. Broker Authority & Query Quality ---
 
 @pytest.mark.parametrize(
     "quality",
@@ -452,7 +512,7 @@ def test_authoritative_rejections_cannot_override_query_result() -> None:
     assert report.results[0].resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
 
-# --- 6. Snapshot Semantic Forgery & Replay Equivalence ---
+# --- 7. Snapshot Semantic Forgery & Replay Equivalence ---
 
 def test_snapshot_self_hash_does_not_make_forged_state_valid(tmp_path) -> None:
     journal = DurableEventJournal(str(tmp_path / "journal.log"))
@@ -505,7 +565,7 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
     assert replayed["_snapshot_fallback_used"] is True
 
 
-# --- 7. Session Binding ---
+# --- 8. Session Binding ---
 
 def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     engine = RecoveryEngine()
@@ -527,7 +587,7 @@ def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     assert engine.state == RecoveryState.SAFE
 
 
-# --- 8. Deal Semantics & Contradictions ---
+# --- 9. Deal Semantics & Contradictions ---
 
 def test_missing_deal_role_becomes_unknown() -> None:
     intent = ExecutionIntent(
@@ -600,7 +660,7 @@ def test_close_before_open_is_unknown() -> None:
     assert report.results[0].resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
 
-# --- 9. Orphan Protective Management ---
+# --- 10. Orphan Protective Management ---
 
 def test_orphan_position_keeps_protective_monitoring_active() -> None:
     orphan_pos = Position(
@@ -617,7 +677,7 @@ def test_orphan_position_keeps_protective_monitoring_active() -> None:
     assert record.protective_monitoring_active is True
 
 
-# --- 10. Intent Fingerprint Mutations ---
+# --- 11. Intent Fingerprint Mutations ---
 
 def test_order_type_mutation_changes_intent_fingerprint(tmp_path) -> None:
     repo = DurableExecutionIntentRepository(str(tmp_path / "intents.db"))
@@ -653,7 +713,7 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
         repo.save_intent(intent_mutated)
 
 
-# --- 11. Valid Legitimate Authorization Path ---
+# --- 12. Valid Legitimate Authorization Path ---
 
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
     engine = RecoveryEngine()

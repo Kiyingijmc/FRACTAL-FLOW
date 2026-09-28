@@ -6,9 +6,10 @@ import hmac
 import hashlib
 import json
 import dataclasses
+from decimal import Decimal
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import Dict, List, Optional, Any, TYPE_CHECKING, Mapping
+from typing import Dict, List, Optional, Any, TYPE_CHECKING, Mapping, Set
 from types import MappingProxyType
 
 if TYPE_CHECKING:
@@ -31,6 +32,19 @@ class RecoveryState(str, Enum):
     SAFE = "SAFE"
 
 
+@unique
+class CapabilityRole(str, Enum):
+    JOURNAL = "JOURNAL"
+    SNAPSHOT = "SNAPSHOT"
+    RISK_LEDGER = "RISK_LEDGER"
+    INTENT_REPOSITORY = "INTENT_REPOSITORY"
+    BROKER_QUERY = "BROKER_QUERY"
+    EFFECTIVE_CONFIGURATION = "EFFECTIVE_CONFIGURATION"
+    PROTECTIVE_MONITOR = "PROTECTIVE_MONITOR"
+    RECOVERY_VALIDATOR = "RECOVERY_VALIDATOR"
+    RECONCILIATION_VALIDATOR = "RECONCILIATION_VALIDATOR"
+
+
 # --- Canonical Evidence Digest Computation ---
 
 def compute_evidence_digest(evidence_obj: Any) -> str:
@@ -38,8 +52,15 @@ def compute_evidence_digest(evidence_obj: Any) -> str:
     def _canonicalize(val: Any) -> Any:
         if val is None:
             return None
-        if isinstance(val, (bool, int, float, str)):
+        if isinstance(val, (bool, int, str)):
             return val
+        if isinstance(val, float):
+            import math
+            if math.isnan(val) or math.isinf(val):
+                raise RecoveryEvidenceError(f"Fail-closed: Non-finite float value '{val}' in canonical digest computation.")
+            return val
+        if isinstance(val, Decimal):
+            return str(val.normalize())
         if isinstance(val, Enum):
             return val.value
         if hasattr(val, "__dataclass_fields__"):
@@ -60,7 +81,155 @@ def compute_evidence_digest(evidence_obj: Any) -> str:
     return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
 
-# --- Sealed Authority Token & Capability Boundary ---
+# --- Scoped Capability & Authority Bootstrap Machinery ---
+
+@dataclass(frozen=True)
+class ProducerCapability:
+    """Scoped capability holding only role-derived signing key for an authoritative producer."""
+    role: CapabilityRole
+    producer_id: str
+    _role_key: bytes = field(repr=False, compare=False)
+
+    def __copy__(self) -> None:
+        return None
+
+    def __deepcopy__(self, memo: Any) -> None:
+        return None
+
+    def sign_observation(self, session_id: str, observed_at: int, payload_digest: str) -> str:
+        msg = f"FRACTAL_OBS|v1|{self.role.value}|{self.producer_id}|{session_id}|{observed_at}|{payload_digest}".encode("utf-8")
+        return hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
+
+
+@dataclass(frozen=True)
+class ValidatorCapability:
+    """Scoped capability holding only role-derived signing key for an authoritative validator."""
+    role: CapabilityRole
+    validator_id: str
+    _role_key: bytes = field(repr=False, compare=False)
+
+    def __copy__(self) -> None:
+        return None
+
+    def __deepcopy__(self, memo: Any) -> None:
+        return None
+
+    def sign_token(self, session_id: str, evidence_digest: str) -> "_AuthorityToken":
+        msg = f"FRACTAL_TOK|v1|{self.validator_id}|{session_id}|{evidence_digest}".encode("utf-8")
+        sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
+        return _AuthorityToken(
+            validator_id=self.validator_id,
+            session_id=session_id,
+            evidence_digest=evidence_digest,
+            signature=sig,
+            _role_key=self._role_key,
+        )
+
+
+class AuthorityBootstrap:
+    """Privileged capability bootstrap minting role-scoped signing capabilities without retaining master keys in runtime objects."""
+
+    DOMAIN = "FRACTAL_FLOW_AUTHORITY_DOMAIN"
+    VERSION = "v1"
+
+    def __init__(self) -> None:
+        self._master_key: bytes = uuid.uuid4().bytes
+        self._finalized: bool = False
+        self._minted_roles: Set[CapabilityRole] = set()
+
+    def _derive_role_key(self, role: CapabilityRole, entity_id: str) -> bytes:
+        info = f"{self.DOMAIN}|{self.VERSION}|{role.value}|{entity_id}".encode("utf-8")
+        return hmac.new(self._master_key, info, hashlib.sha256).digest()
+
+    def mint_producer_capability(self, role: CapabilityRole, producer_id: str) -> ProducerCapability:
+        if self._finalized:
+            raise RecoveryEvidenceError("AuthorityBootstrap is finalized; cannot mint new producer capabilities.")
+        if role in self._minted_roles:
+            raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted.")
+        self._minted_roles.add(role)
+        role_key = self._derive_role_key(role, producer_id)
+        return ProducerCapability(role=role, producer_id=producer_id, _role_key=role_key)
+
+    def mint_validator_capability(self, role: CapabilityRole, validator_id: str) -> ValidatorCapability:
+        if self._finalized:
+            raise RecoveryEvidenceError("AuthorityBootstrap is finalized; cannot mint new validator capabilities.")
+        if role in self._minted_roles:
+            raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted.")
+        self._minted_roles.add(role)
+        role_key = self._derive_role_key(role, validator_id)
+        return ValidatorCapability(role=role, validator_id=validator_id, _role_key=role_key)
+
+    def finalize(self) -> None:
+        """Locks bootstrap and clears master key material."""
+        self._finalized = True
+        self._master_key = b"\x00" * 32
+
+
+# --- Sealed Observation Boundary ---
+
+@dataclass(frozen=True)
+class SealedObservation:
+    """Producer-owned sealed observation created via a ProducerCapability."""
+    domain: str
+    version: str
+    producer_role: CapabilityRole
+    producer_id: str
+    session_id: str
+    observed_at: int
+    payload_digest: str
+    signature: str
+    frozen_payload: Mapping[str, Any]
+
+    def __copy__(self) -> None:
+        return None
+
+    def __deepcopy__(self, memo: Any) -> None:
+        return None
+
+    @classmethod
+    def create(
+        cls,
+        capability: ProducerCapability,
+        session_id: str,
+        observed_at: int,
+        raw_payload: Dict[str, Any],
+    ) -> "SealedObservation":
+        def _freeze(v: Any) -> Any:
+            if isinstance(v, dict):
+                return MappingProxyType({str(k): _freeze(val) for k, val in sorted(v.items())})
+            if isinstance(v, list):
+                return tuple(_freeze(x) for x in v)
+            if isinstance(v, set):
+                return frozenset(_freeze(x) for x in v)
+            return v
+
+        frozen = _freeze(raw_payload)
+        digest = compute_evidence_digest(frozen)
+        sig = capability.sign_observation(session_id, observed_at, digest)
+
+        return cls(
+            domain=AuthorityBootstrap.DOMAIN,
+            version=AuthorityBootstrap.VERSION,
+            producer_role=capability.role,
+            producer_id=capability.producer_id,
+            session_id=session_id,
+            observed_at=observed_at,
+            payload_digest=digest,
+            signature=sig,
+            frozen_payload=frozen,
+        )
+
+    def verify(self, expected_role: CapabilityRole, expected_session: str, role_key: bytes) -> bool:
+        if self.producer_role != expected_role or self.session_id != expected_session:
+            return False
+        if compute_evidence_digest(self.frozen_payload) != self.payload_digest:
+            return False
+        msg = f"FRACTAL_OBS|v1|{self.producer_role.value}|{self.producer_id}|{self.session_id}|{self.observed_at}|{self.payload_digest}".encode("utf-8")
+        expected_sig = hmac.new(role_key, msg, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(self.signature, expected_sig)
+
+
+# --- Sealed Authority Token & Observation Boundary ---
 
 _MODULE_SECRET: bytes = uuid.uuid4().bytes
 _VALIDATOR_SECRET: object = object()
@@ -73,6 +242,7 @@ class _AuthorityToken:
     session_id: str
     evidence_digest: str
     signature: str
+    _role_key: Optional[bytes] = field(default=None, repr=False, compare=False)
 
     def __copy__(self) -> None:
         return None
@@ -91,6 +261,10 @@ class _AuthorityToken:
     def verify(self, expected_validator: str, expected_session: str, expected_evidence_digest: str) -> bool:
         if self.validator_id != expected_validator or self.session_id != expected_session or self.evidence_digest != expected_evidence_digest:
             return False
+        if self._role_key:
+            msg = f"FRACTAL_TOK|v1|{expected_validator}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
+            expected_sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
+            return hmac.compare_digest(self.signature, expected_sig)
         msg = f"{expected_validator}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
         expected_sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
         return hmac.compare_digest(self.signature, expected_sig)
@@ -389,7 +563,7 @@ class RecoveryEvidenceAssembler:
 
 class JournalRecoveryValidator:
     @staticmethod
-    def validate(journal: Any, session_id: str) -> JournalRecoveryEvidence:
+    def validate(journal: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> JournalRecoveryEvidence:
         faulted = getattr(journal, "_faulted", False)
         seq = journal._global_sequence if hasattr(journal, "_global_sequence") else 0
         valid = (journal is not None) and (not faulted)
@@ -405,7 +579,10 @@ class JournalRecoveryValidator:
         unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
@@ -418,6 +595,7 @@ class SnapshotRecoveryValidator:
         journal: Any = None,
         aggregate_type: str = "",
         aggregate_id: str = "",
+        capability: Optional[ValidatorCapability] = None,
     ) -> SnapshotRecoveryEvidence:
         fallback = getattr(snapshot_engine, "_snapshot_fallback_used", False)
         valid = getattr(snapshot_engine, "_snapshot_valid", True) and (snapshot_engine is not None)
@@ -447,14 +625,17 @@ class SnapshotRecoveryValidator:
         unsealed = SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class RiskLedgerRecoveryValidator:
     @staticmethod
-    def reconstruct(risk_ledger: Any, session_id: str) -> RiskLedgerRecoveryEvidence:
+    def reconstruct(risk_ledger: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> RiskLedgerRecoveryEvidence:
         entries = getattr(risk_ledger, "_entries_by_id", {})
         count = len(entries)
         # Inspect real risk ledger invariants if available
@@ -471,14 +652,17 @@ class RiskLedgerRecoveryValidator:
         unsealed = RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class IntentRecoveryValidator:
     @staticmethod
-    def reconstruct(intent_repo: Any, session_id: str) -> IntentRecoveryEvidence:
+    def reconstruct(intent_repo: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> IntentRecoveryEvidence:
         valid = intent_repo is not None
         count = 0
         if hasattr(intent_repo, "get_all_intents"):
@@ -497,14 +681,17 @@ class IntentRecoveryValidator:
         unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class BrokerReconciliationValidator:
     @staticmethod
-    def reconcile(reconciliation_report: Any, session_id: str) -> BrokerReconciliationEvidence:
+    def reconcile(reconciliation_report: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> BrokerReconciliationEvidence:
         from src.fractal_flow.execution.reconciliation import ReconciliationReport
         if not isinstance(reconciliation_report, ReconciliationReport) or not reconciliation_report.has_valid_authority_stamp():
             prov = EvidenceProvenance(
@@ -546,7 +733,10 @@ class BrokerReconciliationValidator:
         )
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
@@ -557,6 +747,7 @@ class ConfigurationValidator:
         config_obj_or_id: Any,
         session_id: str,
         expected_config_id: Optional[str] = None,
+        capability: Optional[ValidatorCapability] = None,
     ) -> ConfigurationEvidence:
         config_id = ""
         valid = False
@@ -587,14 +778,17 @@ class ConfigurationValidator:
         )
         if valid:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("ConfigurationValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("ConfigurationValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
 
 class ProtectiveMonitoringValidator:
     @staticmethod
-    def validate(protective_subsystem: Any, session_id: str) -> ProtectiveMonitoringEvidence:
+    def validate(protective_subsystem: Any, session_id: str, capability: Optional[ValidatorCapability] = None) -> ProtectiveMonitoringEvidence:
         active = False
         if isinstance(protective_subsystem, bool):
             active = protective_subsystem
@@ -616,7 +810,10 @@ class ProtectiveMonitoringValidator:
         unsealed = ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
         if active:
             digest = compute_evidence_digest(unsealed)
-            token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, digest, _VALIDATOR_SECRET)
+            if capability:
+                token = capability.sign_token(session_id, digest)
+            else:
+                token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, digest, _VALIDATOR_SECRET)
             return dataclasses.replace(unsealed, _authority_token=token)
         return unsealed
 
