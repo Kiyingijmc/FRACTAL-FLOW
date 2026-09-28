@@ -745,7 +745,25 @@ def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
     assert rec_engine.can_authorize_strategic_action() is False
 
     rec_engine.start_reconciliation()
+    # Boolean shortcut complete_recovery(True) does NOT authorize strategic execution
     rec_engine.complete_recovery(reconciliation_successful=True)
+    assert rec_engine.can_authorize_strategic_action() is False
+
+    # Verifiable evidence authorizes strategic execution after restart/recovery workflow
+    rec_engine.trigger_system_restart()
+    rec_engine.start_reconciliation()
+    good_evidence = RecoveryEvidence(
+        persistence_integrity_valid=True,
+        journal_integrity_valid=True,
+        snapshot_integrity_valid=True,
+        risk_ledger_reconstructed=True,
+        execution_intents_reconstructed=True,
+        broker_reconciliation_complete=True,
+        unresolved_unknown_count=0,
+        configuration_identity_matched=True,
+        protective_monitoring_active=True,
+    )
+    rec_engine.complete_recovery_with_evidence(good_evidence)
     assert rec_engine.can_authorize_strategic_action() is True
 
 

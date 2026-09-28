@@ -114,17 +114,17 @@ invariants:
   - id: 15
     title: orphaned_orders_reconciled
     rule: "Orphaned orders are reconciled before cancellation/finalization."
-    status: INTEGRATION_VERIFIED
-    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
-    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
+    status: ENFORCED
+    enforcement_mechanism: "ReconciliationEngine.reconcile_broker_wide multi-directional discovery"
+    test_reference: tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
     failure_mode: "State remains EXEC_UNKNOWN until reconciled"
 
   - id: 16
     title: orphaned_positions_protectively_managed
     rule: "Orphaned positions may be protectively managed while ownership is reconstructed."
-    status: INTEGRATION_VERIFIED
-    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
-    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
+    status: ENFORCED
+    enforcement_mechanism: "ReconciliationEngine.reconcile_broker_wide multi-directional discovery"
+    test_reference: tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
     failure_mode: "State remains EXEC_UNKNOWN until reconciled"
 
   - id: 17
@@ -314,10 +314,10 @@ invariants:
   - id: 40
     title: reconciliation_completes_before_auth
     rule: "Reconciliation must complete before strategy authorization after restart/disconnect."
-    status: INTEGRATION_VERIFIED
-    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
-    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
-    failure_mode: "State remains EXEC_UNKNOWN until reconciled"
+    status: ENFORCED
+    enforcement_mechanism: "RecoveryEngine.complete_recovery_with_evidence evidence gate validation"
+    test_reference: tests/test_persistence_adversarial.py::test_p42_34_40_recovery_engine_and_reconciliation_gating
+    failure_mode: "RecoveryEngine transitions to SAFE state and strategic authorization remains disabled"
 
   - id: 41
     title: research_tests_information_value

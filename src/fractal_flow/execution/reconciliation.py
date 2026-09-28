@@ -61,7 +61,7 @@ class ReconciliationEngine:
                 matching_order = ord_obj
                 break
 
-        # Validate Deal Chain if matching position/order and deals provided
+        # Validate Deal Chain taking into account opening vs closing deal directions
         if broker_deals and (matching_pos or matching_order):
             target_order_id = matching_order.order_id if matching_order else (matching_pos.order_id if matching_pos else "")
             target_pos_id = matching_pos.position_id if matching_pos else ""
@@ -72,15 +72,21 @@ class ReconciliationEngine:
             ]
 
             if matching_pos:
-                deal_sum_vol = sum(d.volume for d in related_deals)
-                if abs(deal_sum_vol - matching_pos.filled_volume) > 0.0001:
+                open_side = matching_pos.side
+                opening_vol = sum(d.volume for d in related_deals if d.side == open_side or d.order_id == matching_pos.order_id)
+                closing_vol = sum(d.volume for d in related_deals if d.side != open_side and d.order_id != matching_pos.order_id)
+                net_deal_vol = opening_vol - closing_vol
+
+                if net_deal_vol < 0 or abs(net_deal_vol - matching_pos.filled_volume) > 0.0001:
                     return ReconciliationResult(
                         intent_id=local_intent.intent_id,
                         mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
                         resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
                         details={
-                            "note": f"Deal volume sum ({deal_sum_vol}) contradicts position filled volume ({matching_pos.filled_volume})",
+                            "note": f"Net deal volume ({net_deal_vol}) contradicts position filled volume ({matching_pos.filled_volume})",
                             "position_id": matching_pos.position_id,
+                            "opening_volume": opening_vol,
+                            "closing_volume": closing_vol,
                         },
                     )
 

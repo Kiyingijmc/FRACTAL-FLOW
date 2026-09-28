@@ -92,12 +92,12 @@ class SnapshotEngine:
         )
 
         with self._lock:
-            self._snapshots[key] = snap
-
             if self.snapshot_dir:
                 self._persist_snapshot_to_disk(snap)
 
-        return snap
+            # Publication barrier: publish to memory ONLY after durable disk persistence succeeds
+            self._snapshots[key] = snap
+            return snap
 
     def load_snapshot(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
         key = f"{aggregate_type}:{aggregate_id}"
@@ -137,21 +137,26 @@ class SnapshotEngine:
         data = asdict(snap)
         raw_json = json.dumps(data, sort_keys=True, indent=2)
 
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(raw_json)
-            f.flush()
-            os.fsync(f.fileno())
-
-        os.replace(temp_path, target_path)
-
         try:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                f.write(raw_json)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_path, target_path)
+
             dir_fd = os.open(str(self.snapshot_dir), os.O_RDONLY)
             try:
                 os.fsync(dir_fd)
             finally:
                 os.close(dir_fd)
-        except OSError:
-            pass
+        except Exception as e:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
+            raise SnapshotCorruptionException(f"Snapshot durable persistence failed: {e}") from e
 
     def _load_snapshot_from_disk(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
         file_path = self._get_snapshot_file_path(aggregate_type, aggregate_id)
@@ -200,6 +205,19 @@ class SnapshotEngine:
         state = dict(initial_state or {})
 
         if snapshot:
+            # Validate snapshot boundary against journal
+            if snapshot.last_sequence_number > journal._global_sequence:
+                raise SnapshotCorruptionException(
+                    f"Snapshot sequence {snapshot.last_sequence_number} exceeds journal head sequence {journal._global_sequence}. Fail closed."
+                )
+
+            if snapshot.last_sequence_number > 0:
+                all_seqs = {r.sequence_number for r in journal.get_all_records()}
+                if snapshot.last_sequence_number not in all_seqs:
+                    raise SnapshotCorruptionException(
+                        f"Snapshot sequence {snapshot.last_sequence_number} not found in journal sequence records. Fail closed."
+                    )
+
             state.update(snapshot.state_payload)
             min_seq = snapshot.last_sequence_number
             state["_last_version"] = snapshot.aggregate_version

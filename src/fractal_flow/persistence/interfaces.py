@@ -123,9 +123,19 @@ class DurableExecutionIntentRepository:
             "requested_volume": intent.requested_volume,
             "entry_price": intent.entry_price,
             "sl": intent.sl,
+            "tp_plan": intent.tp_plan,
             "decision_id": intent.decision_id,
             "effective_config_id": intent.effective_config_id,
             "lineage_version": intent.lineage_version,
+            "broker_constraint_snapshot": intent.broker_constraint_snapshot,
+            "entry_plan_id": intent.entry_plan_id,
+            "entry_model": intent.entry_model,
+            "order_type": intent.order_type,
+            "fill_policy": intent.fill_policy,
+            "time_in_force": intent.time_in_force,
+            "trigger_price": intent.trigger_price,
+            "limit_price": intent.limit_price,
+            "stop_limit_price": intent.stop_limit_price,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
