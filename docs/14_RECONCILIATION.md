@@ -130,7 +130,7 @@ Use:
 
 Do not assume a broker identifier alone is enough for full lineage.
 
-## 10. Event sourcing
+## 10. Event sourcing & Journal Durability
 
 Events:
 SETUP_CREATED
@@ -164,6 +164,15 @@ ORPHAN_DETECTED
 ORPHAN_REATTACHED
 QUARANTINE_ENTERED
 QUARANTINE_RELEASED
+
+Durability protocol:
+`write → flush → fsync`
+In-memory state is published only after `os.fsync()` succeeds.
+
+Invariants:
+- Global sequence: strictly contiguous starting from 1 (1, 2, 3...). Gaps, duplicates, or regressions fail closed.
+- Event ID: globally unique across all records. Maintained via an in-memory index rebuilt during reload.
+- Tail recovery policy: incomplete JSON fragments at EOF are safely truncated at last valid byte offset when tail recovery is enabled. Corruption in the middle of the journal fails closed.
 
 ## 11. Protective continuity
 
