@@ -267,7 +267,7 @@ def test_journal_type_safety_validation() -> None:
         path = tmp.name
 
     try:
-        # Inject boolean sequence_number: true (in Python isinstance(True, int) is True, but not valid integer sequence)
+        # Inject boolean sequence_number: true
         with open(path, "w", encoding="utf-8") as f:
             f.write('{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n')
 
@@ -317,7 +317,17 @@ def test_journal_duplicate_event_id_conflicting_payload_rejection() -> None:
         journal.append(make_test_event(2, event_id="evt_same", payload={"p": "different"}))
 
 
-def test_journal_truncated_final_record_recovery() -> None:
+@pytest.mark.parametrize(
+    "truncated_fragment",
+    [
+        '{"sequence_number": 3, "event": {"event_id": "e3"',
+        '{"sequence_number": 3, "event": {"event_id": "e3", "event_type": "TEST',
+        '{"sequence_number": 3, "event": {"payload": {"nested":',
+        '{"sequence_number": 3, "event": {"payload": [1, 2',
+        '{"sequence_number": 3, "event": {"payload": "abc\\',
+    ],
+)
+def test_journal_genuine_truncation_recovery_matrix(truncated_fragment: str) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -328,9 +338,8 @@ def test_journal_truncated_final_record_recovery() -> None:
 
         # Append incomplete JSON fragment at EOF
         with open(path, "a", encoding="utf-8") as f:
-            f.write('{"sequence_number": 3, "event": {"event_id": "e3"')
+            f.write(truncated_fragment)
 
-        # Truncation recovery policy cleans up incomplete EOF frame
         recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
         assert len(recovered.get_all_records()) == 2
         assert recovered._global_sequence == 2
@@ -338,6 +347,101 @@ def test_journal_truncated_final_record_recovery() -> None:
         # Next append receives sequence number 3
         rec3 = recovered.append(make_test_event(3, event_id="e3"))
         assert rec3.sequence_number == 3
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+@pytest.mark.parametrize(
+    "malformed_fragment",
+    [
+        '{"sequence_number": 3, "event": INVALID}\n',
+        '{"sequence_number": 3, "event": {}, "checksum": "x",}\n',
+        '{"sequence_number": 3, "event": {"x": "bad\\q"}}\n',
+    ],
+)
+def test_journal_malformed_eof_fails_closed_matrix(malformed_fragment: str) -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+
+        # Append complete malformed JSON line at EOF
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(malformed_fragment)
+
+        # Must FAIL CLOSED even when truncate_corrupted_tail=True!
+        with pytest.raises(JournalCorruptionException):
+            DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+        journal.append(make_test_event(2, event_id="e2"))
+
+        # Capture exact valid file size and bytes before fragment append
+        expected_valid_size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            expected_valid_bytes = f.read()
+
+        # Append truncated JSON fragment
+        with open(path, "a", encoding="utf-8") as f:
+            f.write('{"sequence_number": 3, "event": {"event_id": "e3"')
+
+        assert os.path.getsize(path) > expected_valid_size
+
+        # Recover with truncate_corrupted_tail=True
+        recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        assert len(recovered.get_all_records()) == 2
+
+        # Verify physical file size and exact bytes match expected_valid_bytes
+        actual_size = os.path.getsize(path)
+        assert actual_size == expected_valid_size
+
+        with open(path, "rb") as f:
+            actual_bytes = f.read()
+        assert actual_bytes == expected_valid_bytes
+
+        # Verify recovery idempotency: reloading clean file does not perform further truncation
+        reloaded = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        assert len(reloaded.get_all_records()) == 2
+        assert os.path.getsize(path) == expected_valid_size
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_journal_tail_recovery_fsync_durability_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+
+        # Append incomplete JSON fragment
+        with open(path, "a", encoding="utf-8") as f:
+            f.write('{"sequence_number": 2, "event": {"event_id": "e2"')
+
+        # Mock fsync during tail recovery to raise OSError
+        def mock_fsync_fail(fd: int) -> None:
+            raise OSError("I/O error during tail recovery fsync")
+
+        monkeypatch.setattr(os, "fsync", mock_fsync_fail)
+
+        with pytest.raises(JournalDurabilityException) as exc:
+            DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        assert "recovery failed to fsync" in str(exc.value).lower()
     finally:
         if os.path.exists(path):
             os.remove(path)

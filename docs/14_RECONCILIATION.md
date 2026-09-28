@@ -172,7 +172,7 @@ In-memory state is published only after `os.fsync()` succeeds. If `write`/`flush
 Invariants:
 - Global sequence: strictly contiguous starting from 1 (1, 2, 3...). Strict type validation rejects booleans, floats, or gaps/duplicates/regressions.
 - Event ID: globally unique across all records. Maintained via an in-memory `Dict[str, int]` mapping `event_id → global_sequence` rebuilt during reload.
-- Conservative Tail recovery policy: incomplete JSON syntax fragments at EOF are safely truncated at `last_valid_byte_offset` when `truncate_corrupted_tail=True`. Complete records at EOF with checksum or sequence violations fail closed.
+- Conservative Tail recovery policy: permitted only for conservatively identified incomplete JSON syntax fragments at EOF (`TRUNCATE → FLUSH → FSYNC`). Complete malformed records, checksum mismatches, sequence gaps, or duplicate event IDs at EOF fail closed unconditionally. If durable recovery cannot be established, startup fails closed with `JournalDurabilityException`.
 
 ## 11. Protective continuity
 

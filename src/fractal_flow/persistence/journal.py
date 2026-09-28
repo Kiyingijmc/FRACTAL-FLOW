@@ -138,25 +138,66 @@ class DurableEventJournal:
 
     @staticmethod
     def _is_incomplete_json_tail(line_str: str, err: Exception) -> bool:
+        """Conservatively determines whether an EOF parse error represents a physically truncated JSON record.
+
+        Returns True ONLY when there is structural evidence of premature EOF termination (unterminated string,
+        unterminated object/array, or cut-off key/value). Returns False for completed malformed lines.
+        """
         if not isinstance(err, json.JSONDecodeError):
             return False
 
         stripped = line_str.rstrip()
-        # Every valid JournalRecord JSON object must end with '}'
+        if not stripped:
+            return False
+
+        # Every complete JournalRecord JSON object must end with '}'
         if stripped.endswith("}"):
             return False
 
-        msg = str(err).lower()
-        incomplete_indicators = [
-            "unterminated",
-            "expecting value",
-            "expecting property name",
-            "expecting ':' delimiter",
-            "expecting ',' delimiter",
-            "end of line",
-            "unexpected end",
-        ]
-        return any(ind in msg for ind in incomplete_indicators) or err.pos >= len(stripped) - 1
+        # Structural inspection of quote/brace/bracket balance
+        in_string = False
+        escaped = False
+        open_braces = 0
+        open_brackets = 0
+
+        for char in stripped:
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\":
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if char == "{":
+                    open_braces += 1
+                elif char == "}":
+                    open_braces -= 1
+                elif char == "[":
+                    open_brackets += 1
+                elif char == "]":
+                    open_brackets -= 1
+
+        if "invalid \\escape" in str(err).lower():
+            return False
+
+        if in_string or escaped:
+            return True
+
+        if open_braces > 0 or open_brackets > 0:
+            pos = err.pos
+            unparsed = stripped[pos:].strip()
+            if unparsed and not unparsed.startswith((",", ":", "{", "[", '"')) and unparsed not in ("true", "false", "null"):
+                if not any(unparsed.startswith(prefix) for prefix in ("t", "tr", "tru", "f", "fa", "fal", "fals", "n", "nu", "nul")):
+                    return False
+            return True
+
+        if stripped.endswith(":") or stripped.endswith(","):
+            return True
+
+        return False
 
     def _load_from_file(self) -> None:
         assert self.journal_file_path is not None
