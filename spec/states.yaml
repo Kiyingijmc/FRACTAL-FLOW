@@ -172,6 +172,14 @@ states:
     - EXEC_UNKNOWN
     - EXEC_RECONCILING
 
+  RecoveryState:
+    - NORMAL
+    - RECOVERY_REQUIRED
+    - RECOVERING
+    - RECONCILING
+    - RECOVERY_COMPLETE
+    - SAFE
+
   PositionLifecycleState:
     - POS_OPENING
     - POS_ACTIVE
