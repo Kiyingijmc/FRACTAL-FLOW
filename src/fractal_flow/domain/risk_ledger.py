@@ -50,6 +50,7 @@ class OpportunityRiskLedger:
         self.consumed_volume = Decimal("0.0")
 
         self.entries: List[RiskLedgerEntry] = []
+        self._entries_by_id: Dict[str, RiskLedgerEntry] = {}
 
     @property
     def remaining_risk(self) -> float:
@@ -81,6 +82,21 @@ class OpportunityRiskLedger:
         if amt_dec < Decimal("0.0") or vol_dec < Decimal("0.0"):
             raise AccountingInvariantException(f"Operation amount ({amount}) and volume ({volume}) must be non-negative")
 
+        # Transaction Idempotency Check
+        if entry_id in self._entries_by_id:
+            existing = self._entries_by_id[entry_id]
+            if (
+                existing.operation == operation
+                and Decimal(str(existing.amount)) == amt_dec
+                and Decimal(str(existing.volume)) == vol_dec
+                and existing.reference_id == reference_id
+                and existing.causation_id == causation_id
+            ):
+                return existing
+            raise AccountingInvariantException(
+                f"Duplicate transaction entry_id '{entry_id}' with conflicting operation details."
+            )
+
         if operation == LedgerOperation.RESERVE:
             if amt_dec > Decimal(str(self.remaining_risk)):
                 raise AccountingInvariantException(f"Reserve {amount} exceeds remaining risk {self.remaining_risk}")
@@ -109,8 +125,12 @@ class OpportunityRiskLedger:
             self.consumed_volume += vol_dec
 
         elif operation in (LedgerOperation.RELEASE, LedgerOperation.ROLLBACK, LedgerOperation.EXPIRE):
-            self.allocated_risk = max(Decimal("0.0"), self.allocated_risk - amt_dec)
-            self.allocated_volume = max(Decimal("0.0"), self.allocated_volume - vol_dec)
+            if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
+                raise AccountingInvariantException(
+                    f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"
+                )
+            self.allocated_risk -= amt_dec
+            self.allocated_volume -= vol_dec
 
         entry = RiskLedgerEntry(
             entry_id=entry_id,
@@ -123,4 +143,18 @@ class OpportunityRiskLedger:
             timestamp=timestamp,
         )
         self.entries.append(entry)
+        self._entries_by_id[entry_id] = entry
         return entry
+
+    def replay_entries(self, entries: List[RiskLedgerEntry]) -> None:
+        """Reconstructs ledger state deterministically by replaying recorded entries."""
+        for entry in entries:
+            self.record_operation(
+                entry_id=entry.entry_id,
+                operation=entry.operation,
+                amount=entry.amount,
+                volume=entry.volume,
+                reference_id=entry.reference_id,
+                causation_id=entry.causation_id,
+                timestamp=entry.timestamp,
+            )

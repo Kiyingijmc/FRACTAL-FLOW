@@ -1,16 +1,19 @@
-"""SnapshotEngine providing aggregate snapshot persistence, checksum verification, and deterministic journal replay."""
+"""SnapshotEngine providing aggregate snapshot persistence, checksum verification, atomic disk writes, and deterministic journal replay."""
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 import json
 import hashlib
+import os
+import threading
+from pathlib import Path
 
 from src.fractal_flow.domain.event import Event
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 
 
 class SnapshotCorruptionException(Exception):
-    """Raised when aggregate snapshot integrity or checksum verification fails."""
+    """Raised when aggregate snapshot integrity, checksum, or schema verification fails."""
     pass
 
 
@@ -22,28 +25,61 @@ class AggregateSnapshot:
     last_sequence_number: int
     state_payload: Dict[str, Any]
     checksum: str
+    schema_version: str = "1.0"
+    created_at: int = 0
 
     @staticmethod
-    def compute_checksum(aggregate_type: str, aggregate_id: str, aggregate_version: int, last_seq: int, payload: Dict[str, Any]) -> str:
+    def compute_checksum(
+        aggregate_type: str,
+        aggregate_id: str,
+        aggregate_version: int,
+        last_seq: int,
+        payload: Dict[str, Any],
+        schema_version: str = "1.0",
+        created_at: int = 0,
+    ) -> str:
         raw_data = {
             "type": aggregate_type,
             "id": aggregate_id,
             "version": aggregate_version,
             "seq": last_seq,
             "payload": payload,
+            "schema_version": schema_version,
+            "created_at": created_at,
         }
         return hashlib.sha256(json.dumps(raw_data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 class SnapshotEngine:
-    """Provides crash-safe aggregate snapshotting and deterministic replay from DurableEventJournal."""
+    """Provides crash-safe aggregate snapshotting with atomic disk persistence and deterministic replay."""
 
-    def __init__(self) -> None:
+    def __init__(self, snapshot_dir: Optional[str] = None) -> None:
+        self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else None
+        if self.snapshot_dir:
+            self.snapshot_dir.mkdir(parents=True, exist_ok=True)
         self._snapshots: Dict[str, AggregateSnapshot] = {}
+        self._reducers: Dict[str, Callable[[Dict[str, Any], Event], Dict[str, Any]]] = {}
+        self._lock = threading.Lock()
 
-    def save_snapshot(self, aggregate_type: str, aggregate_id: str, version: int, last_seq: int, payload: Dict[str, Any]) -> AggregateSnapshot:
+    def register_reducer(self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]) -> None:
+        """Registers an explicit semantic event reducer for state transitions during replay."""
+        with self._lock:
+            self._reducers[event_type] = reducer_func
+
+    def save_snapshot(
+        self,
+        aggregate_type: str,
+        aggregate_id: str,
+        version: int,
+        last_seq: int,
+        payload: Dict[str, Any],
+        schema_version: str = "1.0",
+        created_at: int = 0,
+    ) -> AggregateSnapshot:
         key = f"{aggregate_type}:{aggregate_id}"
-        checksum = AggregateSnapshot.compute_checksum(aggregate_type, aggregate_id, version, last_seq, payload)
+        checksum = AggregateSnapshot.compute_checksum(
+            aggregate_type, aggregate_id, version, last_seq, payload, schema_version, created_at
+        )
         snap = AggregateSnapshot(
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
@@ -51,32 +87,140 @@ class SnapshotEngine:
             last_sequence_number=last_seq,
             state_payload=payload,
             checksum=checksum,
+            schema_version=schema_version,
+            created_at=created_at,
         )
-        self._snapshots[key] = snap
+
+        with self._lock:
+            self._snapshots[key] = snap
+
+            if self.snapshot_dir:
+                self._persist_snapshot_to_disk(snap)
+
         return snap
 
     def load_snapshot(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
         key = f"{aggregate_type}:{aggregate_id}"
-        snap = self._snapshots.get(key)
-        if not snap:
+        with self._lock:
+            snap = self._snapshots.get(key)
+            if not snap and self.snapshot_dir:
+                snap = self._load_snapshot_from_disk(aggregate_type, aggregate_id)
+                if snap:
+                    self._snapshots[key] = snap
+
+            if not snap:
+                return None
+
+            expected_chk = AggregateSnapshot.compute_checksum(
+                snap.aggregate_type,
+                snap.aggregate_id,
+                snap.aggregate_version,
+                snap.last_sequence_number,
+                snap.state_payload,
+                snap.schema_version,
+                snap.created_at,
+            )
+            if snap.checksum != expected_chk:
+                raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
+            return snap
+
+    def _get_snapshot_file_path(self, aggregate_type: str, aggregate_id: str) -> Path:
+        assert self.snapshot_dir is not None
+        safe_type = aggregate_type.replace("/", "_")
+        safe_id = aggregate_id.replace("/", "_")
+        return self.snapshot_dir / f"snapshot_{safe_type}_{safe_id}.json"
+
+    def _persist_snapshot_to_disk(self, snap: AggregateSnapshot) -> None:
+        target_path = self._get_snapshot_file_path(snap.aggregate_type, snap.aggregate_id)
+        temp_path = target_path.with_suffix(".tmp")
+
+        data = asdict(snap)
+        raw_json = json.dumps(data, sort_keys=True, indent=2)
+
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(raw_json)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_path, target_path)
+
+        try:
+            dir_fd = os.open(str(self.snapshot_dir), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+
+    def _load_snapshot_from_disk(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
+        file_path = self._get_snapshot_file_path(aggregate_type, aggregate_id)
+        if not file_path.exists():
             return None
 
-        expected_chk = AggregateSnapshot.compute_checksum(
-            snap.aggregate_type, snap.aggregate_id, snap.aggregate_version, snap.last_sequence_number, snap.state_payload
-        )
-        if snap.checksum != expected_chk:
-            raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
-        return snap
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
 
-    @staticmethod
-    def replay_journal(journal: DurableEventJournal, aggregate_type: str, aggregate_id: str, initial_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Replays events deterministically from journal to reconstruct state."""
-        events = journal.get_events_for_aggregate(aggregate_type, aggregate_id)
+            snap = AggregateSnapshot(
+                aggregate_type=data["aggregate_type"],
+                aggregate_id=data["aggregate_id"],
+                aggregate_version=data["aggregate_version"],
+                last_sequence_number=data["last_sequence_number"],
+                state_payload=data["state_payload"],
+                checksum=data["checksum"],
+                schema_version=data.get("schema_version", "1.0"),
+                created_at=data.get("created_at", 0),
+            )
+            return snap
+        except Exception as e:
+            raise SnapshotCorruptionException(
+                f"Failed to load snapshot for '{aggregate_type}:{aggregate_id}' from disk: {e}"
+            )
+
+    def replay_journal(
+        self,
+        journal: DurableEventJournal,
+        aggregate_type: str,
+        aggregate_id: str,
+        initial_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Replays events deterministically starting after latest snapshot sequence using semantic reducers.
+
+        Falls back gracefully to full genesis replay if snapshot is corrupted or unreadable.
+        """
+        snapshot = None
+        try:
+            snapshot = self.load_snapshot(aggregate_type, aggregate_id)
+        except SnapshotCorruptionException:
+            # Corrupt snapshot fallback to full genesis replay
+            snapshot = None
+
+        min_seq = 0
         state = dict(initial_state or {})
 
-        for evt in events:
-            # Deterministic state application
-            state.update(evt.payload)
+        if snapshot:
+            state.update(snapshot.state_payload)
+            min_seq = snapshot.last_sequence_number
+            state["_last_version"] = snapshot.aggregate_version
+            state["_last_seq"] = snapshot.last_sequence_number
+
+        all_records = journal.get_all_records()
+        aggregate_records = [
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
+            and r.sequence_number > min_seq
+        ]
+
+        for record in aggregate_records:
+            evt = record.event
+            reducer = self._reducers.get(evt.event_type)
+            if reducer:
+                state = reducer(state, evt)
+            else:
+                state.update(evt.payload)
+
             state["_last_version"] = evt.aggregate_version
+            state["_last_seq"] = record.sequence_number
 
         return state

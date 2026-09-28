@@ -173,6 +173,8 @@ Invariants:
 - Global sequence: strictly contiguous starting from 1 (1, 2, 3...). Strict type validation rejects booleans, floats, or gaps/duplicates/regressions.
 - Event ID: globally unique across all records. Maintained via an in-memory `Dict[str, int]` mapping `event_id → global_sequence` rebuilt during reload.
 - Conservative Tail recovery policy: permitted only for conservatively identified incomplete JSON syntax fragments at EOF (`TRUNCATE → FLUSH → FSYNC`). Complete malformed records, checksum mismatches, sequence gaps, or duplicate event IDs at EOF fail closed unconditionally. If durable recovery cannot be established, startup fails closed with `JournalDurabilityException`.
+- Snapshot / Journal Boundary: Snapshot at sequence N causes replay to process events strictly `> N`. Corrupt snapshots fall back gracefully to full genesis journal replay.
+- Non-Executing Recovery & Side-Effect Safety: System recovery and state reconstruction operate in non-executing mode without issuing new external execution requests or mutating persistent intent records.
 
 ## 11. Protective continuity
 

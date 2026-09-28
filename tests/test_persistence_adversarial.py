@@ -10,10 +10,14 @@ from typing import Optional
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
-from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerOrder, BrokerDeal
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
-from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState
-from src.fractal_flow.execution.reconciliation import ReconciliationEngine, ReconciliationMismatchType
+from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState, RecoveryEvidence
+from src.fractal_flow.execution.reconciliation import (
+    ReconciliationEngine,
+    ReconciliationMismatchType,
+    BrokerQueryQuality,
+)
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, SnapshotCorruptionException
 
@@ -562,6 +566,117 @@ def test_journal_concurrent_durable_file_appends() -> None:
     finally:
         if os.path.exists(path):
             os.remove(path)
+
+
+def test_snapshot_journal_exact_boundary_equivalence() -> None:
+    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        journal_path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=journal_path)
+        for i in range(1, 11):
+            journal.append(make_test_event(i, event_id=f"evt_b_{i}", aggregate_id="agg_bound", aggregate_version=i, payload={"count": i}))
+
+        snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
+        snap_engine.save_snapshot("Opportunity", "agg_bound", version=5, last_seq=5, payload={"count": 5})
+
+        def counter_reducer(state: dict, evt: Event) -> dict:
+            state["count"] = evt.payload["count"]
+            return state
+
+        snap_engine.register_reducer("TEST_EVENT", counter_reducer)
+
+        # Path 1: Snapshot @ 5 + journal replay 6..10
+        state_from_snap = snap_engine.replay_journal(journal, "Opportunity", "agg_bound")
+        assert state_from_snap["count"] == 10
+        assert state_from_snap["_last_seq"] == 10
+
+        # Path 2: Full genesis journal replay (no snapshot)
+        genesis_snap_engine = SnapshotEngine()  # Empty snapshot engine
+        genesis_snap_engine.register_reducer("TEST_EVENT", counter_reducer)
+        state_from_genesis = genesis_snap_engine.replay_journal(journal, "Opportunity", "agg_bound")
+        assert state_from_genesis["count"] == 10
+        assert state_from_genesis["_last_seq"] == 10
+
+        # States must be identical
+        assert state_from_snap["count"] == state_from_genesis["count"]
+    finally:
+        if os.path.exists(journal_path):
+            os.remove(journal_path)
+
+
+def test_snapshot_corrupt_fallback_to_genesis_replay() -> None:
+    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        journal_path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=journal_path)
+        for i in range(1, 6):
+            journal.append(make_test_event(i, event_id=f"evt_c_{i}", aggregate_id="agg_corrupt_snap", aggregate_version=i, payload={"val": i}))
+
+        snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
+        snap_engine.save_snapshot("Opportunity", "agg_corrupt_snap", version=3, last_seq=3, payload={"val": 3})
+
+        # Corrupt snapshot file on disk
+        snap_file = snap_engine._get_snapshot_file_path("Opportunity", "agg_corrupt_snap")
+        with open(snap_file, "w", encoding="utf-8") as f:
+            f.write('{"aggregate_type": "Opportunity", "checksum": "corrupted"}')
+
+        # Replay journal fallback cleanly catches corruption and replays from genesis
+        reconstructed = snap_engine.replay_journal(journal, "Opportunity", "agg_corrupt_snap")
+        assert reconstructed["val"] == 5
+        assert reconstructed["_last_seq"] == 5
+    finally:
+        if os.path.exists(journal_path):
+            os.remove(journal_path)
+
+
+def test_reconciliation_and_recovery_idempotency_stability() -> None:
+    intent = ExecutionIntent(
+        intent_id="intent_idem_1",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_idem_1",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={"contract_size": 100000.0},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_SUBMITTED",
+        created_at=1000,
+        updated_at=1000,
+    )
+
+    pos = Position(
+        position_id="POS_IDEM",
+        intent_id="intent_idem_1",
+        order_id="ORD_IDEM",
+        symbol="EURUSD",
+        side="BUY",
+        requested_volume=1.0,
+        filled_volume=1.0,
+        remaining_volume=0.0,
+        entry_price=1.0850,
+        current_sl=1.0820,
+        lifecycle_state="POS_ACTIVE",
+        health_state="HEALTH_HEALTHY",
+        opened_at=1000,
+    )
+
+    # Run reconcile_broker_wide 3 times in succession
+    res1 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
+    res2 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
+    res3 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
+
+    assert res1 == res2 == res3
+    assert res1[0].resolved_execution_state == ExecutionState.EXEC_FILLED
 
 
 def test_p42_15_16_idempotency_fingerprint_conflict() -> None:

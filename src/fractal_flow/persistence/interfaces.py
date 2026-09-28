@@ -1,13 +1,16 @@
 """Persistence Interfaces for Durable Execution Intents, Risk Ledgers, and State Snapshots."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Any
 import threading
 import hashlib
 import json
+import sqlite3
+from pathlib import Path
 
 from src.fractal_flow.domain.event import Event, AggregateVersionTracker
-from src.fractal_flow.domain.models import ExecutionIntent, Position
+from src.fractal_flow.domain.models import ExecutionIntent, Position, OrderSide
 
 
 class IdempotencyConflictException(Exception):
@@ -48,13 +51,68 @@ class InMemoryEventStore(IEventStore):
 
 
 class DurableExecutionIntentRepository:
-    """Thread-safe and restart-safe ExecutionIntent repository with request fingerprint verification."""
+    """Thread-safe and restart-safe ExecutionIntent repository backed by SQLite/memory with request fingerprint verification."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        self.db_path = Path(db_path) if db_path else None
         self._intents: Dict[str, ExecutionIntent] = {}
         self._idempotency_map: Dict[str, str] = {}
         self._fingerprints: Dict[str, str] = {}
         self._lock = threading.Lock()
+
+        if self.db_path:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db()
+            self._load_from_db()
+
+    def _init_db(self) -> None:
+        assert self.db_path is not None
+        conn = sqlite3.connect(self.db_path)
+        try:
+            with conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS execution_intents (
+                        intent_id TEXT PRIMARY KEY,
+                        idempotency_key TEXT UNIQUE NOT NULL,
+                        fingerprint TEXT NOT NULL,
+                        data_json TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                """)
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _serialize_intent(intent: ExecutionIntent) -> str:
+        d = asdict(intent)
+        d["side"] = intent.side.value if hasattr(intent.side, "value") else str(intent.side)
+        return json.dumps(d, sort_keys=True)
+
+    @staticmethod
+    def _deserialize_intent(json_str: str) -> ExecutionIntent:
+        d = json.loads(json_str)
+        if isinstance(d.get("side"), str):
+            try:
+                d["side"] = OrderSide(d["side"])
+            except ValueError:
+                pass
+        return ExecutionIntent(**d)
+
+    def _load_from_db(self) -> None:
+        assert self.db_path is not None
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT intent_id, idempotency_key, fingerprint, data_json FROM execution_intents")
+            rows = cursor.fetchall()
+            for intent_id, key, fp, json_str in rows:
+                intent = self._deserialize_intent(json_str)
+                self._intents[intent_id] = intent
+                self._idempotency_map[key] = intent_id
+                self._fingerprints[key] = fp
+        finally:
+            conn.close()
 
     @staticmethod
     def compute_fingerprint(intent: ExecutionIntent) -> str:
@@ -83,6 +141,18 @@ class DurableExecutionIntentRepository:
                         f"Idempotency Conflict: Key '{key}' reused with materially different request fingerprint."
                     )
                 return
+
+            json_str = self._serialize_intent(intent)
+            if self.db_path:
+                conn = sqlite3.connect(self.db_path)
+                try:
+                    with conn:
+                        conn.execute(
+                            "INSERT INTO execution_intents (intent_id, idempotency_key, fingerprint, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                            (intent.intent_id, key, fingerprint, json_str, intent.created_at, intent.updated_at)
+                        )
+                finally:
+                    conn.close()
 
             self._intents[intent.intent_id] = intent
             self._idempotency_map[key] = intent.intent_id
