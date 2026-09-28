@@ -139,6 +139,11 @@ Survival/correctness/lineage/protection precede speed and PnL.
 * **Decision:** Reconcile Authority Matrix: `Opportunity: Invalidates parent = No`.
 * **Rationale:** An expiring or untradeable child opportunity must never invalidate its parent regime or setup state (AGENTS.md Invariant #13).
 
+## D-039 — Distinct DecisionLifecycleState Enum Specification
+* **Context:** `docs/13_EXECUTION.md §3` specified a decision lifecycle vocabulary (`CANDIDATE`, `VALIDATING`, `TRADEABILITY_CHECK`, `RISK_CHECK`, `PORTFOLIO_CHECK`, `ARBITRATION`, `AUTHORIZED`, `EXECUTION`, `REJECTED`) distinct from `OpportunityState`.
+* **Decision:** Retain as a distinct, explicit `DecisionLifecycleState` enum (`DECISION_CANDIDATE`, `DECISION_VALIDATING`, `DECISION_TRADEABILITY_CHECK`, `DECISION_RISK_CHECK`, `DECISION_PORTFOLIO_CHECK`, `DECISION_ARBITRATION`, `DECISION_AUTHORIZED`, `DECISION_EXECUTED`, `DECISION_REJECTED`) and document in `RECONCILED_STATE_MACHINES.md` and `SCHEMA_TYPES.md`.
+* **Rationale:** Provides distinct lifecycle tracking for `TradeDecision` evaluation through Layer 5 authorization gates before order submission to MT5.
+
 ## Open calibration areas
 
 These remain research questions:

@@ -59,8 +59,9 @@ Positions and orders MUST validate volume, stop distances, and price steps dynam
 ### 3.3 Market Role Enum
 `MarketRole`: `CONTINUATION`, `PULLBACK`, `COUNTERFLOW`, `RANGE_ROTATION`, `BREAKOUT`, `RECLAIM`, `TRANSITION`, `EXHAUSTION`, `NOISE`, `AMBIGUOUS`
 
-### 3.4 Opportunity Lifecycle Enum
+### 3.4 Opportunity Lifecycle & Trade Decision Enums
 `OpportunityState`: `DISCOVERED`, `VALIDATING`, `VALID`, `TRIGGER_READY`, `AUTHORIZED`, `EXECUTED`, `DEGRADED`, `INVALIDATED`, `STALE`, `EXPIRED`
+`DecisionLifecycleState`: `DECISION_CANDIDATE`, `DECISION_VALIDATING`, `DECISION_TRADEABILITY_CHECK`, `DECISION_RISK_CHECK`, `DECISION_PORTFOLIO_CHECK`, `DECISION_ARBITRATION`, `DECISION_AUTHORIZED`, `DECISION_EXECUTED`, `DECISION_REJECTED`
 
 ### 3.5 Portfolio Arbitration Result Enum
 `ArbitrationResult`: `ALLOW`, `DEFER`, `MERGE`, `REJECT`
@@ -140,7 +141,7 @@ Owner Engine: Opportunity Engine — Layer 3
 | `posture` | `string` | Enum | OperatingPosture enum | Risk posture level |
 | `environment` | `string` | Enum | TREND_UP, TREND_DOWN, RANGE, TRANSITION | 4H regime state |
 | `environment_tf` | `string` | Enum | 4H | Environment timeframe |
-| `location` | `string` | Enum | OPEN, FAVORABLE, CONGESTED, BLOCKED | Structural location quality |
+| `location` | `string` | Enum | OPEN, FAVORABLE, NEUTRAL, CONGESTED, BLOCKED, EXTREME | Structural location quality |
 | `location_tf` | `string` | Enum | 30M | Location timeframe |
 | `dominant_flow` | `string` | Enum | LONG_DOMINANT, SHORT_DOMINANT, BALANCED | Flow ownership state |
 | `local_flow` | `string` | Enum | LONG_EMERGING, SHORT_EMERGING, etc. | Execution timeframe flow |

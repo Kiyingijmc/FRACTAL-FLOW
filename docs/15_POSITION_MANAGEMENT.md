@@ -101,7 +101,7 @@ TTL
 structural invalidation
 portfolio safety
 
-Per D-036, transitioning a position to `RUNNER` state or initiating higher-timeframe runner management MUST verify `ParentPullback.runner_management_allowed == TRUE`.
+Per D-036, transitioning a position to `POS_RUNNER` state or initiating higher-timeframe runner management MUST verify `ParentPullback.runner_management_allowed == TRUE`.
 
 ## 7. News overlay
 

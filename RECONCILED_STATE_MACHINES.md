@@ -142,7 +142,18 @@ Structure Engine publishes two synchronized state variables: `SwingState` and `B
 
 ## 5. MT5 Execution Engine Reconciled Order & Trade State Machine
 
-### 5.1 Decision & Order States (`ExecutionState`)
+### 5.1 Trade Decision Lifecycle States (`DecisionLifecycleState`)
+- `DECISION_CANDIDATE`: Candidate signal evaluated for authorization.
+- `DECISION_VALIDATING`: Signal undergoing gate validation.
+- `DECISION_TRADEABILITY_CHECK`: Evaluating spread and market depth.
+- `DECISION_RISK_CHECK`: Position sizing and drawdown checks.
+- `DECISION_PORTFOLIO_CHECK`: Checking currency exposure limits.
+- `DECISION_ARBITRATION`: Portfolio arbitration ranking.
+- `DECISION_AUTHORIZED`: Decision authorized for execution submission.
+- `DECISION_EXECUTED`: Order submitted to broker.
+- `DECISION_REJECTED`: Decision failed validation gates.
+
+### 5.2 Order & Execution Gateway States (`ExecutionState`)
 - `EXEC_READY`: TradeDecision validated and ready for submission.
 - `EXEC_SUBMITTING`: Dispatching order request to MT5 gateway.
 - `EXEC_SUBMITTED`: Order acknowledged by MT5 server; awaiting execution.

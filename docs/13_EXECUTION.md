@@ -36,8 +36,22 @@ arbitration_result
 configuration_version
 lineage_version
 
-## 3. Decision & Order Lifecycle (ExecutionState)
+## 3. Decision Lifecycle (DecisionLifecycleState) & Order Execution (ExecutionState)
 
+Decision Lifecycle States (DecisionLifecycleState):
+DECISION_CANDIDATE
+→ DECISION_VALIDATING
+→ DECISION_TRADEABILITY_CHECK
+→ DECISION_RISK_CHECK
+→ DECISION_PORTFOLIO_CHECK
+→ DECISION_ARBITRATION
+→ DECISION_AUTHORIZED
+→ DECISION_EXECUTED
+
+Decision Failure / Rejection:
+DECISION_REJECTED + reason
+
+Order & Execution Gateway States (ExecutionState):
 EXEC_READY
 → EXEC_SUBMITTING
 → EXEC_SUBMITTED
