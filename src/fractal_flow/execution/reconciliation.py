@@ -1,7 +1,7 @@
 """Authoritative Reconciliation Engine comparing local intents against broker truth, preserving UNKNOWN semantics when evidence is non-authoritative."""
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum, unique
 from typing import Dict, List, Optional, Any, Mapping, Tuple, Iterator
 
@@ -31,9 +31,20 @@ class OrphanStatus(str, Enum):
     EXPIRED = "EXPIRED"
 
 
-@dataclass
+# Legal transitions matrix for OrphanRecord state machine
+_LEGAL_ORPHAN_TRANSITIONS = {
+    OrphanStatus.DETECTED: {OrphanStatus.RECONCILING, OrphanStatus.QUARANTINED},
+    OrphanStatus.RECONCILING: {OrphanStatus.REATTACHED, OrphanStatus.RECOVERED, OrphanStatus.QUARANTINED, OrphanStatus.EXPIRED},
+    OrphanStatus.REATTACHED: set(),
+    OrphanStatus.RECOVERED: set(),
+    OrphanStatus.QUARANTINED: {OrphanStatus.RECONCILING, OrphanStatus.EXPIRED},
+    OrphanStatus.EXPIRED: set(),
+}
+
+
+@dataclass(frozen=True)
 class OrphanRecord:
-    """Tracks orphaned broker positions or orders through explicit resolution lifecycle."""
+    """Deeply immutable record tracking orphaned broker positions or orders through explicit resolution lifecycle."""
     orphan_id: str
     object_type: str  # "POSITION" or "ORDER"
     object_id: str
@@ -52,6 +63,23 @@ class OrphanRecord:
             OrphanStatus.RECOVERED,
             OrphanStatus.QUARANTINED,
             OrphanStatus.EXPIRED,
+        )
+
+    def transition(self, new_status: OrphanStatus, reason: str = "", timestamp: int = 0) -> "OrphanRecord":
+        """Executes explicit legal orphan state transition returning a new immutable OrphanRecord."""
+        if new_status not in _LEGAL_ORPHAN_TRANSITIONS.get(self.status, set()):
+            raise ValueError(f"Illegal orphan status transition from '{self.status}' to '{new_status}' for orphan '{self.orphan_id}'")
+
+        now = timestamp or int(time.time())
+        new_details = dict(self.details)
+        new_details["last_transition_reason"] = reason
+        new_details["previous_status"] = self.status.value
+
+        return replace(
+            self,
+            status=new_status,
+            updated_at=now,
+            details=new_details,
         )
 
 

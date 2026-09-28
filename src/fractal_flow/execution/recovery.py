@@ -4,6 +4,8 @@ import time
 import uuid
 import hmac
 import hashlib
+import json
+import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum, unique
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
@@ -27,6 +29,35 @@ class RecoveryState(str, Enum):
     SAFE = "SAFE"
 
 
+# --- Canonical Evidence Digest Computation ---
+
+def compute_evidence_digest(evidence_obj: Any) -> str:
+    """Computes deterministic SHA-256 hash over canonical representation of evidence object, excluding authority tokens."""
+    def _canonicalize(val: Any) -> Any:
+        if val is None:
+            return None
+        if isinstance(val, (bool, int, float, str)):
+            return val
+        if isinstance(val, Enum):
+            return val.value
+        if hasattr(val, "__dataclass_fields__"):
+            d = {}
+            for k in val.__dataclass_fields__:
+                if k.startswith("_"):
+                    continue
+                d[k] = _canonicalize(getattr(val, k))
+            return d
+        if isinstance(val, dict):
+            return {str(k): _canonicalize(v) for k, v in sorted(val.items())}
+        if isinstance(val, (list, tuple)):
+            return [_canonicalize(x) for x in val]
+        return str(val)
+
+    raw_dict = _canonicalize(evidence_obj)
+    canonical_json = json.dumps(raw_dict, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+
 # --- Sealed Authority Token & Capability Boundary ---
 
 _MODULE_SECRET: bytes = uuid.uuid4().bytes
@@ -35,9 +66,10 @@ _VALIDATOR_SECRET: object = object()
 
 @dataclass(frozen=True)
 class _AuthorityToken:
-    """Opaque, unforgeable capability token proving evidence was produced by an authorized validator during active session."""
+    """Opaque, unforgeable capability token proving evidence was produced by an authorized validator during active session for exact evidence payload."""
     validator_id: str
     session_id: str
+    evidence_digest: str
     signature: str
 
     def __copy__(self) -> None:
@@ -47,17 +79,17 @@ class _AuthorityToken:
         return None
 
     @classmethod
-    def issue(cls, validator_id: str, session_id: str, secret_key: object) -> "_AuthorityToken":
+    def issue(cls, validator_id: str, session_id: str, evidence_digest: str, secret_key: object) -> "_AuthorityToken":
         if secret_key is not _VALIDATOR_SECRET:
             raise RecoveryEvidenceError("Unauthorized authority token issuance attempt rejected.")
-        msg = f"{validator_id}:{session_id}".encode("utf-8")
+        msg = f"{validator_id}|{session_id}|{evidence_digest}".encode("utf-8")
         sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
-        return cls(validator_id=validator_id, session_id=session_id, signature=sig)
+        return cls(validator_id=validator_id, session_id=session_id, evidence_digest=evidence_digest, signature=sig)
 
-    def verify(self, expected_validator: str, expected_session: str) -> bool:
-        if self.validator_id != expected_validator or self.session_id != expected_session:
+    def verify(self, expected_validator: str, expected_session: str, expected_evidence_digest: str) -> bool:
+        if self.validator_id != expected_validator or self.session_id != expected_session or self.evidence_digest != expected_evidence_digest:
             return False
-        msg = f"{expected_validator}:{expected_session}".encode("utf-8")
+        msg = f"{expected_validator}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
         expected_sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
         return hmac.compare_digest(self.signature, expected_sig)
 
@@ -80,22 +112,25 @@ class _RecoveryAuthorityBundle:
     def __deepcopy__(self, memo: Any) -> None:
         return None
 
-    def is_valid(self, required_session: str) -> bool:
+    def is_valid(self, recovery_evidence: "RecoveryEvidence", required_session: str) -> bool:
         if not required_session or self.session_id != required_session:
             return False
 
         validators = [
-            ("JournalRecoveryValidator", self.journal_token),
-            ("SnapshotRecoveryValidator", self.snapshot_token),
-            ("RiskLedgerRecoveryValidator", self.risk_token),
-            ("IntentRecoveryValidator", self.intent_token),
-            ("BrokerReconciliationValidator", self.broker_token),
-            ("ConfigurationValidator", self.config_token),
-            ("ProtectiveMonitoringValidator", self.protective_token),
+            ("JournalRecoveryValidator", self.journal_token, recovery_evidence.journal_evidence),
+            ("SnapshotRecoveryValidator", self.snapshot_token, recovery_evidence.snapshot_evidence),
+            ("RiskLedgerRecoveryValidator", self.risk_token, recovery_evidence.risk_evidence),
+            ("IntentRecoveryValidator", self.intent_token, recovery_evidence.intent_evidence),
+            ("BrokerReconciliationValidator", self.broker_token, recovery_evidence.broker_evidence),
+            ("ConfigurationValidator", self.config_token, recovery_evidence.config_evidence),
+            ("ProtectiveMonitoringValidator", self.protective_token, recovery_evidence.protective_evidence),
         ]
 
-        for expected_val, tok in validators:
-            if tok is None or not tok.verify(expected_val, required_session):
+        for expected_val, tok, ev_obj in validators:
+            if tok is None:
+                return False
+            expected_digest = compute_evidence_digest(ev_obj)
+            if not tok.verify(expected_val, required_session, expected_digest):
                 return False
 
         return True
@@ -208,10 +243,10 @@ class RecoveryEvidence:
     additional_details: Dict[str, Any] = field(default_factory=dict)
 
     def has_valid_authority_capability(self, required_session: str) -> bool:
-        """Verifies that this composite evidence object encapsulates a valid, un-forged, active authority bundle."""
+        """Verifies that this composite evidence object encapsulates a valid, un-forged, active authority bundle matching current evidence payload."""
         if self._authority_bundle is None:
             return False
-        return self._authority_bundle.is_valid(required_session)
+        return self._authority_bundle.is_valid(self, required_session)
 
     def is_satisfactory(self, required_session: Optional[str] = None) -> bool:
         """Returns True only if all required typed subsystem evidence components and valid provenances are satisfied."""
@@ -328,9 +363,6 @@ class RecoveryEvidenceAssembler:
             session_id=session_id,
         )
 
-        if not bundle.is_valid(session_id):
-            raise RecoveryEvidenceError("Recovery evidence assembly failed: invalid or forged subsystem authority token(s)")
-
         evidence = RecoveryEvidence(
             journal_evidence=journal,
             snapshot_evidence=snapshot,
@@ -341,6 +373,9 @@ class RecoveryEvidenceAssembler:
             protective_evidence=protective,
             _authority_bundle=bundle,
         )
+
+        if not bundle.is_valid(evidence, session_id):
+            raise RecoveryEvidenceError("Recovery evidence assembly failed: invalid, forged, or payload-mismatched subsystem authority token(s)")
 
         if not evidence.is_satisfactory(required_session=session_id):
             raise RecoveryEvidenceError("Recovery evidence assembly failed: evidence is unsatisfactory or session mismatch")
@@ -365,8 +400,12 @@ class JournalRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Journal in faulted state" if faulted else None,
         )
-        token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov, _authority_token=token)
+        unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class SnapshotRecoveryValidator:
@@ -403,8 +442,12 @@ class SnapshotRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Snapshot invalid or corrupt" if not valid else None,
         )
-        token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov, _authority_token=token)
+        unsealed = SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov)
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class RiskLedgerRecoveryValidator:
@@ -419,8 +462,12 @@ class RiskLedgerRecoveryValidator:
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
         )
-        token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov, _authority_token=token)
+        unsealed = RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class IntentRecoveryValidator:
@@ -440,8 +487,12 @@ class IntentRecoveryValidator:
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
         )
-        token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov, _authority_token=token)
+        unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class BrokerReconciliationValidator:
@@ -480,14 +531,17 @@ class BrokerReconciliationValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason=None if valid else f"Reconciliation invalid (auth={reconciliation_report.authoritative}, comp={reconciliation_report.complete}, unknown={unknown}, orphaned={orphaned})",
         )
-        token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return BrokerReconciliationEvidence(
+        unsealed = BrokerReconciliationEvidence(
             valid=valid,
             unresolved_unknown_count=unknown,
             orphaned_count=orphaned,
             provenance=prov,
-            _authority_token=token,
         )
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class ConfigurationValidator:
@@ -503,14 +557,17 @@ class ConfigurationValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason=None if valid else "Configuration identity mismatch or empty config_id",
         )
-        token = _AuthorityToken.issue("ConfigurationValidator", session_id, _VALIDATOR_SECRET) if valid else None
-        return ConfigurationEvidence(
+        unsealed = ConfigurationEvidence(
             valid=valid,
             config_id=config_id,
             identity_matched=identity_matched,
             provenance=prov,
-            _authority_token=token,
         )
+        if valid:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("ConfigurationValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class ProtectiveMonitoringValidator:
@@ -523,8 +580,12 @@ class ProtectiveMonitoringValidator:
             result="SUCCESS" if active else "FAILED",
             failure_reason=None if active else "Protective monitoring is inactive",
         )
-        token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, _VALIDATOR_SECRET) if active else None
-        return ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov, _authority_token=token)
+        unsealed = ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
+        if active:
+            digest = compute_evidence_digest(unsealed)
+            token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, digest, _VALIDATOR_SECRET)
+            return dataclasses.replace(unsealed, _authority_token=token)
+        return unsealed
 
 
 class RecoveryEngine:

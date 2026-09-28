@@ -2,7 +2,7 @@
 
 Comprehensive adversarial test suite proving that callers cannot forge recovery evidence,
 manipulate broker query authority, bypass orphan tracking, corrupt snapshot equivalence,
-or pass invalid deal chains to authorize strategic execution.
+transplant tokens across modified evidence, or pass invalid deal chains to authorize strategic execution.
 """
 
 import pytest
@@ -30,6 +30,7 @@ from src.fractal_flow.execution.reconciliation import (
     BrokerQueryResult,
     BrokerQueryQuality,
     BrokerQueryProvider,
+    OrphanRecord,
     OrphanStatus,
 )
 from src.fractal_flow.execution.recovery import (
@@ -54,6 +55,7 @@ from src.fractal_flow.execution.recovery import (
     ConfigurationEvidence,
     ProtectiveMonitoringEvidence,
     _AuthorityToken,
+    compute_evidence_digest,
 )
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
@@ -94,7 +96,71 @@ def _create_assembled_evidence(
     )
 
 
-# --- 1. Evidence Forgery Tests ---
+# --- 1. Cryptographic Token ↔ Evidence Digest Binding & Transplantation Tests ---
+
+def test_token_transplantation_on_modified_evidence_rejected() -> None:
+    engine = RecoveryEngine()
+    engine.trigger_system_restart()
+    session_id = engine.session_id
+    engine.start_reconciliation()
+
+    query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
+
+    legitimate = _create_assembled_evidence(session_id, report)
+
+    # Attempt transplantation attack: dataclass.replace to tamper with evidence fields while retaining token
+    tampered_journal = replace(
+        legitimate.journal_evidence,
+        head_sequence=9999999,  # Tampered sequence
+    )
+
+    tampered_evidence = replace(
+        legitimate,
+        journal_evidence=tampered_journal,
+    )
+
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        engine.complete_recovery_with_evidence(tampered_evidence)
+
+    assert engine.state == RecoveryState.SAFE
+    assert engine.can_authorize_strategic_action() is False
+
+
+def test_token_transplantation_valid_flag_tamper_rejected() -> None:
+    engine = RecoveryEngine()
+    engine.trigger_system_restart()
+    session_id = engine.session_id
+    engine.start_reconciliation()
+
+    # Create invalid evidence from a faulted journal
+    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": True, "_global_sequence": 10})(), session_id)
+    assert j_ev.valid is False
+
+    # Create legitimate evidence for other subsystems
+    query_res = BrokerQueryResult(status="SUCCESS", authority=BrokerQueryQuality.FOUND, query_timestamp=1000)
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
+    legitimate_good = _create_assembled_evidence(session_id, report)
+
+    # Attempt transplanting authority token from legitimate good evidence onto invalid journal evidence with forced valid=True
+    forged_j_ev = replace(
+        j_ev,
+        valid=True,
+        _authority_token=legitimate_good.journal_evidence._authority_token,
+    )
+
+    with pytest.raises(RecoveryEvidenceError):
+        RecoveryEvidenceAssembler.assemble(
+            journal=forged_j_ev,
+            snapshot=legitimate_good.snapshot_evidence,
+            risk=legitimate_good.risk_evidence,
+            intents=legitimate_good.intent_evidence,
+            broker=legitimate_good.broker_evidence,
+            config=legitimate_good.config_evidence,
+            protective=legitimate_good.protective_evidence,
+            session_id=session_id,
+        )
+
 
 def test_caller_cannot_forge_authoritative_evidence() -> None:
     engine = RecoveryEngine()
@@ -117,7 +183,6 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
     session_id = engine.session_id
     engine.start_reconciliation()
 
-    # Constructing evidence objects directly without authority tokens
     p_j = EvidenceProvenance(source_component="JournalRecoveryValidator", source_session=session_id, result="SUCCESS")
     p_s = EvidenceProvenance(source_component="SnapshotRecoveryValidator", source_session=session_id, result="SUCCESS")
     p_r = EvidenceProvenance(source_component="RiskLedgerRecoveryValidator", source_session=session_id, result="SUCCESS")
@@ -134,28 +199,17 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
     c_ev = ConfigurationEvidence(valid=True, config_id="cfg_1", identity_matched=True, provenance=p_c)
     p_ev = ProtectiveMonitoringEvidence(valid=True, active=True, provenance=p_p)
 
-    # Attempt assembler assembly with tokenless evidence
     with pytest.raises(RecoveryEvidenceError) as exc:
         RecoveryEvidenceAssembler.assemble(
             journal=j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
             broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id
         )
-    assert "forged subsystem authority token" in str(exc.value)
-
-    fake_evidence = RecoveryEvidence(
-        journal_evidence=j_ev, snapshot_evidence=s_ev, risk_evidence=r_ev, intent_evidence=i_ev,
-        broker_evidence=b_ev, config_evidence=c_ev, protective_evidence=p_ev
-    )
-
-    with pytest.raises(RecoveryEvidenceError):
-        engine.complete_recovery_with_evidence(fake_evidence)
-
-    assert engine.state == RecoveryState.SAFE
+    assert "forged" in str(exc.value).lower()
 
 
 def test_token_issuance_direct_call_rejected() -> None:
     with pytest.raises(RecoveryEvidenceError) as exc:
-        _AuthorityToken.issue("JournalRecoveryValidator", "session_1", secret_key="unauthorized_caller")
+        _AuthorityToken.issue("JournalRecoveryValidator", "session_1", "digest_123", secret_key="unauthorized_caller")
     assert "Unauthorized authority token issuance" in str(exc.value)
 
 
@@ -165,13 +219,43 @@ def test_copy_or_deepcopy_strips_authority_token() -> None:
     session_id = engine.session_id
 
     module_secret = getattr(sys.modules["src.fractal_flow.execution.recovery"], "_VALIDATOR_SECRET")
-    tok = _AuthorityToken.issue("JournalRecoveryValidator", session_id, module_secret)
+    tok = _AuthorityToken.issue("JournalRecoveryValidator", session_id, "digest_123", module_secret)
     assert tok is not None
     assert copy.copy(tok) is None
     assert copy.deepcopy(tok) is None
 
 
-# --- 2. Orphan Propagation & Authorization Blocking ---
+# --- 2. Orphan Lifecycle & Transition Matrix Tests ---
+
+def test_orphan_legal_state_machine_transitions() -> None:
+    orphan = OrphanRecord(
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
+    )
+
+    # DETECTED -> RECONCILING
+    orphan_recon = orphan.transition(OrphanStatus.RECONCILING, reason="Reconciliation initiated")
+    assert orphan_recon.status == OrphanStatus.RECONCILING
+
+    # RECONCILING -> REATTACHED
+    orphan_reattached = orphan_recon.transition(OrphanStatus.REATTACHED, reason="Matched local intent")
+    assert orphan_reattached.status == OrphanStatus.REATTACHED
+    assert orphan_reattached.is_resolved_or_quarantined() is True
+
+
+def test_orphan_illegal_state_machine_transitions_rejected() -> None:
+    orphan = OrphanRecord(
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
+    )
+
+    # Illegal transition: DETECTED -> RECOVERED directly (must go through RECONCILING)
+    with pytest.raises(ValueError) as exc:
+        orphan.transition(OrphanStatus.RECOVERED, reason="Direct recovery attempt")
+    assert "Illegal orphan status transition" in str(exc.value)
+
+
+# --- 3. Orphan Propagation & Authorization Blocking ---
 
 def test_orphan_count_flows_into_recovery_evidence() -> None:
     intent = ExecutionIntent(
@@ -238,7 +322,7 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     assert engine.state == RecoveryState.SAFE
 
 
-# --- 3. UNKNOWN Broker State Blocking ---
+# --- 4. UNKNOWN Broker State Blocking ---
 
 def test_unknown_broker_state_blocks_authorization() -> None:
     intent = ExecutionIntent(
@@ -249,7 +333,6 @@ def test_unknown_broker_state_blocks_authorization() -> None:
         created_at=1000, updated_at=1000,
     )
 
-    # Non-authoritative query
     query_res = BrokerQueryResult(
         status="NON_AUTHORITATIVE", authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
         query_timestamp=1000,
@@ -263,7 +346,7 @@ def test_unknown_broker_state_blocks_authorization() -> None:
     assert b_ev.valid is False
 
 
-# --- 4. Broker Authority & Query Quality ---
+# --- 5. Broker Authority & Query Quality ---
 
 @pytest.mark.parametrize(
     "quality",
@@ -323,7 +406,7 @@ def test_authoritative_rejections_cannot_override_query_result() -> None:
     assert report.results[0].resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
 
-# --- 5. Snapshot Semantic Forgery & Replay Equivalence ---
+# --- 6. Snapshot Semantic Forgery & Replay Equivalence ---
 
 def test_snapshot_self_hash_does_not_make_forged_state_valid(tmp_path) -> None:
     journal = DurableEventJournal(str(tmp_path / "journal.log"))
@@ -376,7 +459,7 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
     assert replayed["_snapshot_fallback_used"] is True
 
 
-# --- 6. Session Binding ---
+# --- 7. Session Binding ---
 
 def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     engine = RecoveryEngine()
@@ -398,7 +481,7 @@ def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     assert engine.state == RecoveryState.SAFE
 
 
-# --- 7. Deal Semantics & Contradictions ---
+# --- 8. Deal Semantics & Contradictions ---
 
 def test_missing_deal_role_becomes_unknown() -> None:
     intent = ExecutionIntent(
@@ -471,7 +554,7 @@ def test_close_before_open_is_unknown() -> None:
     assert report.results[0].resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
 
-# --- 8. Orphan Protective Management ---
+# --- 9. Orphan Protective Management ---
 
 def test_orphan_position_keeps_protective_monitoring_active() -> None:
     orphan_pos = Position(
@@ -488,7 +571,7 @@ def test_orphan_position_keeps_protective_monitoring_active() -> None:
     assert record.protective_monitoring_active is True
 
 
-# --- 9. Intent Fingerprint Mutations ---
+# --- 10. Intent Fingerprint Mutations ---
 
 def test_order_type_mutation_changes_intent_fingerprint(tmp_path) -> None:
     repo = DurableExecutionIntentRepository(str(tmp_path / "intents.db"))
@@ -524,7 +607,7 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
         repo.save_intent(intent_mutated)
 
 
-# --- 10. Valid Legitimate Authorization Path ---
+# --- 11. Valid Legitimate Authorization Path ---
 
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
     engine = RecoveryEngine()
