@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.fractal_flow.execution.reconciliation import ReconciliationReport
+    from src.fractal_flow.config.config import EffectiveConfiguration
 
 
 class RecoveryEvidenceError(Exception):
@@ -390,7 +391,7 @@ class JournalRecoveryValidator:
     def validate(journal: Any, session_id: str) -> JournalRecoveryEvidence:
         faulted = getattr(journal, "_faulted", False)
         seq = journal._global_sequence if hasattr(journal, "_global_sequence") else 0
-        valid = not faulted
+        valid = (journal is not None) and (not faulted)
         prov = EvidenceProvenance(
             source_component="JournalRecoveryValidator",
             source_operation="validate",
@@ -398,7 +399,7 @@ class JournalRecoveryValidator:
             source_sequence=seq,
             source_boundary=str(getattr(journal, "journal_path", "journal")),
             result="SUCCESS" if valid else "FAILED",
-            failure_reason="Journal in faulted state" if faulted else None,
+            failure_reason="Journal in faulted state or invalid" if not valid else None,
         )
         unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
         if valid:
@@ -418,7 +419,7 @@ class SnapshotRecoveryValidator:
         aggregate_id: str = "",
     ) -> SnapshotRecoveryEvidence:
         fallback = getattr(snapshot_engine, "_snapshot_fallback_used", False)
-        valid = getattr(snapshot_engine, "_snapshot_valid", True)
+        valid = getattr(snapshot_engine, "_snapshot_valid", True) and (snapshot_engine is not None)
 
         # If journal and aggregate details are provided, verify snapshot equivalence if loaded snapshot exists
         if snapshot_engine and journal and aggregate_type and aggregate_id:
@@ -455,12 +456,16 @@ class RiskLedgerRecoveryValidator:
     def reconstruct(risk_ledger: Any, session_id: str) -> RiskLedgerRecoveryEvidence:
         entries = getattr(risk_ledger, "_entries_by_id", {})
         count = len(entries)
-        valid = risk_ledger is not None
+        # Inspect real risk ledger invariants if available
+        faulted = getattr(risk_ledger, "_faulted", False)
+        remaining = getattr(risk_ledger, "remaining_risk", 0.0)
+        valid = (risk_ledger is not None) and (not faulted) and (remaining >= 0)
         prov = EvidenceProvenance(
             source_component="RiskLedgerRecoveryValidator",
             source_operation="reconstruct",
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
+            failure_reason=None if valid else "Risk ledger in faulted state or negative remaining risk",
         )
         unsealed = RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
         if valid:
@@ -480,12 +485,13 @@ class IntentRecoveryValidator:
                 intents = intent_repo.get_all_intents()
                 count = len(intents)
             except Exception:
-                pass
+                valid = False
         prov = EvidenceProvenance(
             source_component="IntentRecoveryValidator",
             source_operation="reconstruct",
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
+            failure_reason=None if valid else "Intent repository invalid or failed reading intents",
         )
         unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
         if valid:
@@ -546,9 +552,24 @@ class BrokerReconciliationValidator:
 
 class ConfigurationValidator:
     @staticmethod
-    def validate(config_id: str, session_id: str, expected_config_id: Optional[str] = None) -> ConfigurationEvidence:
-        identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
-        valid = bool(config_id) and identity_matched
+    def validate(
+        config_obj_or_id: Any,
+        session_id: str,
+        expected_config_id: Optional[str] = None,
+    ) -> ConfigurationEvidence:
+        config_id = ""
+        valid = False
+        identity_matched = False
+
+        if isinstance(config_obj_or_id, str):
+            config_id = config_obj_or_id
+            identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
+            valid = bool(config_id) and identity_matched
+        elif hasattr(config_obj_or_id, "effective_config_id"):
+            config_id = getattr(config_obj_or_id, "effective_config_id", "")
+            identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
+            valid = bool(config_id) and identity_matched
+
         prov = EvidenceProvenance(
             source_component="ConfigurationValidator",
             source_operation="validate",
@@ -572,13 +593,24 @@ class ConfigurationValidator:
 
 class ProtectiveMonitoringValidator:
     @staticmethod
-    def validate(active: bool, session_id: str) -> ProtectiveMonitoringEvidence:
+    def validate(protective_subsystem: Any, session_id: str) -> ProtectiveMonitoringEvidence:
+        active = False
+        if isinstance(protective_subsystem, bool):
+            active = protective_subsystem
+        elif protective_subsystem is not None:
+            if hasattr(protective_subsystem, "is_active"):
+                active = bool(protective_subsystem.is_active())
+            elif hasattr(protective_subsystem, "active"):
+                active = bool(getattr(protective_subsystem, "active", False))
+            else:
+                active = True
+
         prov = EvidenceProvenance(
             source_component="ProtectiveMonitoringValidator",
             source_operation="validate",
             source_session=session_id,
             result="SUCCESS" if active else "FAILED",
-            failure_reason=None if active else "Protective monitoring is inactive",
+            failure_reason=None if active else "Protective monitoring is inactive or faulty",
         )
         unsealed = ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
         if active:

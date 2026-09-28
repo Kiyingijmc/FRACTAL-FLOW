@@ -78,7 +78,7 @@ def _create_assembled_evidence(
 ) -> RecoveryEvidence:
     j_ev = JournalRecoveryValidator.validate(journal_obj or type("MockJournal", (), {"_faulted": False, "_global_sequence": journal_head_seq})(), session_id)
     s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj or type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), session_id)
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj or type("MockRisk", (), {"_entries_by_id": {}})(), session_id)
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj or type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), session_id)
     i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj or type("MockRepo", (), {})(), session_id)
     b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id)
     c_ev = ConfigurationValidator.validate(config_id, session_id)
@@ -160,6 +160,22 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
             protective=legitimate_good.protective_evidence,
             session_id=session_id,
         )
+
+
+def test_subsystem_state_forgery_attacks_rejected() -> None:
+    engine = RecoveryEngine()
+    engine.trigger_system_restart()
+    session_id = engine.session_id
+
+    # 1. Faulted Risk Ledger
+    faulted_risk = type("MockFaultedRisk", (), {"_entries_by_id": {}, "_faulted": True, "remaining_risk": -10.0})()
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(faulted_risk, session_id)
+    assert r_ev.valid is False
+
+    # 2. Inactive Protective Monitoring
+    inactive_prot = type("MockInactiveProt", (), {"is_active": lambda self: False})()
+    p_ev = ProtectiveMonitoringValidator.validate(inactive_prot, session_id)
+    assert p_ev.valid is False
 
 
 def test_caller_cannot_forge_authoritative_evidence() -> None:
@@ -305,7 +321,7 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
 
     j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), engine.session_id)
     s_ev = SnapshotRecoveryValidator.validate(type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), engine.session_id)
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(type("MockRisk", (), {"_entries_by_id": {}})(), engine.session_id)
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(type("MockRisk", (), {"_entries_by_id": {}, "_faulted": False, "remaining_risk": 500.0})(), engine.session_id)
     i_ev = IntentRecoveryValidator.reconstruct(type("MockRepo", (), {})(), engine.session_id)
     b_ev = BrokerReconciliationValidator.reconcile(report, engine.session_id)
     c_ev = ConfigurationValidator.validate("cfg_1", engine.session_id)
