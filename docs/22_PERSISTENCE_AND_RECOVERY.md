@@ -52,3 +52,13 @@ RUNTIME STATE
 - **Recovery State Machine:** Manages `NORMAL -> RECOVERY_REQUIRED -> RECOVERING -> RECONCILING -> RECOVERY_COMPLETE / SAFE`.
 - **Strategic Execution Gating:** `RecoveryEngine.can_authorize_strategic_action()` returns `False` during system restart until broker reconciliation is complete.
 - **Authoritative Reconciliation:** `ReconciliationEngine` queries authoritative broker orders/positions to resolve `EXEC_UNKNOWN` states cleanly (`MATCH`, `LOCAL_ONLY`, `BROKER_ONLY`, `STATE_MISMATCH`).
+
+---
+
+## 6. Pass 4.2 Authority Provenance Hardening Architecture
+
+- **Unforgeable Capability Issuance:** `ProducerCapability` and `ValidatorCapability` objects require internal issuance verification (`_issuance_key`) from `AuthorityBootstrap`. Direct instantiation, copy/deepcopy, or serialization forgery is blocked fail-closed.
+- **Exact Validator Role Binding:** Validator capabilities are bound to exact subsystem validator roles (`JOURNAL_RECOVERY_VALIDATOR`, `SNAPSHOT_RECOVERY_VALIDATOR`, `RISK_LEDGER_RECOVERY_VALIDATOR`, `INTENT_RECOVERY_VALIDATOR`, `BROKER_RECONCILIATION_VALIDATOR`, `CONFIGURATION_VALIDATOR`, `PROTECTIVE_MONITORING_VALIDATOR`). Capability transplantation across validator identities is rejected.
+- **Sealed Subsystem Observations:** All seven recovery subsystems produce `SealedObservation`s signed with role-scoped `ProducerCapability` keys. Raw strings, raw booleans, duck-typed objects, or fake instances cannot establish authority.
+- **Broker Query & Stamp Provenance:** `BrokerQueryResult` instantiation claiming `FOUND` or `NOT_FOUND_AUTHORITATIVE` requires a verified `SealedObservation` from `AuthoritativeBrokerAdapter`. `ReconciliationReport` contains a `_ReconciliationAuthorityStamp` cryptographically binding `engine_id`, `session_id`, `broker_observation_digest`, `query_timestamp`, `temporal_boundary`, and `report_digest`.
+- **Deep Immutability & Reversal Accounting:** `OrphanRecord` uses recursive `_deep_freeze()` on nested mappings, tuples, and sets. `ReconciliationEngine` enforces formal `REVERSAL` deal transition accounting (closing prior exposure + opening opposite exposure, over-close detection, and side matching).

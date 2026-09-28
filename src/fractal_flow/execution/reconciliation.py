@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, unique
 from typing import Dict, List, Optional, Any, Mapping, Tuple, Iterator
 from types import MappingProxyType
+from decimal import Decimal
 
 from src.fractal_flow.domain.models import ExecutionIntent, Position, BrokerOrder, BrokerDeal, DealEntryRole
 from src.fractal_flow.execution.execution_state import ExecutionState
@@ -48,14 +49,16 @@ _LEGAL_ORPHAN_TRANSITIONS = {
 
 
 def _deep_freeze(val: Any) -> Any:
-    """Recursively converts dictionaries and lists to deeply immutable types."""
-    if isinstance(val, dict):
+    """Recursively converts dictionaries, lists, sets, and mappings to deeply immutable types."""
+    if val is None or isinstance(val, (int, float, str, bool, Decimal, Enum, bytes)):
+        return val
+    if isinstance(val, (dict, MappingProxyType, Mapping)):
         return MappingProxyType({k: _deep_freeze(v) for k, v in val.items()})
-    if isinstance(val, list):
+    if isinstance(val, (list, tuple)):
         return tuple(_deep_freeze(x) for x in val)
-    if isinstance(val, set):
+    if isinstance(val, (set, frozenset)):
         return frozenset(_deep_freeze(x) for x in val)
-    return val
+    raise TypeError(f"Unsupported or mutable custom type '{type(val).__name__}' in OrphanRecord deep freeze.")
 
 
 @dataclass(frozen=True)
@@ -113,22 +116,135 @@ class BrokerQueryQuality(str, Enum):
     STALE = "STALE"
 
 
+_BROKER_ISSUANCE_KEY = object()
+
+
 @dataclass(frozen=True)
 class BrokerQueryResult:
     """Encapsulates authoritative broker query response metadata and execution objects."""
     status: str = "SUCCESS"
     authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
     query_timestamp: int = 0
-    completeness: bool = True
+    completeness: bool = False
     broker_orders: Mapping[str, BrokerOrder] = field(default_factory=dict)
     broker_positions: Mapping[str, Position] = field(default_factory=dict)
     broker_deals: Mapping[str, BrokerDeal] = field(default_factory=dict)
     provider_identity: str = "BrokerQueryProvider"
+    account_id: str = ""
+    session_id: str = ""
+    observation_digest: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
+    _issuance_key: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE):
+            if self._issuance_key is not _BROKER_ISSUANCE_KEY:
+                # Direct construction claiming FOUND / NOT_FOUND_AUTHORITATIVE without issuance key is downgraded to non-authoritative!
+                object.__setattr__(self, "authority", BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE)
+                object.__setattr__(self, "completeness", False)
+                object.__setattr__(self, "status", "NON_AUTHORITATIVE")
+
+    @classmethod
+    def from_observation(
+        cls,
+        observation: Any,
+        producer_capability: Any,
+        session_id: str,
+    ) -> "BrokerQueryResult":
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.BROKER_QUERY:
+            raise RecoveryEvidenceError("BrokerQueryResult requires a valid BROKER_QUERY ProducerCapability.")
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.BROKER_QUERY, session_id, producer_capability._role_key):
+            raise RecoveryEvidenceError("SealedObservation verification failed for BrokerQueryResult.")
+
+        if observation.producer_id != producer_capability.producer_id:
+            raise RecoveryEvidenceError("Producer ID mismatch in SealedObservation for BrokerQueryResult.")
+
+        payload = observation.frozen_payload
+        quality = BrokerQueryQuality(payload.get("query_quality", BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE.value))
+        completeness = bool(payload.get("completeness", False))
+        q_timestamp = int(payload.get("query_timestamp", 0))
+        provider_id = str(payload.get("provider_identity", producer_capability.producer_id))
+        acc_id = str(payload.get("account_id", ""))
+
+        orders = dict(payload.get("broker_orders", {}))
+        positions = dict(payload.get("broker_positions", {}))
+        deals = dict(payload.get("broker_deals", {}))
+
+        return cls(
+            status="SUCCESS" if quality in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE) else "NON_AUTHORITATIVE",
+            authority=quality,
+            query_timestamp=q_timestamp,
+            completeness=completeness,
+            broker_orders=orders,
+            broker_positions=positions,
+            broker_deals=deals,
+            provider_identity=provider_id,
+            account_id=acc_id,
+            session_id=session_id,
+            observation_digest=observation.payload_digest,
+            details=dict(payload.get("details", {})),
+            _issuance_key=_BROKER_ISSUANCE_KEY,
+        )
+
+
+class AuthoritativeBrokerAdapter:
+    """Authoritative adapter for broker queries bound to a ProducerCapability."""
+
+    def __init__(
+        self,
+        capability: Any,
+        account_id: str = "ACT_PRIMARY",
+        orders: Optional[Dict[str, BrokerOrder]] = None,
+        positions: Optional[Dict[str, Position]] = None,
+        deals: Optional[Dict[str, BrokerDeal]] = None,
+        authority: BrokerQueryQuality = BrokerQueryQuality.FOUND,
+        max_age_seconds: int = 300,
+        provider_identity: str = "AuthoritativeBrokerAdapter",
+    ) -> None:
+        from src.fractal_flow.execution.recovery import CapabilityRole, ProducerCapability, RecoveryEvidenceError
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.BROKER_QUERY:
+            raise RecoveryEvidenceError("AuthoritativeBrokerAdapter requires a valid BROKER_QUERY ProducerCapability.")
+        self.capability = capability
+        self.account_id = account_id
+        self._orders = orders or {}
+        self._positions = positions or {}
+        self._deals = deals or {}
+        self._authority = authority
+        self._max_age_seconds = max_age_seconds
+        self._provider_identity = provider_identity
+
+    def produce_broker_observation(self, session_id: str, current_timestamp: int = 0) -> Any:
+        from src.fractal_flow.execution.recovery import SealedObservation
+        now = current_timestamp or int(time.time())
+        authority = self._authority
+
+        if self._max_age_seconds > 0 and self.capability and getattr(self, "_query_timestamp", 0) > 0 and now > 0:
+            if now - getattr(self, "_query_timestamp", 0) > self._max_age_seconds:
+                authority = BrokerQueryQuality.STALE
+
+        payload = {
+            "account_id": self.account_id,
+            "provider_identity": self._provider_identity,
+            "query_timestamp": now,
+            "query_quality": authority.value,
+            "completeness": authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE),
+            "broker_orders": dict(self._orders),
+            "broker_positions": dict(self._positions),
+            "broker_deals": dict(self._deals),
+            "details": {},
+        }
+        return SealedObservation.create(self.capability, session_id, now, payload)
+
+    def query_broker_state(self, session_id: str, current_timestamp: int = 0) -> BrokerQueryResult:
+        obs = self.produce_broker_observation(session_id, current_timestamp)
+        return BrokerQueryResult.from_observation(obs, self.capability, session_id)
 
 
 class BrokerQueryProvider:
-    """Authoritative provider boundary responsible for issuing broker state queries and asserting query quality."""
+    """Provider boundary responsible for issuing broker state queries."""
 
     def __init__(
         self,
@@ -139,6 +255,7 @@ class BrokerQueryProvider:
         max_age_seconds: int = 300,
         query_timestamp: int = 0,
         provider_identity: str = "BrokerQueryProvider",
+        capability: Optional[Any] = None,
     ) -> None:
         self._orders = orders or {}
         self._positions = positions or {}
@@ -147,25 +264,41 @@ class BrokerQueryProvider:
         self._max_age_seconds = max_age_seconds
         self._query_timestamp = query_timestamp
         self._provider_identity = provider_identity
+        self._capability = capability
 
-    def query_broker_state(self, current_timestamp: int = 0) -> BrokerQueryResult:
-        now = current_timestamp or self._query_timestamp
+    def query_broker_state(self, session_id: str = "", current_timestamp: int = 0) -> BrokerQueryResult:
+        now = current_timestamp or self._query_timestamp or int(time.time())
         authority = self._authority
 
-        # Enforce temporal freshness check
         if self._max_age_seconds > 0 and self._query_timestamp > 0 and now > 0:
             if now - self._query_timestamp > self._max_age_seconds:
                 authority = BrokerQueryQuality.STALE
 
+        if self._capability is not None and session_id:
+            adapter = AuthoritativeBrokerAdapter(
+                capability=self._capability,
+                orders=self._orders,
+                positions=self._positions,
+                deals=self._deals,
+                authority=authority,
+                max_age_seconds=self._max_age_seconds,
+                provider_identity=self._provider_identity,
+            )
+            return adapter.query_broker_state(session_id, now)
+
+        # Un-capability-backed provider queries are non-authoritative
+        final_authority = BrokerQueryQuality.STALE if authority == BrokerQueryQuality.STALE else BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
+
         return BrokerQueryResult(
-            status="SUCCESS" if authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE) else "NON_AUTHORITATIVE",
-            authority=authority,
+            status="NON_AUTHORITATIVE",
+            authority=final_authority,
             query_timestamp=now,
-            completeness=(authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)),
+            completeness=False,
             broker_orders=dict(self._orders),
             broker_positions=dict(self._positions),
             broker_deals=dict(self._deals),
             provider_identity=self._provider_identity,
+            session_id=session_id,
         )
 
 
@@ -177,6 +310,8 @@ _RECON_ENGINE_SECRET: object = object()
 class _ReconciliationAuthorityStamp:
     """Opaque, unforgeable capability proving a ReconciliationReport was directly generated by ReconciliationEngine."""
     engine_id: str
+    session_id: str
+    broker_observation_digest: str
     generated_at: int
     signature: str
 
@@ -187,15 +322,31 @@ class _ReconciliationAuthorityStamp:
         return None
 
     @classmethod
-    def _issue(cls, engine_id: str, generated_at: int, report_digest: str, secret_key: object) -> "_ReconciliationAuthorityStamp":
+    def _issue(
+        cls,
+        engine_id: str,
+        session_id: str,
+        broker_obs_digest: str,
+        generated_at: int,
+        report_digest: str,
+        secret_key: object,
+    ) -> "_ReconciliationAuthorityStamp":
         if secret_key is not _RECON_ENGINE_SECRET:
             raise ValueError("Unauthorized reconciliation authority stamp issuance attempt rejected.")
-        msg = f"{engine_id}|{generated_at}|{report_digest}".encode("utf-8")
+        msg = f"{engine_id}|{session_id}|{broker_obs_digest}|{generated_at}|{report_digest}".encode("utf-8")
         sig = hmac.new(_RECON_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
-        return cls(engine_id=engine_id, generated_at=generated_at, signature=sig)
+        return cls(
+            engine_id=engine_id,
+            session_id=session_id,
+            broker_observation_digest=broker_obs_digest,
+            generated_at=generated_at,
+            signature=sig,
+        )
 
-    def verify(self, report_digest: str) -> bool:
-        msg = f"{self.engine_id}|{self.generated_at}|{report_digest}".encode("utf-8")
+    def verify(self, report_digest: str, expected_session_id: str = "") -> bool:
+        if expected_session_id and self.session_id != expected_session_id:
+            return False
+        msg = f"{self.engine_id}|{self.session_id}|{self.broker_observation_digest}|{self.generated_at}|{report_digest}".encode("utf-8")
         expected_sig = hmac.new(_RECON_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
         return hmac.compare_digest(self.signature, expected_sig)
 
@@ -223,6 +374,8 @@ class ReconciliationReport:
     broker_positions_seen: int
     broker_deals_seen: int
     generated_at: int
+    broker_observation_digest: str = ""
+    session_id: str = ""
     orphan_records: Tuple[OrphanRecord, ...] = field(default_factory=tuple)
     _authority_stamp: Optional[_ReconciliationAuthorityStamp] = field(default=None, repr=False, compare=False)
 
@@ -258,6 +411,8 @@ class ReconciliationReport:
             "broker_positions_seen": self.broker_positions_seen,
             "broker_deals_seen": self.broker_deals_seen,
             "generated_at": self.generated_at,
+            "broker_observation_digest": self.broker_observation_digest,
+            "session_id": self.session_id,
             "orphan_records": [
                 {
                     "orphan_id": o.orphan_id,
@@ -277,10 +432,10 @@ class ReconciliationReport:
         canonical_json = json.dumps(raw, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
-    def has_valid_authority_stamp(self) -> bool:
+    def has_valid_authority_stamp(self, expected_session_id: str = "") -> bool:
         if self._authority_stamp is None:
             return False
-        return self._authority_stamp.verify(self.compute_digest())
+        return self._authority_stamp.verify(self.compute_digest(), expected_session_id=expected_session_id)
 
 
 class ReconciliationEngine:
@@ -347,9 +502,11 @@ class ReconciliationEngine:
                     details={"note": "Duplicate deal IDs detected in deal chain"},
                 )
 
-            # Check deal sequence and deal entry roles
+            # Sort deals chronologically and execute formal deal chain state transitions
             sorted_deals = sorted(related_deals, key=lambda x: getattr(x, 'timestamp', 0))
-            seen_open = False
+            v_net = 0.0
+            side_net = None
+
             for d in sorted_deals:
                 role = cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN))
                 if role == DealEntryRole.UNKNOWN:
@@ -359,38 +516,89 @@ class ReconciliationEngine:
                         resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
                         details={"note": f"Missing or unknown deal entry role for deal '{d.deal_id}'"},
                     )
+
+                d_side = str(getattr(d, 'side', '')).upper()
+
                 if role in (DealEntryRole.OPEN, DealEntryRole.INCREASE):
-                    seen_open = True
+                    if v_net == 0.0:
+                        side_net = d_side
+                        v_net = float(d.volume)
+                    elif d_side == side_net:
+                        v_net += float(d.volume)
+                    else:
+                        return ReconciliationResult(
+                            intent_id=local_intent.intent_id,
+                            mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                            resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                            details={"note": f"Contradictory deal side '{d_side}' for OPEN/INCREASE deal '{d.deal_id}'"},
+                        )
+
                 elif role in (DealEntryRole.CLOSE, DealEntryRole.DECREASE):
-                    if not seen_open:
+                    if v_net <= 0.0 or side_net is None:
                         return ReconciliationResult(
                             intent_id=local_intent.intent_id,
                             mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
                             resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
                             details={"note": f"Contradictory deal sequence: CLOSE/DECREASE deal '{d.deal_id}' before OPEN"},
                         )
+                    if float(d.volume) > v_net + 0.0001:
+                        return ReconciliationResult(
+                            intent_id=local_intent.intent_id,
+                            mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                            resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                            details={"note": f"Over-close detected in deal '{d.deal_id}': close volume {d.volume} > net open volume {v_net}"},
+                        )
+                    v_net -= float(d.volume)
+                    if abs(v_net) < 0.0001:
+                        v_net = 0.0
+                        side_net = None
+
+                elif role == DealEntryRole.REVERSAL:
+                    if v_net <= 0.0 or side_net is None:
+                        return ReconciliationResult(
+                            intent_id=local_intent.intent_id,
+                            mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                            resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                            details={"note": f"Contradictory deal sequence: REVERSAL deal '{d.deal_id}' without prior OPEN exposure"},
+                        )
+                    if d_side == side_net:
+                        return ReconciliationResult(
+                            intent_id=local_intent.intent_id,
+                            mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                            resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                            details={"note": f"Contradictory deal side '{d_side}' for REVERSAL deal '{d.deal_id}' (same as active exposure)"},
+                        )
+
+                    v_close = min(float(d.volume), v_net)
+                    v_opp = float(d.volume) - v_close
+                    v_net -= v_close
+
+                    if v_opp > 0.0:
+                        side_net = d_side
+                        v_net = v_opp
+                    elif abs(v_net) < 0.0001:
+                        v_net = 0.0
+                        side_net = None
 
             if matching_pos:
-                opening_vol = sum(
-                    d.volume for d in related_deals
-                    if cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN)) in (DealEntryRole.OPEN, DealEntryRole.INCREASE)
-                )
-                closing_vol = sum(
-                    d.volume for d in related_deals
-                    if cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN)) in (DealEntryRole.CLOSE, DealEntryRole.DECREASE)
-                )
-                net_deal_vol = opening_vol - closing_vol
-
-                if closing_vol > opening_vol or net_deal_vol < 0 or abs(net_deal_vol - matching_pos.filled_volume) > 0.0001:
+                if abs(v_net - matching_pos.filled_volume) > 0.0001:
                     return ReconciliationResult(
                         intent_id=local_intent.intent_id,
                         mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
                         resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
                         details={
-                            "note": f"Net deal volume ({net_deal_vol}) contradicts position filled volume ({matching_pos.filled_volume}) or over-close detected",
+                            "note": f"Net deal volume ({v_net}) contradicts position filled volume ({matching_pos.filled_volume})",
                             "position_id": matching_pos.position_id,
-                            "opening_volume": opening_vol,
-                            "closing_volume": closing_vol,
+                        },
+                    )
+                if side_net and matching_pos.side and side_net != matching_pos.side.upper():
+                    return ReconciliationResult(
+                        intent_id=local_intent.intent_id,
+                        mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                        resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                        details={
+                            "note": f"Net deal side ({side_net}) contradicts position side ({matching_pos.side})",
+                            "position_id": matching_pos.position_id,
                         },
                     )
 
@@ -440,6 +648,7 @@ class ReconciliationEngine:
         broker_deals: Optional[Mapping[str, BrokerDeal]] = None,
         authoritative_rejections: Optional[set] = None,
         query_result: Optional[BrokerQueryResult] = None,
+        session_id: str = "",
     ) -> ReconciliationReport:
         """Performs full broker-wide multi-directional reconciliation discovering local-only, matched, and orphaned broker objects.
 
@@ -449,6 +658,8 @@ class ReconciliationEngine:
         q_timestamp = now
         q_quality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
         q_complete = False
+        broker_obs_digest = ""
+        report_session_id = session_id
 
         if query_result is not None:
             broker_orders = query_result.broker_orders
@@ -457,6 +668,9 @@ class ReconciliationEngine:
             q_quality = query_result.authority
             q_timestamp = query_result.query_timestamp or now
             q_complete = query_result.completeness
+            broker_obs_digest = query_result.observation_digest
+            if query_result.session_id:
+                report_session_id = query_result.session_id
         else:
             broker_orders = broker_orders or {}
             broker_positions = broker_positions or {}
@@ -553,8 +767,17 @@ class ReconciliationEngine:
             broker_positions_seen=len(broker_positions),
             broker_deals_seen=len(broker_deals) if broker_deals else 0,
             generated_at=now,
+            broker_observation_digest=broker_obs_digest,
+            session_id=report_session_id,
             orphan_records=tuple(orphan_records),
         )
 
-        stamp = _ReconciliationAuthorityStamp._issue("ReconciliationEngine", now, unsealed_report.compute_digest(), _RECON_ENGINE_SECRET)
+        stamp = _ReconciliationAuthorityStamp._issue(
+            "ReconciliationEngine",
+            report_session_id,
+            broker_obs_digest,
+            now,
+            unsealed_report.compute_digest(),
+            _RECON_ENGINE_SECRET,
+        )
         return replace(unsealed_report, _authority_stamp=stamp)

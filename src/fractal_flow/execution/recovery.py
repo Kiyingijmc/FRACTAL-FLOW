@@ -34,6 +34,7 @@ class RecoveryState(str, Enum):
 
 @unique
 class CapabilityRole(str, Enum):
+    # Producer Roles
     JOURNAL = "JOURNAL"
     SNAPSHOT = "SNAPSHOT"
     RISK_LEDGER = "RISK_LEDGER"
@@ -41,8 +42,14 @@ class CapabilityRole(str, Enum):
     BROKER_QUERY = "BROKER_QUERY"
     EFFECTIVE_CONFIGURATION = "EFFECTIVE_CONFIGURATION"
     PROTECTIVE_MONITOR = "PROTECTIVE_MONITOR"
-    RECOVERY_VALIDATOR = "RECOVERY_VALIDATOR"
-    RECONCILIATION_VALIDATOR = "RECONCILIATION_VALIDATOR"
+    # Validator Roles
+    JOURNAL_RECOVERY_VALIDATOR = "JOURNAL_RECOVERY_VALIDATOR"
+    SNAPSHOT_RECOVERY_VALIDATOR = "SNAPSHOT_RECOVERY_VALIDATOR"
+    RISK_LEDGER_RECOVERY_VALIDATOR = "RISK_LEDGER_RECOVERY_VALIDATOR"
+    INTENT_RECOVERY_VALIDATOR = "INTENT_RECOVERY_VALIDATOR"
+    BROKER_RECONCILIATION_VALIDATOR = "BROKER_RECONCILIATION_VALIDATOR"
+    CONFIGURATION_VALIDATOR = "CONFIGURATION_VALIDATOR"
+    PROTECTIVE_MONITORING_VALIDATOR = "PROTECTIVE_MONITORING_VALIDATOR"
 
 
 # --- Canonical Evidence Digest Computation ---
@@ -83,12 +90,19 @@ def compute_evidence_digest(evidence_obj: Any) -> str:
 
 # --- Scoped Capability & Authority Bootstrap Machinery ---
 
+_ISSUANCE_KEY = object()
+
 @dataclass(frozen=True)
 class ProducerCapability:
     """Scoped capability holding only role-derived signing key for an authoritative producer."""
     role: CapabilityRole
     producer_id: str
     _role_key: bytes = field(repr=False, compare=False)
+    _issuance_key: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._issuance_key is not _ISSUANCE_KEY:
+            raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityBootstrap.")
 
     def __copy__(self) -> None:
         return None
@@ -107,6 +121,11 @@ class ValidatorCapability:
     role: CapabilityRole
     validator_id: str
     _role_key: bytes = field(repr=False, compare=False)
+    _issuance_key: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._issuance_key is not _ISSUANCE_KEY:
+            raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityBootstrap.")
 
     def __copy__(self) -> None:
         return None
@@ -115,7 +134,7 @@ class ValidatorCapability:
         return None
 
     def sign_token(self, session_id: str, evidence_digest: str) -> "_AuthorityToken":
-        msg = f"FRACTAL_TOK|v1|{self.validator_id}|{session_id}|{evidence_digest}".encode("utf-8")
+        msg = f"FRACTAL_TOK|v1|{self.role.value}|{self.validator_id}|{session_id}|{evidence_digest}".encode("utf-8")
         sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
         return _AuthorityToken(
             validator_id=self.validator_id,
@@ -127,7 +146,7 @@ class ValidatorCapability:
     def verify_token(self, token: "_AuthorityToken", expected_session: str, expected_evidence_digest: str) -> bool:
         if token.validator_id != self.validator_id or token.session_id != expected_session or token.evidence_digest != expected_evidence_digest:
             return False
-        msg = f"FRACTAL_TOK|v1|{self.validator_id}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
+        msg = f"FRACTAL_TOK|v1|{self.role.value}|{self.validator_id}|{expected_session}|{expected_evidence_digest}".encode("utf-8")
         expected_sig = hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
         return hmac.compare_digest(token.signature, expected_sig)
 
@@ -154,7 +173,12 @@ class AuthorityBootstrap:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted.")
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, producer_id)
-        return ProducerCapability(role=role, producer_id=producer_id, _role_key=role_key)
+        return ProducerCapability(
+            role=role,
+            producer_id=producer_id,
+            _role_key=role_key,
+            _issuance_key=_ISSUANCE_KEY,
+        )
 
     def mint_validator_capability(self, role: CapabilityRole, validator_id: str) -> ValidatorCapability:
         if self._finalized:
@@ -163,7 +187,12 @@ class AuthorityBootstrap:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted.")
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, validator_id)
-        return ValidatorCapability(role=role, validator_id=validator_id, _role_key=role_key)
+        return ValidatorCapability(
+            role=role,
+            validator_id=validator_id,
+            _role_key=role_key,
+            _issuance_key=_ISSUANCE_KEY,
+        )
 
     def finalize(self) -> None:
         """Locks bootstrap and clears master key material."""
@@ -278,20 +307,22 @@ class _RecoveryAuthorityBundle:
             return False
 
         validators = [
-            ("JournalRecoveryValidator", self.journal_token, recovery_evidence.journal_evidence),
-            ("SnapshotRecoveryValidator", self.snapshot_token, recovery_evidence.snapshot_evidence),
-            ("RiskLedgerRecoveryValidator", self.risk_token, recovery_evidence.risk_evidence),
-            ("IntentRecoveryValidator", self.intent_token, recovery_evidence.intent_evidence),
-            ("BrokerReconciliationValidator", self.broker_token, recovery_evidence.broker_evidence),
-            ("ConfigurationValidator", self.config_token, recovery_evidence.config_evidence),
-            ("ProtectiveMonitoringValidator", self.protective_token, recovery_evidence.protective_evidence),
+            (CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator", self.journal_token, recovery_evidence.journal_evidence),
+            (CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator", self.snapshot_token, recovery_evidence.snapshot_evidence),
+            (CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator", self.risk_token, recovery_evidence.risk_evidence),
+            (CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator", self.intent_token, recovery_evidence.intent_evidence),
+            (CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator", self.broker_token, recovery_evidence.broker_evidence),
+            (CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator", self.config_token, recovery_evidence.config_evidence),
+            (CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator", self.protective_token, recovery_evidence.protective_evidence),
         ]
 
-        for expected_val, tok, ev_obj in validators:
+        for expected_role, expected_val, tok, ev_obj in validators:
             if tok is None:
                 return False
             cap = validator_capabilities.get(expected_val)
             if cap is None:
+                return False
+            if cap.role != expected_role or cap.validator_id != expected_val:
                 return False
             expected_digest = compute_evidence_digest(ev_obj)
             if not cap.verify_token(tok, required_session, expected_digest):
@@ -550,23 +581,113 @@ class RecoveryEvidenceAssembler:
 
 # --- Authoritative Subsystem Recovery Validators / Producers ---
 
+@dataclass(frozen=True)
+class ProtectiveMonitoringSubsystem:
+    """Authoritative protective monitoring subsystem instance."""
+    subsystem_id: str = "ProtectiveMonitoringSubsystem"
+    _active: bool = True
+    _faulted: bool = False
+
+    def is_active(self) -> bool:
+        return self._active and not self._faulted
+
+    def produce_observation(self, session_id: str, capability: ProducerCapability) -> SealedObservation:
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.PROTECTIVE_MONITOR:
+            raise RecoveryEvidenceError("ProtectiveMonitoringSubsystem observation requires a valid PROTECTIVE_MONITOR ProducerCapability.")
+        payload = {
+            "subsystem_id": self.subsystem_id,
+            "active": self.is_active(),
+            "faulted": self._faulted,
+        }
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)
+
+
 class JournalRecoveryValidator:
     @staticmethod
-    def validate(journal: Any, session_id: str, capability: ValidatorCapability) -> JournalRecoveryEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("JournalRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+    def validate(
+        journal: Any,
+        session_id: str,
+        capability: ValidatorCapability,
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
+    ) -> JournalRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.JOURNAL_RECOVERY_VALIDATOR or capability.validator_id != "JournalRecoveryValidator":
+            raise RecoveryEvidenceError("JournalRecoveryValidator requires a valid JOURNAL_RECOVERY_VALIDATOR capability.")
 
-        faulted = getattr(journal, "_faulted", False)
-        seq = journal._global_sequence if hasattr(journal, "_global_sequence") else 0
-        valid = (journal is not None) and (not faulted)
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Journal authority provenance.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.JOURNAL:
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Journal.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.JOURNAL, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Journal.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        if observation.producer_id != producer_capability.producer_id:
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Producer ID mismatch in Journal observation.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        from src.fractal_flow.persistence.journal import DurableEventJournal
+        if not isinstance(journal, DurableEventJournal):
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Journal object must be an instance of DurableEventJournal.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        faulted = journal._faulted
+        seq = journal._global_sequence
+
+        obs_payload = observation.frozen_payload
+        if obs_payload.get("faulted") != faulted or obs_payload.get("global_sequence") != seq:
+            prov = EvidenceProvenance(
+                source_component="JournalRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Journal live state contradicts sealed observation payload.",
+            )
+            return JournalRecoveryEvidence(valid=False, provenance=prov)
+
+        valid = not faulted
         prov = EvidenceProvenance(
             source_component="JournalRecoveryValidator",
             source_operation="validate",
             source_session=session_id,
             source_sequence=seq,
-            source_boundary=str(getattr(journal, "journal_path", "journal")),
+            source_boundary=str(getattr(journal, "journal_file_path", "journal")),
             result="SUCCESS" if valid else "FAILED",
-            failure_reason="Journal in faulted state or invalid" if not valid else None,
+            failure_reason="Journal in faulted state" if not valid else None,
         )
         unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
         if valid:
@@ -585,14 +706,67 @@ class SnapshotRecoveryValidator:
         journal: Any = None,
         aggregate_type: str = "",
         aggregate_id: str = "",
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
     ) -> SnapshotRecoveryEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("SnapshotRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR or capability.validator_id != "SnapshotRecoveryValidator":
+            raise RecoveryEvidenceError("SnapshotRecoveryValidator requires a valid SNAPSHOT_RECOVERY_VALIDATOR capability.")
 
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="SnapshotRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Snapshot authority provenance.",
+            )
+            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.SNAPSHOT:
+            prov = EvidenceProvenance(
+                source_component="SnapshotRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Snapshot.",
+            )
+            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.SNAPSHOT, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="SnapshotRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Snapshot.",
+            )
+            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+
+        from src.fractal_flow.persistence.snapshot import SnapshotEngine
+        if not isinstance(snapshot_engine, SnapshotEngine):
+            prov = EvidenceProvenance(
+                source_component="SnapshotRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Snapshot engine must be an instance of SnapshotEngine.",
+            )
+            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+
+        obs_payload = observation.frozen_payload
         fallback = getattr(snapshot_engine, "_snapshot_fallback_used", False)
-        valid = getattr(snapshot_engine, "_snapshot_valid", True) and (snapshot_engine is not None)
+        valid = getattr(snapshot_engine, "_snapshot_valid", True)
 
-        # If journal and aggregate details are provided, verify snapshot equivalence if loaded snapshot exists
+        if obs_payload.get("snapshot_valid") != valid or obs_payload.get("snapshot_fallback_used") != fallback:
+            prov = EvidenceProvenance(
+                source_component="SnapshotRecoveryValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Snapshot live state contradicts sealed observation payload.",
+            )
+            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+
         if snapshot_engine and journal and aggregate_type and aggregate_id:
             try:
                 snap = snapshot_engine.load_snapshot(aggregate_type, aggregate_id)
@@ -624,16 +798,73 @@ class SnapshotRecoveryValidator:
 
 class RiskLedgerRecoveryValidator:
     @staticmethod
-    def reconstruct(risk_ledger: Any, session_id: str, capability: ValidatorCapability) -> RiskLedgerRecoveryEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("RiskLedgerRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+    def reconstruct(
+        risk_ledger: Any,
+        session_id: str,
+        capability: ValidatorCapability,
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
+    ) -> RiskLedgerRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR or capability.validator_id != "RiskLedgerRecoveryValidator":
+            raise RecoveryEvidenceError("RiskLedgerRecoveryValidator requires a valid RISK_LEDGER_RECOVERY_VALIDATOR capability.")
 
-        entries = getattr(risk_ledger, "_entries_by_id", {})
-        count = len(entries)
-        # Inspect real risk ledger invariants if available
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="RiskLedgerRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Risk Ledger authority provenance.",
+            )
+            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.RISK_LEDGER:
+            prov = EvidenceProvenance(
+                source_component="RiskLedgerRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Risk Ledger.",
+            )
+            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.RISK_LEDGER, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="RiskLedgerRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Risk Ledger.",
+            )
+            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+
+        from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
+        if not isinstance(risk_ledger, OpportunityRiskLedger):
+            prov = EvidenceProvenance(
+                source_component="RiskLedgerRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Risk ledger must be an instance of OpportunityRiskLedger.",
+            )
+            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+
+        obs_payload = observation.frozen_payload
+        count = len(risk_ledger.entries)
+        remaining = risk_ledger.remaining_risk
         faulted = getattr(risk_ledger, "_faulted", False)
-        remaining = getattr(risk_ledger, "remaining_risk", 0.0)
-        valid = (risk_ledger is not None) and (not faulted) and (remaining >= 0)
+
+        if obs_payload.get("entries_count") != count or obs_payload.get("faulted") != faulted:
+            prov = EvidenceProvenance(
+                source_component="RiskLedgerRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Risk ledger live state contradicts sealed observation payload.",
+            )
+            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+
+        valid = (not faulted) and (remaining >= 0)
         prov = EvidenceProvenance(
             source_component="RiskLedgerRecoveryValidator",
             source_operation="reconstruct",
@@ -651,47 +882,96 @@ class RiskLedgerRecoveryValidator:
 
 class IntentRecoveryValidator:
     @staticmethod
-    def reconstruct(intent_repo: Any, session_id: str, capability: ValidatorCapability) -> IntentRecoveryEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("IntentRecoveryValidator requires a valid RECOVERY_VALIDATOR capability.")
+    def reconstruct(
+        intent_repo: Any,
+        session_id: str,
+        capability: ValidatorCapability,
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
+    ) -> IntentRecoveryEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.INTENT_RECOVERY_VALIDATOR or capability.validator_id != "IntentRecoveryValidator":
+            raise RecoveryEvidenceError("IntentRecoveryValidator requires a valid INTENT_RECOVERY_VALIDATOR capability.")
 
-        valid = intent_repo is not None
-        count = 0
-        if hasattr(intent_repo, "get_all_intents"):
-            try:
-                intents = intent_repo.get_all_intents()
-                count = len(intents)
-            except Exception:
-                valid = False
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="IntentRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Intent Repository authority provenance.",
+            )
+            return IntentRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.INTENT_REPOSITORY:
+            prov = EvidenceProvenance(
+                source_component="IntentRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Intent Repository.",
+            )
+            return IntentRecoveryEvidence(valid=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.INTENT_REPOSITORY, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="IntentRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Intent Repository.",
+            )
+            return IntentRecoveryEvidence(valid=False, provenance=prov)
+
+        from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
+        if not isinstance(intent_repo, DurableExecutionIntentRepository):
+            prov = EvidenceProvenance(
+                source_component="IntentRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Intent repository must be an instance of DurableExecutionIntentRepository.",
+            )
+            return IntentRecoveryEvidence(valid=False, provenance=prov)
+
+        obs_payload = observation.frozen_payload
+        count = len(intent_repo._intents)
+        if obs_payload.get("intents_count") != count:
+            prov = EvidenceProvenance(
+                source_component="IntentRecoveryValidator",
+                source_operation="reconstruct",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Intent repository live state contradicts sealed observation payload.",
+            )
+            return IntentRecoveryEvidence(valid=False, provenance=prov)
+
+        valid = True
         prov = EvidenceProvenance(
             source_component="IntentRecoveryValidator",
             source_operation="reconstruct",
             source_session=session_id,
-            result="SUCCESS" if valid else "FAILED",
-            failure_reason=None if valid else "Intent repository invalid or failed reading intents",
+            result="SUCCESS",
         )
         unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
-        if valid:
-            digest = compute_evidence_digest(unsealed)
-            token = capability.sign_token(session_id, digest)
-            return dataclasses.replace(unsealed, _authority_token=token)
-        return unsealed
+        digest = compute_evidence_digest(unsealed)
+        token = capability.sign_token(session_id, digest)
+        return dataclasses.replace(unsealed, _authority_token=token)
 
 
 class BrokerReconciliationValidator:
     @staticmethod
     def reconcile(reconciliation_report: Any, session_id: str, capability: ValidatorCapability) -> BrokerReconciliationEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECONCILIATION_VALIDATOR:
-            raise RecoveryEvidenceError("BrokerReconciliationValidator requires a valid RECONCILIATION_VALIDATOR capability.")
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.BROKER_RECONCILIATION_VALIDATOR or capability.validator_id != "BrokerReconciliationValidator":
+            raise RecoveryEvidenceError("BrokerReconciliationValidator requires a valid BROKER_RECONCILIATION_VALIDATOR capability.")
 
         from src.fractal_flow.execution.reconciliation import ReconciliationReport
-        if not isinstance(reconciliation_report, ReconciliationReport) or not reconciliation_report.has_valid_authority_stamp():
+        if not isinstance(reconciliation_report, ReconciliationReport) or not reconciliation_report.has_valid_authority_stamp(expected_session_id=session_id):
             prov = EvidenceProvenance(
                 source_component="BrokerReconciliationValidator",
                 source_operation="reconcile",
                 source_session=session_id,
                 result="FAILED",
-                failure_reason="Authorization requires an authentic ReconciliationReport instance with valid ReconciliationAuthorityStamp",
+                failure_reason="Authorization requires an authentic ReconciliationReport instance with valid ReconciliationAuthorityStamp matching session_id",
             )
             return BrokerReconciliationEvidence(
                 valid=False,
@@ -737,22 +1017,78 @@ class ConfigurationValidator:
         session_id: str,
         capability: ValidatorCapability,
         expected_config_id: Optional[str] = None,
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
     ) -> ConfigurationEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("ConfigurationValidator requires a valid RECOVERY_VALIDATOR capability.")
-
-        config_id = ""
-        valid = False
-        identity_matched = False
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.CONFIGURATION_VALIDATOR or capability.validator_id != "ConfigurationValidator":
+            raise RecoveryEvidenceError("ConfigurationValidator requires a valid CONFIGURATION_VALIDATOR capability.")
 
         if isinstance(config_obj_or_id, str):
-            config_id = config_obj_or_id
-            identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
-            valid = bool(config_id) and identity_matched
-        elif hasattr(config_obj_or_id, "effective_config_id"):
-            config_id = getattr(config_obj_or_id, "effective_config_id", "")
-            identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
-            valid = bool(config_id) and identity_matched
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Raw string identity assertion rejected. Configuration authority requires EffectiveConfiguration with SealedObservation.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Configuration authority provenance.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION:
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Configuration.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.EFFECTIVE_CONFIGURATION, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Configuration.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        from src.fractal_flow.config.config import EffectiveConfiguration
+        if not isinstance(config_obj_or_id, EffectiveConfiguration):
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Configuration object must be an instance of EffectiveConfiguration.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        config_id = config_obj_or_id.effective_config_id
+        obs_payload = observation.frozen_payload
+
+        if obs_payload.get("effective_config_id") != config_id:
+            prov = EvidenceProvenance(
+                source_component="ConfigurationValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Configuration object contradicts sealed observation payload.",
+            )
+            return ConfigurationEvidence(valid=False, provenance=prov)
+
+        identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
+        valid = bool(config_id) and identity_matched
 
         prov = EvidenceProvenance(
             source_component="ConfigurationValidator",
@@ -777,20 +1113,68 @@ class ConfigurationValidator:
 
 class ProtectiveMonitoringValidator:
     @staticmethod
-    def validate(protective_subsystem: Any, session_id: str, capability: ValidatorCapability) -> ProtectiveMonitoringEvidence:
-        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RECOVERY_VALIDATOR:
-            raise RecoveryEvidenceError("ProtectiveMonitoringValidator requires a valid RECOVERY_VALIDATOR capability.")
+    def validate(
+        protective_subsystem: Any,
+        session_id: str,
+        capability: ValidatorCapability,
+        observation: Optional[SealedObservation] = None,
+        producer_capability: Optional[ProducerCapability] = None,
+    ) -> ProtectiveMonitoringEvidence:
+        if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR or capability.validator_id != "ProtectiveMonitoringValidator":
+            raise RecoveryEvidenceError("ProtectiveMonitoringValidator requires a valid PROTECTIVE_MONITORING_VALIDATOR capability.")
 
-        active = False
         if isinstance(protective_subsystem, bool):
-            active = protective_subsystem
-        elif protective_subsystem is not None:
-            if hasattr(protective_subsystem, "is_active"):
-                active = bool(protective_subsystem.is_active())
-            elif hasattr(protective_subsystem, "active"):
-                active = bool(getattr(protective_subsystem, "active", False))
-            else:
-                active = True
+            prov = EvidenceProvenance(
+                source_component="ProtectiveMonitoringValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Raw boolean assertion rejected. Protective monitoring authority requires ProtectiveMonitoringSubsystem with SealedObservation.",
+            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+
+        if observation is None or producer_capability is None:
+            prov = EvidenceProvenance(
+                source_component="ProtectiveMonitoringValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Missing SealedObservation or ProducerCapability for Protective Monitoring authority provenance.",
+            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+
+        if not isinstance(producer_capability, ProducerCapability) or producer_capability.role != CapabilityRole.PROTECTIVE_MONITOR:
+            prov = EvidenceProvenance(
+                source_component="ProtectiveMonitoringValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Invalid or unauthorized ProducerCapability for Protective Monitoring.",
+            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+
+        if not isinstance(observation, SealedObservation) or not observation.verify(CapabilityRole.PROTECTIVE_MONITOR, session_id, producer_capability._role_key):
+            prov = EvidenceProvenance(
+                source_component="ProtectiveMonitoringValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="SealedObservation verification failed for Protective Monitoring.",
+            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+
+        if not isinstance(protective_subsystem, ProtectiveMonitoringSubsystem):
+            prov = EvidenceProvenance(
+                source_component="ProtectiveMonitoringValidator",
+                source_operation="validate",
+                source_session=session_id,
+                result="FAILED",
+                failure_reason="Subsystem must be an instance of ProtectiveMonitoringSubsystem.",
+            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+
+        obs_payload = observation.frozen_payload
+        active = protective_subsystem.is_active() and obs_payload.get("active") is True
 
         prov = EvidenceProvenance(
             source_component="ProtectiveMonitoringValidator",
