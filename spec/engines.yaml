@@ -1,0 +1,36 @@
+engines:
+  PDE:
+    allowed_capabilities:
+      - READ_MARKET_STATE
+      - READ_FEATURES
+      - WRITE_PDE_STATE
+      - CREATE_PULLBACK_OBJECT
+      - INVALIDATE_SUBORDINATE_CHILDREN
+    forbidden_capabilities:
+      - CREATE_EXECUTION_INTENT
+      - SUBMIT_ORDER
+      - MODIFY_POSITION
+      - CLOSE_POSITION_STRATEGICALLY
+  Risk:
+    allowed_capabilities:
+      - ALLOCATE_RISK
+      - ASSESS_ACCOUNT_FEASIBILITY
+      - REJECT_EXCESSIVE_RISK
+    forbidden_capabilities:
+      - MANUFACTURE_DIRECTION
+      - CREATE_SIGNAL
+  Portfolio:
+    allowed_capabilities:
+      - ARBITRATE_EXPOSURE
+      - ENFORCE_CURRENCY_LIMITS
+      - ENFORCE_CORRELATION_LIMITS
+    forbidden_capabilities:
+      - MANUFACTURE_DIRECTION
+      - CREATE_SIGNAL
+  Execution:
+    allowed_capabilities:
+      - SUBMIT_AUTHORIZED_INTENT
+      - RECONCILE_ORDERS
+    forbidden_capabilities:
+      - REINTERPRET_STRATEGY
+      - ALTER_RISK_PARAMETERS

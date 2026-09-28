@@ -1,0 +1,336 @@
+invariants:
+  - id: 1
+    title: pipeline_data_flow_layers
+    rule: "Raw market data flows strictly Layer 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix boundaries and modular contract decoupling"
+    test_reference: tests/test_invariants.py::test_invariant_1_pipeline_data_flow_layers
+    failure_mode: "AuthorityViolationException raised on layering violation"
+
+  - id: 2
+    title: strategy_engines_no_direct_orders
+    rule: "Strategy engines must not directly place MT5 orders."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix forbids PDE/Flow/Strategy from creating execution intents"
+    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    failure_mode: "AuthorityViolationException raised on order submission attempt"
+
+  - id: 3
+    title: pde_cannot_call_ordersend
+    rule: "PDE cannot call OrderSend."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix.verify_capability('PDE', 'CREATE_EXECUTION_INTENT')"
+    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    failure_mode: "AuthorityViolationException"
+
+  - id: 4
+    title: flow_cannot_open_position
+    rule: "Flow cannot open a position."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix.verify_capability('Flow', 'CREATE_EXECUTION_INTENT')"
+    test_reference: tests/test_invariant_enforcement.py::test_invariant_4_flow_cannot_open_position
+    failure_mode: "AuthorityViolationException"
+
+  - id: 5
+    title: risk_cannot_manufacture_signal
+    rule: "Risk cannot manufacture a signal."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix.verify_capability('Risk', 'MANUFACTURE_DIRECTION')"
+    test_reference: tests/test_invariants.py::test_invariant_risk_cannot_manufacture_direction
+    failure_mode: "AuthorityViolationException"
+
+  - id: 6
+    title: portfolio_cannot_manufacture_direction
+    rule: "Portfolio arbitration cannot manufacture direction."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix.verify_capability('Portfolio', 'MANUFACTURE_DIRECTION')"
+    test_reference: tests/test_invariants.py::test_invariant_portfolio_cannot_manufacture_direction
+    failure_mode: "AuthorityViolationException"
+
+  - id: 7
+    title: execution_cannot_reinterpret_strategy
+    rule: "Execution cannot reinterpret strategy."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix.verify_capability('Execution', 'REINTERPRET_STRATEGY')"
+    test_reference: tests/test_invariant_enforcement.py::test_invariant_7_execution_cannot_reinterpret_strategy
+    failure_mode: "AuthorityViolationException"
+
+  - id: 8
+    title: news_shield_cannot_manufacture_trades
+    rule: "News Shield cannot manufacture trades."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix capability checks"
+    test_reference: tests/test_invariant_enforcement.py::test_invariant_8_news_shield_cannot_manufacture_trades
+    failure_mode: "AuthorityViolationException"
+
+  - id: 9
+    title: confidence_cannot_override_validity
+    rule: "Confidence cannot turn an invalid object into a valid object."
+    status: ENFORCED
+    enforcement_mechanism: "StateEnvelope constructor and TradeDecision.is_authorized check"
+    test_reference: tests/test_invariant_enforcement.py::test_invariant_9_confidence_cannot_override_validity
+    failure_mode: "TradeDecision.is_authorized returns False"
+
+  - id: 10
+    title: mandatory_validity_gates_unbypassable
+    rule: "Mandatory validity gates cannot be bypassed by a high score."
+    status: ENFORCED
+    enforcement_mechanism: "TradeDecision.is_authorized mandatory checks"
+    test_reference: tests/test_invariant_enforcement.py::test_invariant_10_mandatory_validity_gates_unbypassable
+    failure_mode: "TradeDecision.is_authorized returns False"
+
+  - id: 11
+    title: valid_lineage_required
+    rule: "Every executable strategic object must have valid lineage."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage.validate_child_action check"
+    test_reference: tests/test_lineage.py::test_lineage_exact_version_accepted
+    failure_mode: "LineageInvalidException"
+
+  - id: 12
+    title: child_carries_lineage_ids
+    rule: "Every child object carries parent_id, parent_version, and root_id."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage constructor fields"
+    test_reference: tests/test_lineage.py::test_lineage_exact_version_accepted
+    failure_mode: "LineageInvalidException"
+
+  - id: 13
+    title: child_blocked_on_invalid_parent
+    rule: "A child cannot act when its required parent state/version is no longer valid."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage.validate_child_action strict version check"
+    test_reference: tests/test_lineage.py::test_stale_parent_version_rejected
+    failure_mode: "LineageInvalidException"
+
+  - id: 14
+    title: orphaned_signals_never_execute
+    rule: "Orphaned signals never execute."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage.validate_child_action root_id/parent_id check"
+    test_reference: tests/test_lineage.py::test_illegal_lineage_edge_skipped_parent_rejected
+    failure_mode: "LineageInvalidException"
+
+  - id: 15
+    title: orphaned_orders_reconciled
+    rule: "Orphaned orders are reconciled before cancellation/finalization."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
+    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
+    failure_mode: "State remains EXEC_UNKNOWN until reconciled"
+
+  - id: 16
+    title: orphaned_positions_protectively_managed
+    rule: "Orphaned positions may be protectively managed while ownership is reconstructed."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
+    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
+    failure_mode: "State remains EXEC_UNKNOWN until reconciled"
+
+  - id: 17
+    title: uncertain_state_no_new_exposure
+    rule: "Uncertain state cannot create new exposure."
+    status: ENFORCED
+    enforcement_mechanism: "TradeDecision.is_authorized checks"
+    test_reference: tests/test_provenance_authorization.py::test_news_lockdown_blocks_trade_decision_authorization
+    failure_mode: "TradeDecision.is_authorized returns False"
+
+  - id: 18
+    title: strategy_offline_protection_active
+    rule: "Strategy may be offline while protective control remains active."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "DeterministicBrokerSimulator.modify_stop_loss independent of strategy"
+    test_reference: tests/test_simulator.py::test_broker_simulator_stop_loss_tighten_ratchet
+    failure_mode: "Stop loss modified successfully"
+
+  - id: 19
+    title: protective_stops_never_loosened
+    rule: "Existing protective stops must never be loosened by a news/risk/management overlay."
+    status: ENFORCED
+    enforcement_mechanism: "DeterministicBrokerSimulator.modify_stop_loss ratchet validation"
+    test_reference: tests/test_simulator.py::test_broker_simulator_stop_loss_tighten_ratchet
+    failure_mode: "ValueError raised on attempt to loosen stop loss"
+
+  - id: 20
+    title: no_strategic_exposure_in_news_lockdown
+    rule: "No strategic new exposure during NEWS_LOCKDOWN."
+    status: ENFORCED
+    enforcement_mechanism: "TradeDecision.is_authorized checks news_state == 'NEWS_LOCKDOWN'"
+    test_reference: tests/test_invariants.py::test_invariant_news_lockdown_blocks_strategic_exposure
+    failure_mode: "TradeDecision.is_authorized returns False"
+
+  - id: 21
+    title: scheduled_news_vs_observed_shock_separate
+    rule: "Scheduled news and observed shock are separate concepts."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 5 News Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 5 implementation"
+
+  - id: 22
+    title: ten_min_post_news_checkpoint
+    rule: "Ten minutes after news is a validation checkpoint, not an automatic restart rule."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 5 News Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 5 implementation"
+
+  - id: 23
+    title: no_future_data_lookahead
+    rule: "No future data/lookahead."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 8 Research Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 8 FeatureStore implementation"
+
+  - id: 24
+    title: decisions_use_past_data
+    rule: "Decisions use data available at or before decision time."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "TradeDecision quote_timestamp snapshot"
+    test_reference: tests/test_provenance_authorization.py::test_provenance_snapshots_preserved
+    failure_mode: "Mismatch detected in audit timestamp"
+
+  - id: 25
+    title: pullbacks_hierarchical_m1_micro
+    rule: "Pullbacks are hierarchical; an M1 micro pullback is not automatically a primary pullback."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage directed graph verifies legal hierarchy"
+    test_reference: tests/test_lineage.py::test_legal_lineage_edges_all_valid
+    failure_mode: "LineageInvalidException"
+
+  - id: 26
+    title: primary_pullback_higher_tf
+    rule: "Primary pullback normally occurs on a timeframe strictly higher than execution timeframe."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 PDE Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 2 PDE implementation"
+
+  - id: 27
+    title: lower_tf_pullback_explicit_micro
+    rule: "Lower-TF pullback exceptions must be explicit and classified as micro/subordinate."
+    status: ENFORCED
+    enforcement_mechanism: "Lineage directed graph verifies legal hierarchy"
+    test_reference: tests/test_lineage.py::test_legal_lineage_edges_all_valid
+    failure_mode: "LineageInvalidException"
+
+  - id: 28
+    title: flipping_requires_structural_reversal
+    rule: "Flipping is not immediate loss-to-opposite; opposite direction requires an independently valid structural reversal."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 4 Portfolio Arbitration specification"
+    test_reference: None
+    failure_mode: "Requires Layer 4 implementation"
+
+  - id: 29
+    title: liquidity_sweeps_trigger_modifiers
+    rule: "Liquidity sweeps are trigger modifiers, not standalone strategies."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 3 Opportunity Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 3 implementation"
+
+  - id: 30
+    title: compression_is_state
+    rule: "Compression is a state, not an automatic signal."
+    status: ENFORCED
+    enforcement_mechanism: "VolatilityState enum and StateEnvelope validation"
+    test_reference: tests/test_spec_parity.py::test_states_exact_parity
+    failure_mode: "InvalidStateTransitionException"
+
+  - id: 31
+    title: static_ema_crossover_not_core
+    rule: "Static EMA crossover is not the core strategy."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 Structure Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
+
+  - id: 32
+    title: fixed_fractals_not_core_structure
+    rule: "Fixed three-candle fractals are not the core structure engine."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 Structure Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
+
+  - id: 33
+    title: fixed_fibonacci_not_constitutional
+    rule: "Fixed Fibonacci thresholds are not constitutional pullback rules."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 PDE Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
+
+  - id: 34
+    title: fixed_candle_count_not_constitutional
+    rule: "Fixed candle-count pullback rules are not constitutional."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 PDE Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
+
+  - id: 35
+    title: structural_stops_primary
+    rule: "Structural stops are primary; ATR/volatility is a buffer/rescue reference, not the thesis."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 Structure Engine stop generation contract"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
+
+  - id: 36
+    title: finite_lifetime_ttl
+    rule: "Every trade has finite lifetime through TTL."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "TradeDecision.ttl_ns positive validation"
+    test_reference: tests/test_provenance_authorization.py::test_news_lockdown_blocks_trade_decision_authorization
+    failure_mode: "ValueError"
+
+  - id: 37
+    title: portfolio_currency_and_correlation_aware
+    rule: "Portfolio exposure must be currency-aware and correlation-aware."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 4 Portfolio Arbitration Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 4 implementation"
+
+  - id: 38
+    title: account_feasibility_checked
+    rule: "Account feasibility must be checked before sizing/execution."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 4 Risk Engine account feasibility contract"
+    test_reference: None
+    failure_mode: "Requires Layer 4 Risk implementation"
+
+  - id: 39
+    title: configuration_versioned_and_reproducible
+    rule: "Configuration is versioned; news overlays must not overwrite the latest base configuration."
+    status: ENFORCED
+    enforcement_mechanism: "EffectiveConfiguration SHA256 identity calculation"
+    test_reference: tests/test_units_broker.py::test_effective_configuration_reproducible_identity
+    failure_mode: "Configuration ID mismatch"
+
+  - id: 40
+    title: reconciliation_completes_before_auth
+    rule: "Reconciliation must complete before strategy authorization after restart/disconnect."
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "DeterministicBrokerSimulator.reconcile_intent query"
+    test_reference: tests/test_simulator_hardened.py::test_restart_recovery_reconciliation
+    failure_mode: "State remains EXEC_UNKNOWN until reconciled"
+
+  - id: 41
+    title: research_tests_information_value
+    rule: "Research must test incremental information value rather than merely maximize backtest profit."
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 8 Research Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 8 implementation"
+
+  - id: 42
+    title: constitutional_rules_never_optimized
+    rule: "Constitutional rules are never optimized away."
+    status: ENFORCED
+    enforcement_mechanism: "AuthorityMatrix fail-closed checks"
+    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    failure_mode: "AuthorityViolationException"
