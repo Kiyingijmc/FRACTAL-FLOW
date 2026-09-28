@@ -75,7 +75,7 @@ CREATE TABLE broker_positions (
     current_tp REAL,
     client_order_id TEXT,               -- Reconstructed client order ID
     internal_position_id TEXT,           -- Mapped local Position UUID
-    quarantine_status TEXT NOT NULL,     -- NORMAL, QUARANTINED_WITH_VALID_PROTECTION, QUARANTINED_WITHOUT_VALID_THESIS
+    quarantine_status TEXT NOT NULL,     -- RECON_NORMAL, QUARANTINED_WITH_VALID_PROTECTION, QUARANTINED_WITHOUT_VALID_THESIS
     last_reconciled_at INTEGER NOT NULL
 );
 ```
