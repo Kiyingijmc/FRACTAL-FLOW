@@ -101,11 +101,13 @@ Research architectural layers incrementally rather than maximizing backtest PnL 
 Survival/correctness/lineage/protection precede speed and PnL.
 
 ## D-032 — Pullback Candidate Boolean Precedence
+* **Status:** OPEN — pending research validation
 * **Context:** `docs/06_PULLBACK_ENGINE.md §4` specified candidate rules as `CounterMoveNorm > θ_counter AND CounterEfficiency > θ_efficiency OR CounterStructuralEvidence = TRUE` without parentheses.
 * **Decision:** Reconcile as `(CounterMoveNorm > θ_counter AND CounterEfficiency > θ_efficiency) OR (CounterMoveNorm > θ_min_floor AND CounterStructuralEvidence = TRUE)`.
 * **Rationale:** Structural evidence (e.g. key swing break) is primary (AGENTS.md Invariant #35) and can qualify a pullback candidate even if normalized move or efficiency metrics fall below standard threshold, provided a baseline distance floor `θ_min_floor` is satisfied.
 
 ## D-033 — Quarantined Position Exit Pathway
+* **Status:** OPEN — pending research validation
 * **Context:** `docs/14_RECONCILIATION.md §4` defined orphan state `QUARANTINED` when parent lineage cannot be reconstructed after a crash. Inventing a structural trailing stop without valid lineage creates a circular dependency.
 * **Decision:** Distinguish two quarantine sub-states:
   1. `QUARANTINED_WITH_VALID_PROTECTION`: Structure intact; Protective Manager trails tight stop until flat.
@@ -155,5 +157,7 @@ These remain research questions:
 - symbol-specific behavior
 - correlation thresholds
 - Smart Overtrading budgets
+- pullback candidate boolean precedence (θ_min_floor)
+- quarantine exit strategy choice
 
 Constitutional architecture must not be optimized away to solve these questions.
