@@ -88,6 +88,8 @@ Smart Overtrading should be budgeted by:
 - tradeability
 - correlation
 
+Per D-036, re-entry authorization MUST verify `Pullback.reentry_allowed == TRUE` before permitting any additional or re-entry trade.
+
 It must not become unlimited M1 churn.
 
 ## 9. Flipping

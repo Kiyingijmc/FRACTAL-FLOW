@@ -172,14 +172,26 @@ Break quality:
 - persistence
 - momentum
 
-States:
+States (PDEState / PDEResumptionState):
+Primary PDE States:
+PDE_NONE
+PDE_IMPULSE
+PDE_PULLBACK_CANDIDATE
+PDE_PULLBACK_ACTIVE
+PDE_WEAKENING
+PDE_STRENGTHENING
+PDE_DEEPENING
+PDE_RESUMPTION_IN_PROGRESS
+PDE_FOLLOW_THROUGH
+PDE_RESUMPTION_FAILED
+PDE_INVALIDATED
+
+Resumption Sub-Lifecycle States:
 RESUMPTION_NONE
 RECOVERY_CANDIDATE
 RECOVERY_CONFIRMED
 DISPLACEMENT_CANDIDATE
 RESUMPTION_CONFIRMED
-FOLLOW_THROUGH
-RESUMPTION_FAILED
 
 ## 9. False resumption
 
@@ -274,7 +286,7 @@ RES_RESUMPTION_SCORE
 EvidenceConfidence =
 f(DataQuality, StructureConfidence, ImpulseConfidence,
   PullbackConfidence, WeakeningConfidence,
-  ResumptionConfidence, ExecutionConfidence)
+  ResumptionConfidence)
 
 Only calibrated confidence can become probability.
 

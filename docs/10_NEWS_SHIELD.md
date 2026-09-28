@@ -148,11 +148,14 @@ Protection must account for:
 - volatility
 - structural levels
 
-For long:
-SL_final = max(SL_existing, SL_news)
+For long (tighten = move price UP):
+SL_final = max(SL_existing, SL_news_candidate)
 
-For short:
-SL_final = min(SL_existing, SL_news)
+For short (tighten = move price DOWN):
+SL_final = min(SL_existing, SL_news_candidate)
+
+Add mandatory assertion:
+Assert(Distance(Entry, SL_final) <= Distance(Entry, SL_existing))
 
 Never loosen the stop.
 

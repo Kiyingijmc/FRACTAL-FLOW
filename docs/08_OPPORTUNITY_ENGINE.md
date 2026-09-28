@@ -185,6 +185,10 @@ portfolio
 arbitration
 execution readiness
 
+Entry authorization MUST also evaluate the parent pullback policy flags (`D-036`):
+- `primary_entry_allowed == TRUE` for standard primary pullback setups.
+- `micro_entry_allowed == TRUE` for subordinate micro pullback setups.
+
 ## 14. Expiry
 
 An opportunity expires when:

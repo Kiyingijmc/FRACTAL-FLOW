@@ -134,6 +134,8 @@ If old brainstorming conflicts with the latest explicitly versioned canonical do
 
 If the repository contains a newer versioned specification than this package, inspect it before modifying code.
 
+AUDIT_REPORT.md, RECONCILED_STATE_MACHINES.md, SCHEMA_TYPES.md, PERSISTENCE_SCHEMA.md, INTERFACE_AND_TELEMETRY.md, and DECISION_LOG_ADDENDUM.md (merged into docs/DECISION_LOG.md) are canonical and supersede any conflicting text in docs/00–19.
+
 ## 6. Implementation phases
 
 Phase 1: canonical types/state/events/lineage/versioning/invariants
