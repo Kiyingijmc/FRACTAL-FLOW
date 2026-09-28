@@ -7,6 +7,7 @@ import pytest
 from src.fractal_flow.domain.reason_codes import ReasonCode
 from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY
 from src.fractal_flow.domain.lineage import LEGAL_LINEAGE_EDGES
+from src.fractal_flow.domain.entry import EntryModel, OrderType, FillPolicy, TimeInForce
 
 
 def test_reason_codes_exact_parity() -> None:
@@ -21,6 +22,36 @@ def test_reason_codes_exact_parity() -> None:
     assert spec_codes == python_codes, (
         f"ReasonCode mismatch! Spec extra: {spec_codes - python_codes}, "
         f"Python extra: {python_codes - spec_codes}"
+    )
+
+
+def test_entry_models_exact_parity() -> None:
+    yaml_path = Path("spec/entry_models.yaml")
+    assert yaml_path.exists(), "spec/entry_models.yaml missing"
+    with open(yaml_path) as f:
+        spec_data = yaml.safe_load(f)
+
+    spec_models = set(spec_data.get("entry_models", spec_data) if isinstance(spec_data, dict) else spec_data)
+    python_models = set(m.value for m in EntryModel)
+
+    assert spec_models == python_models, (
+        f"EntryModel mismatch! Spec extra: {spec_models - python_models}, "
+        f"Python extra: {python_models - spec_models}"
+    )
+
+
+def test_order_types_exact_parity() -> None:
+    yaml_path = Path("spec/order_types.yaml")
+    assert yaml_path.exists(), "spec/order_types.yaml missing"
+    with open(yaml_path) as f:
+        spec_data = yaml.safe_load(f)
+
+    spec_types = set(spec_data.get("order_types", spec_data) if isinstance(spec_data, dict) else spec_data)
+    python_types = set(ot.value for ot in OrderType)
+
+    assert spec_types == python_types, (
+        f"OrderType mismatch! Spec extra: {spec_types - python_types}, "
+        f"Python extra: {python_types - spec_types}"
     )
 
 

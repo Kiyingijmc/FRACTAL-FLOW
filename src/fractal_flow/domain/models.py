@@ -213,6 +213,14 @@ class ExecutionIntent:
     status: str
     created_at: int
     updated_at: int
+    entry_plan_id: Optional[str] = None
+    entry_model: Optional[str] = None
+    order_type: Optional[str] = None
+    fill_policy: Optional[str] = None
+    time_in_force: Optional[str] = None
+    trigger_price: Optional[float] = None
+    limit_price: Optional[float] = None
+    stop_limit_price: Optional[float] = None
 
 
 @dataclass(frozen=True)

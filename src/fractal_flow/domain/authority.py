@@ -38,6 +38,30 @@ CAPABILITIES = {
             "MODIFY_POSITION",
         },
     },
+    "EntryPolicy": {
+        "allowed": {
+            "READ_OPPORTUNITY",
+            "READ_SIGNAL",
+            "READ_STRUCTURE",
+            "READ_PULLBACK",
+            "READ_TRADEABILITY",
+            "READ_RISK",
+            "READ_PORTFOLIO",
+            "READ_NEWS",
+            "READ_BROKER_CONSTRAINTS",
+            "CREATE_ENTRY_PLAN",
+            "INVALIDATE_ENTRY_PLAN",
+        },
+        "forbidden": {
+            "SUBMIT_ORDER",
+            "MODIFY_POSITION",
+            "CLOSE_POSITION",
+            "MANUFACTURE_DIRECTION",
+            "OVERRIDE_RISK",
+            "OVERRIDE_PORTFOLIO",
+            "OVERRIDE_NEWS",
+        },
+    },
     "NewsShield": {
         "allowed": {
             "READ_CALENDAR",

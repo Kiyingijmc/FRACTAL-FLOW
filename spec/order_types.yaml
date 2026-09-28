@@ -1,0 +1,9 @@
+order_types:
+  - MARKET_BUY
+  - MARKET_SELL
+  - BUY_LIMIT
+  - SELL_LIMIT
+  - BUY_STOP
+  - SELL_STOP
+  - BUY_STOP_LIMIT
+  - SELL_STOP_LIMIT

@@ -1,4 +1,4 @@
-"""Hardened Deterministic Broker Simulator modeling realistic execution scenarios and authoritative broker state."""
+"""Hardened Deterministic Broker Simulator modeling realistic execution scenarios, conditional execution, and authoritative broker state."""
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
@@ -6,6 +6,7 @@ from decimal import Decimal
 from enum import Enum, unique
 
 from src.fractal_flow.domain.models import ExecutionIntent, BrokerOrder, BrokerDeal, Position, OrderSide
+from src.fractal_flow.domain.entry import EntryPlan, OrderType, EntryTriggerType
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
 
@@ -33,7 +34,7 @@ class SimulationConfig:
 
 
 class DeterministicBrokerSimulator:
-    """Simulates broker execution behavior deterministically with separate client vs broker-authoritative state."""
+    """Simulates broker execution behavior deterministically for Market, Limit, Stop, and Stop-Limit conditional orders."""
 
     def __init__(self, clock: Optional[SimulationClock] = None, config: Optional[SimulationConfig] = None) -> None:
         self.clock = clock or SimulationClock()
@@ -44,6 +45,7 @@ class DeterministicBrokerSimulator:
         self.broker_deals: Dict[str, BrokerDeal] = {}
         self.broker_positions: Dict[str, Position] = {}
         self.broker_intent_statuses: Dict[str, ExecutionState] = {}
+        self.pending_entry_plans: Dict[str, EntryPlan] = {}
 
         # Client-Observed State & Idempotency Store
         self.client_intent_statuses: Dict[str, ExecutionState] = {}
@@ -72,8 +74,111 @@ class DeterministicBrokerSimulator:
     def _side_str(self, side_obj: Any) -> str:
         return side_obj.value if hasattr(side_obj, "value") else str(side_obj)
 
+    def arm_entry_plan(self, plan: EntryPlan) -> str:
+        """Arms a conditional pending entry plan for continuous evaluation."""
+        if plan.news_state == "NEWS_LOCKDOWN":
+            plan.state = "ENTRY_INVALIDATED"
+            raise ValueError("Cannot arm entry plan during NEWS_LOCKDOWN")
+        plan.state = "ENTRY_ARMED"
+        self.pending_entry_plans[plan.entry_plan_id] = plan
+        return plan.state
+
+    def process_price_tick(self, current_price: float) -> List[str]:
+        """Evaluates armed conditional entry plans against incoming market price tick."""
+        executed_plans = []
+        for plan_id, plan in list(self.pending_entry_plans.items()):
+            if plan.state not in ("ENTRY_ARMED", "STOP_TRIGGERED", "LIMIT_ACTIVATED"):
+                continue
+
+            # Continuous Conditional Validation Checks
+            if plan.news_state == "NEWS_LOCKDOWN":
+                plan.state = "ENTRY_INVALIDATED"
+                continue
+
+            if plan.expires_at > 0 and self.clock.now_ns() >= plan.expires_at:
+                plan.state = "ENTRY_EXPIRED"
+                continue
+
+            # Evaluate conditional triggers based on OrderType
+            triggered = False
+
+            if plan.order_type in (OrderType.MARKET_BUY, OrderType.MARKET_SELL):
+                triggered = True
+
+            elif plan.order_type in (OrderType.BUY_LIMIT, OrderType.SELL_LIMIT):
+                if plan.order_type == OrderType.BUY_LIMIT and current_price <= plan.limit_price:
+                    triggered = True
+                elif plan.order_type == OrderType.SELL_LIMIT and current_price >= plan.limit_price:
+                    triggered = True
+
+            elif plan.order_type in (OrderType.BUY_STOP, OrderType.SELL_STOP):
+                if plan.order_type == OrderType.BUY_STOP and current_price >= plan.trigger_price:
+                    triggered = True
+                elif plan.order_type == OrderType.SELL_STOP and current_price <= plan.trigger_price:
+                    triggered = True
+
+            elif plan.order_type in (OrderType.BUY_STOP_LIMIT, OrderType.SELL_STOP_LIMIT):
+                if plan.state == "ENTRY_ARMED":
+                    # Check stop trigger
+                    if (plan.order_type == OrderType.BUY_STOP_LIMIT and current_price >= plan.trigger_price) or \
+                       (plan.order_type == OrderType.SELL_STOP_LIMIT and current_price <= plan.trigger_price):
+                        plan.state = "STOP_TRIGGERED"
+                if plan.state in ("STOP_TRIGGERED", "LIMIT_ACTIVATED"):
+                    # Check limit fill activation
+                    if (plan.order_type == OrderType.BUY_STOP_LIMIT and current_price <= plan.limit_price) or \
+                       (plan.order_type == OrderType.SELL_STOP_LIMIT and current_price >= plan.limit_price):
+                        plan.state = "LIMIT_ACTIVATED"
+                        triggered = True
+
+            if triggered:
+                # Convert EntryPlan into ExecutionIntent and submit
+                intent = ExecutionIntent(
+                    intent_id=f"intent_plan_{plan.entry_plan_id}",
+                    decision_id=plan.decision_id,
+                    opportunity_id=plan.opportunity_id,
+                    root_id=plan.root_id,
+                    idempotency_key=f"key_plan_{plan.entry_plan_id}",
+                    symbol=plan.symbol,  # Use actual symbol from plan!
+                    side=plan.order_side,
+                    requested_volume=plan.approved_volume,
+                    entry_price=current_price,
+                    sl=plan.structural_sl,
+                    tp_plan=plan.tp_plan,
+                    effective_config_id=plan.effective_config_id,
+                    lineage_version=plan.lineage_version,
+                    broker_constraint_snapshot=plan.broker_constraints_snapshot,
+                    quote_timestamp=self.clock.now_ns(),
+                    spread_pips=1.0,
+                    status="EXEC_READY",
+                    created_at=self.clock.now_ns(),
+                    updated_at=self.clock.now_ns(),
+                    entry_plan_id=plan.entry_plan_id,
+                    entry_model=plan.entry_model.value,
+                    order_type=plan.order_type.value,
+                    fill_policy=plan.fill_policy.value,
+                    time_in_force=plan.time_in_force.value,
+                    trigger_price=plan.trigger_price,
+                    limit_price=plan.limit_price,
+                    stop_limit_price=plan.stop_limit_price,
+                )
+                exec_state = self.submit_intent(intent)
+
+                # Align plan state with execution submission result
+                if exec_state == ExecutionState.EXEC_FILLED:
+                    plan.state = "ENTRY_FILLED"
+                    executed_plans.append(plan_id)
+                elif exec_state == ExecutionState.EXEC_PARTIAL:
+                    plan.state = "PARTIAL_FILL"
+                    executed_plans.append(plan_id)
+                elif exec_state == ExecutionState.EXEC_REJECTED:
+                    plan.state = "ENTRY_REJECTED"
+                elif exec_state == ExecutionState.EXEC_UNKNOWN:
+                    plan.state = "ENTRY_UNKNOWN"
+
+        return executed_plans
+
     def submit_intent(self, intent: ExecutionIntent) -> ExecutionState:
-        """Processes execution intent with strict canonical idempotency and scenario modeling."""
+        """Processes execution intent with strict idempotency and scenario modeling."""
         side_val = self._side_str(intent.side)
 
         # Canonical Idempotency Enforcement
@@ -111,7 +216,6 @@ class DeterministicBrokerSimulator:
         order_id = f"ORD_{self._order_counter}"
 
         if scenario == ExecutionScenario.UNKNOWN_AFTER_ACCEPT:
-            # Order accepted on broker order book, but NO fill, NO deals, NO position created
             order = BrokerOrder(
                 order_id=order_id,
                 intent_id=intent.intent_id,
@@ -271,13 +375,12 @@ class DeterministicBrokerSimulator:
         if not pos or pos.lifecycle_state == "POS_CLOSED":
             return False
 
-        vol_to_close = close_volume or pos.remaining_volume if pos.remaining_volume > 0 else pos.filled_volume
+        vol_to_close = close_volume or (pos.remaining_volume if pos.remaining_volume > 0 else pos.filled_volume)
         if vol_to_close > (pos.remaining_volume if pos.remaining_volume > 0 else pos.filled_volume):
             raise ValueError(f"Cannot close volume {vol_to_close} exceeding active position volume {pos.filled_volume}")
 
         close_price = exit_price or pos.entry_price
 
-        # Extract instrument metadata from intent snapshot or default contract size
         contract_size = Decimal("100000.0")
         if pos.intent_id in self.idempotency_records:
             snap = self.idempotency_records[pos.intent_id].broker_constraint_snapshot
@@ -317,7 +420,6 @@ class DeterministicBrokerSimulator:
         """Queries authoritative broker state to reconcile client-observed UNKNOWN state."""
         broker_status = self.broker_intent_statuses.get(intent_id, ExecutionState.EXEC_UNKNOWN)
         if broker_status == ExecutionState.EXEC_UNKNOWN:
-            # Check broker positions directly
             for pos in self.broker_positions.values():
                 if pos.intent_id == intent_id:
                     status = ExecutionState.EXEC_PARTIAL if pos.remaining_volume > 0 else ExecutionState.EXEC_FILLED
