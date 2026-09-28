@@ -10,8 +10,13 @@ events:
     - source_timestamp
     - event_timestamp
     - processing_timestamp
+    - payload
+    - schema_version
     - configuration_version
     - data_version
     - feature_version
     - reason_codes
-    - payload
+    - causation_id
+    - correlation_id
+    - actor_id
+    - authority

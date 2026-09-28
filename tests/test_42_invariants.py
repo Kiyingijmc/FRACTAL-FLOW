@@ -20,4 +20,4 @@ def test_all_42_invariants_cataloged() -> None:
 
     for inv in invariants:
         assert "title" in inv and "rule" in inv and "status" in inv
-        assert inv["status"] in ("ENFORCED", "SPECIFIED_ONLY")
+        assert inv["status"] in ("ENFORCED", "INTEGRATION_VERIFIED", "SPECIFIED_ONLY")

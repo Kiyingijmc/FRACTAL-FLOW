@@ -1,7 +1,20 @@
-"""Foundational Domain Models for FRACTAL FLOW with Full Provenance Snapshots."""
+"""Foundational Domain Models for FRACTAL FLOW with Enums and Full Provenance Snapshots."""
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
+from enum import Enum, unique
+
+
+@unique
+class Direction(str, Enum):
+    LONG = "LONG"
+    SHORT = "SHORT"
+
+
+@unique
+class OrderSide(str, Enum):
+    BUY = "BUY"
+    SELL = "SELL"
 
 
 @dataclass(frozen=True)
@@ -27,8 +40,8 @@ class FeatureSet:
 class StructureState:
     symbol: str
     timeframe: str
-    swing_state: str  # SwingState enum
-    break_state: str  # BreakState enum
+    swing_state: str
+    break_state: str
     version: int
 
 
@@ -36,7 +49,7 @@ class StructureState:
 class FlowState:
     symbol: str
     timeframe: str
-    dominant_flow: str  # FlowState enum
+    dominant_flow: str
     local_flow: str
 
 
@@ -47,8 +60,8 @@ class PullbackObject:
     root_id: str
     symbol: str
     timeframe: str
-    direction: str
-    parent_direction: str
+    direction: Direction
+    parent_direction: Direction
     start_time: int
     start_price: float
     impulse_high: float
@@ -71,8 +84,8 @@ class PullbackObject:
     resumption_score: float
     false_resumption_risk: float
     maturity: str
-    state: str  # PDEState enum
-    sub_state: str  # PDEResumptionState enum
+    state: str
+    sub_state: str
     validity: bool
     confidence: float
     protected_level: float
@@ -99,7 +112,7 @@ class OpportunityObject:
     market_role: str
     primary_pullback_id: str
     setup_type: str
-    direction: str
+    direction: Direction
     structural_edge: float
     opportunity_space: float
     tradeability: str
@@ -108,7 +121,7 @@ class OpportunityObject:
     risk_class: str
     ttl_class: str
     confidence: float
-    state: str  # OpportunityState enum
+    state: str
     entry_allowed: bool
     parent_opportunity_id: Optional[str] = None
 
@@ -116,7 +129,7 @@ class OpportunityObject:
 @dataclass(frozen=True)
 class TradeabilityAssessment:
     opportunity_id: str
-    status: str  # TradeabilityState enum
+    status: str
     spread_pips: float
     allowed_spread_pips: float
     passed: bool
@@ -125,7 +138,7 @@ class TradeabilityAssessment:
 @dataclass(frozen=True)
 class RiskAssessment:
     opportunity_id: str
-    status: str  # RiskState enum
+    status: str
     requested_risk: float
     approved_risk: float
     account_feasible: bool
@@ -134,7 +147,7 @@ class RiskAssessment:
 @dataclass(frozen=True)
 class PortfolioAssessment:
     opportunity_id: str
-    result: str  # PortfolioState enum (ALLOW, DEFER, MERGE, REJECT)
+    result: str
     currency_exposure_lots: Dict[str, float]
 
 
@@ -143,7 +156,7 @@ class TradeDecision:
     decision_id: str
     opportunity_id: str
     root_id: str
-    direction: str
+    direction: Direction
     symbol: str
     environment: str
     role: str
@@ -187,7 +200,7 @@ class ExecutionIntent:
     root_id: str
     idempotency_key: str
     symbol: str
-    side: str
+    side: OrderSide
     requested_volume: float
     entry_price: float
     sl: float
@@ -197,7 +210,7 @@ class ExecutionIntent:
     broker_constraint_snapshot: Dict[str, Any]
     quote_timestamp: int
     spread_pips: float
-    status: str  # ExecutionState enum
+    status: str
     created_at: int
     updated_at: int
 
@@ -238,8 +251,8 @@ class Position:
     remaining_volume: float
     entry_price: float
     current_sl: float
-    lifecycle_state: str  # PositionLifecycleState
-    health_state: str  # PositionHealthState
+    lifecycle_state: str
+    health_state: str
     opened_at: int
     deals: List[BrokerDeal] = field(default_factory=list)
     realized_pnl: float = 0.0
@@ -261,13 +274,13 @@ class TTLState:
     ttl_ns: int
     created_at: int
     expires_at: int
-    state: str  # TTLState enum
+    state: str
 
 
 @dataclass
 class ReconciliationStateRecord:
     object_id: str
-    status: str  # ReconciliationState enum
+    status: str
     matched: bool
     reconstructed_lineage: bool
 

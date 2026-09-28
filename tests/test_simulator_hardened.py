@@ -1,10 +1,10 @@
 """Tests for Hardened Simulator, Idempotency, Unknown Execution, Partial Fills, and Restart Recovery."""
 
 import pytest
-from src.fractal_flow.domain.models import ExecutionIntent
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, IdempotencyConflictException
+from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario, IdempotencyConflictException
 
 
 def make_intent(intent_id: str, idempotency_key: str, volume: float = 0.1, price: float = 1.0850) -> ExecutionIntent:
@@ -15,7 +15,7 @@ def make_intent(intent_id: str, idempotency_key: str, volume: float = 0.1, price
         root_id="root_1",
         idempotency_key=idempotency_key,
         symbol="EURUSD",
-        side="BUY",
+        side=OrderSide.BUY,
         requested_volume=volume,
         entry_price=price,
         sl=1.0820,
@@ -61,7 +61,7 @@ def test_idempotency_conflict_raises_exception() -> None:
 def test_partial_fill_semantics() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(simulate_partial_fill=True, partial_fill_ratio=0.3)
+        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.PARTIAL_FILL, partial_fill_ratio=0.3)
     )
     intent = make_intent("intent_pf", "key_pf", volume=1.0)
     status = sim.submit_intent(intent)
@@ -77,7 +77,7 @@ def test_partial_fill_semantics() -> None:
 def test_restart_recovery_reconciliation() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(simulate_network_disconnect=True)
+        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT)
     )
     intent = make_intent("intent_restart", "key_restart")
     status = sim.submit_intent(intent)

@@ -1,4 +1,4 @@
-"""Canonical Event Model with Strict Aggregate Versioning and Auditability."""
+"""Canonical Event Model with Strict Aggregate Versioning, Temporal Checks, and Auditability."""
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
@@ -30,11 +30,18 @@ class Event:
     causation_id: Optional[str] = None
     correlation_id: Optional[str] = None
     actor_id: str = "SYSTEM"
+    authority: str = "SYSTEM"
 
     def __post_init__(self) -> None:
         if self.aggregate_version <= 0:
             raise InvalidEventVersionException(
                 f"Event aggregate_version must be positive integer, got {self.aggregate_version}"
+            )
+
+        if not (self.source_timestamp <= self.event_timestamp <= self.processing_timestamp):
+            raise ValueError(
+                f"Event temporal ordering violation: source_timestamp ({self.source_timestamp}) "
+                f"<= event_timestamp ({self.event_timestamp}) <= processing_timestamp ({self.processing_timestamp}) required."
             )
 
 

@@ -1,136 +1,126 @@
-# FRACTAL FLOW — FOUNDATION HARDENING AUDIT REPORT
-Version: 2.0
-Status: Hardened Foundation Phase Gate Complete
+# FRACTAL FLOW — FOUNDATION HARDENING PASS 3 REPORT
+Version: 3.0
+Status: Foundation Hardening Gate Complete (Phase 2 Ready)
 
 ---
 
-## 1. Executive Summary
+## A. Executive Result
 
-This report documents the foundation hardening pass performed on FRACTAL FLOW under Task 2 directives. The objective was to transform the initial Phase 1 foundation into a deterministic, fail-closed, version-safe, lineage-safe, persistence-safe, and execution-state-safe software core suitable for supporting Layer 1-6 strategy engine development without architectural debt.
+**FOUNDATION HARDENED — READY FOR PHASE 2**
 
-Key Accomplishments:
-- Enforced strict exact parent version identity in lineage verification (`child.parent_version == authoritative_parent.version`), eliminating stale and future version acceptance.
-- Replaced tier-index ordering with an explicit directed graph of legal lineage edges in `spec/lineage.yaml` and `src/fractal_flow/domain/lineage.py`.
-- Hardened event aggregate versioning to require strictly sequential increments (`incoming_version == current_version + 1`), rejecting gaps, duplicates, and out-of-order events.
-- Made `spec/*.yaml` the canonical declarative single source of truth for all domain state machines, loaded dynamically by `StateEnvelope`.
-- Cataloged and mapped all 42 non-negotiable invariants in `spec/invariants.yaml` with executable test verification.
-- Re-architected `DeterministicBrokerSimulator` with an injected `SimulationClock`, exact idempotency key enforcement, partial fill deal sequences, and unknown execution recovery.
-- Added reproducible configuration identity hashing (`effective_config_id`), exact Decimal broker volume/pip calculations, and hard `NEWS_LOCKDOWN` authorization gates.
-- Configured clean Python packaging (`pyproject.toml`) and GitHub Actions CI workflow (`.github/workflows/ci.yml`).
+The FRACTAL FLOW software foundation has undergone a rigorous, surgical hardening pass. All state machines fail closed, specifications and Python runtime models are semantically bound, lineage tracking enforces strict exact parent version identity, unknown execution scenarios and partial fills are authoritatively simulated, and all 42 non-negotiable invariants are cataloged and tested with honest engineering classifications.
 
 ---
 
-## 2. Files Changed
+## B. Files Changed
 
-- `spec/lineage.yaml`: Added explicit legal directed lineage graph edges.
-- `spec/invariants.yaml`: Full 42 non-negotiable invariant catalog with layer and test mapping.
-- `spec/reason_codes.yaml`: Machine-readable reason code list.
-- `spec/states.yaml` & `spec/transitions.yaml`: Single source of truth for all 20 state machines.
-- `src/fractal_flow/domain/lineage.py`: Enforced strict exact version identity and legal edge validation.
-- `src/fractal_flow/domain/event.py`: Enforced strictly sequential aggregate versioning and audit causation/correlation attributes.
-- `src/fractal_flow/domain/envelope.py`: Dynamic loading of YAML transitions and construction-time validation.
-- `src/fractal_flow/domain/units.py`: Exact Decimal pip conversions and bounded ratio/score types.
-- `src/fractal_flow/domain/broker.py`: Decimal volume step & stops level validation.
-- `src/fractal_flow/domain/models.py`: Added full provenance snapshots and hard `NEWS_LOCKDOWN` check.
-- `src/fractal_flow/config/config.py`: Deterministic `effective_config_id` hash calculation.
-- `src/fractal_flow/simulation/clock.py`: Injected deterministic `SimulationClock`.
-- `src/fractal_flow/simulation/simulator.py`: Hardened simulator with idempotency, partial fills, and clock injection.
-- `pyproject.toml`: Packaging, dependencies, and pytest configuration.
-- `.github/workflows/ci.yml`: GitHub Actions CI pipeline.
-- `.gitignore`: Added cache/build exclusion rules.
-- `tests/*`: 36 comprehensive tests covering lineage, states, versioning, invariants, simulator, and spec parity.
-
----
-
-## 3. Critical & High-Severity Defects Fixed
-
-1. **Lineage Future Parent Version Defect (CRITICAL):** Fixed `validate_child_action` which previously accepted child objects referencing future parent versions. Strict exact equality is now enforced.
-2. **Lineage Illegal Tier Edges Defect (CRITICAL):** Replaced tier-index comparison with an explicit directed graph (`LEGAL_LINEAGE_EDGES`), preventing illegal shortcuts such as `ROOT -> POSITION`.
-3. **Event Version Gap Defect (CRITICAL):** Replaced `<=` checking in `AggregateVersionTracker` with strict `incoming_version == current_version + 1`, rejecting event version gaps.
-4. **Simulator Wall-Clock Dependency (HIGH):** Replaced `time.time()` with an injected `SimulationClock` in `DeterministicBrokerSimulator`.
-5. **Idempotency Collision Defect (HIGH):** Implemented strict idempotency checks in the simulator, raising `IdempotencyConflictException` when a key is reused with modified trade parameters.
-6. **Dual Source of Truth for State Transitions (HIGH):** Replaced hardcoded transition tables in Python with dynamic loading from `spec/transitions.yaml`.
-7. **Floating-Point Volume Step Precision (MEDIUM):** Replaced `round(x).is_integer()` with exact `Decimal` modulo arithmetic in `BrokerConstraints`.
+1. `spec/lineage.yaml`: Legal directed lineage graph definition.
+2. `spec/invariants.yaml`: 42-invariant catalog with explicit failure modes and test references.
+3. `spec/events.yaml`: Full event schema reconciliation.
+4. `spec/states.yaml` & `spec/transitions.yaml`: Single canonical declarative state machine specifications.
+5. `src/fractal_flow/domain/envelope.py`: Fail-closed `StateRegistry` and temporal ordering checks.
+6. `src/fractal_flow/domain/lineage.py`: Dynamic loading of legal edges and strict parent version identity.
+7. `src/fractal_flow/domain/event.py`: Schema reconciliation and temporal ordering validation.
+8. `src/fractal_flow/domain/authority.py`: System-wide engine capability matrix covering all core components.
+9. `src/fractal_flow/domain/units.py`: Exact `Decimal` pip conversions and bounded ratio/score types.
+10. `src/fractal_flow/domain/broker.py`: Decimal volume step, stops level, and freeze level validation.
+11. `src/fractal_flow/domain/models.py`: Domain enums (`Direction`, `OrderSide`), provenance snapshots, and hard `NEWS_LOCKDOWN` check.
+12. `src/fractal_flow/config/config.py`: Deterministic SHA256 `effective_config_id` hashing.
+13. `src/fractal_flow/simulation/clock.py`: Injected deterministic `SimulationClock`.
+14. `src/fractal_flow/simulation/simulator.py`: Dual client vs broker-authoritative state, unknown execution scenarios, partial fills, close lifecycle PnL calculations, and idempotency checks.
+15. `pyproject.toml`: Package configuration, dependencies, and pytest setup.
+16. `.github/workflows/ci.yml`: GitHub Actions CI pipeline.
+17. `.gitignore`: Cleaned egg-info, pytest cache, build, and dist exclusions.
+18. `FOUNDATION_HARDENING_REPORT.md`: This comprehensive report.
+19. `tests/*`: 40 comprehensive test cases across 10 test modules.
 
 ---
 
-## 4. 42 Invariants Coverage Matrix
+## C. Defects Fixed
 
-| ID | Title | Status | Primary Test Reference |
-|---|---|---|---|
-| 1 | pipeline_data_flow_layers | ENFORCED | `test_invariants.py` |
-| 2 | strategy_engines_no_direct_orders | ENFORCED | `test_invariants.py` |
-| 3 | pde_cannot_call_ordersend | ENFORCED | `test_invariants.py` |
-| 4 | flow_cannot_open_position | ENFORCED | `test_invariants.py` |
-| 5 | risk_cannot_manufacture_signal | ENFORCED | `test_invariants.py` |
-| 6 | portfolio_cannot_manufacture_direction | ENFORCED | `test_invariants.py` |
-| 7 | execution_cannot_reinterpret_strategy | ENFORCED | `test_invariants.py` |
-| 8 | news_shield_cannot_manufacture_trades | ENFORCED | `test_invariants.py` |
-| 9 | confidence_cannot_override_validity | ENFORCED | `test_invariants.py` |
-| 10 | mandatory_validity_gates_unbypassable | ENFORCED | `test_invariants.py` |
-| 11 | valid_lineage_required | ENFORCED | `test_lineage.py` |
-| 12 | child_carries_lineage_ids | ENFORCED | `test_lineage.py` |
-| 13 | child_blocked_on_invalid_parent | ENFORCED | `test_lineage.py` |
-| 14 | orphaned_signals_never_execute | ENFORCED | `test_lineage.py` |
-| 15 | orphaned_orders_reconciled | ENFORCED | `test_simulator_hardened.py` |
-| 16 | orphaned_positions_protectively_managed | ENFORCED | `test_simulator_hardened.py` |
-| 17 | uncertain_state_no_new_exposure | ENFORCED | `test_provenance_authorization.py` |
-| 18 | strategy_offline_protection_active | ENFORCED | `test_simulator.py` |
-| 19 | protective_stops_never_loosened | ENFORCED | `test_simulator.py` |
-| 20 | no_strategic_exposure_in_news_lockdown | ENFORCED | `test_invariants.py` |
-| 21 | scheduled_news_vs_observed_shock_separate | ENFORCED | `test_spec_parity.py` |
-| 22 | ten_min_post_news_checkpoint | ENFORCED | `test_spec_parity.py` |
-| 23 | no_future_data_lookahead | ENFORCED | `test_provenance_authorization.py` |
-| 24 | decisions_use_past_data | ENFORCED | `test_provenance_authorization.py` |
-| 25 | pullbacks_hierarchical_m1_micro | ENFORCED | `test_lineage.py` |
-| 26 | primary_pullback_higher_tf | ENFORCED | `test_lineage.py` |
-| 27 | lower_tf_pullback_explicit_micro | ENFORCED | `test_lineage.py` |
-| 28 | flipping_requires_structural_reversal | ENFORCED | `test_lineage.py` |
-| 29 | liquidity_sweeps_trigger_modifiers | SPECIFIED_ONLY | (Layer 3 Engine) |
-| 30 | compression_is_state | ENFORCED | `test_spec_parity.py` |
-| 31 | static_ema_crossover_not_core | SPECIFIED_ONLY | (Layer 2 Engine) |
-| 32 | fixed_fractals_not_core_structure | SPECIFIED_ONLY | (Layer 2 Engine) |
-| 33 | fixed_fibonacci_not_constitutional | SPECIFIED_ONLY | (Layer 2 Engine) |
-| 34 | fixed_candle_count_not_constitutional | SPECIFIED_ONLY | (Layer 2 Engine) |
-| 35 | structural_stops_primary | ENFORCED | `test_units_broker.py` |
-| 36 | finite_lifetime_ttl | ENFORCED | `test_provenance_authorization.py` |
-| 37 | portfolio_currency_and_correlation_aware | ENFORCED | `test_invariants.py` |
-| 38 | account_feasibility_checked | ENFORCED | `test_invariants.py` |
-| 39 | configuration_versioned_and_reproducible | ENFORCED | `test_units_broker.py` |
-| 40 | reconciliation_completes_before_auth | ENFORCED | `test_simulator_hardened.py` |
-| 41 | research_tests_information_value | SPECIFIED_ONLY | (Layer 8 Research) |
-| 42 | constitutional_rules_never_optimized | ENFORCED | `test_invariants.py` |
+1. **Future & Stale Lineage Child Version Defect (CRITICAL):**
+   - *Problem:* `Lineage.validate_child_action` accepted children referencing future or stale parent versions.
+   - *Root Cause:* Checked `parent_version < expected` rather than exact equality.
+   - *Implementation:* Enforced `parent_version == authoritative_parent_version`.
+   - *Regression Test:* `tests/test_lineage.py::test_future_parent_version_rejected` and `tests/test_adversarial.py`.
+
+2. **Dual Source of Truth for State Transitions (HIGH):**
+   - *Problem:* Transition rules were duplicated in Python dictionaries and `spec/transitions.yaml`.
+   - *Root Cause:* Static hardcoded dictionary in `envelope.py`.
+   - *Implementation:* Created `StateRegistry` that dynamically loads `spec/states.yaml` and `spec/transitions.yaml`.
+   - *Regression Test:* `tests/test_spec_parity.py::test_states_exact_parity`.
+
+3. **Unknown State Machine Fail-Open Risk (HIGH):**
+   - *Problem:* Unknown state machines or states fell back to empty transition rules permitting transitions.
+   - *Root Cause:* Unchecked dictionary `.get()` fallback.
+   - *Implementation:* `StateRegistry.validate_transition` raises `InvalidStateTransitionException` if machine or states are unknown.
+   - *Regression Test:* `tests/test_adversarial.py::test_adversarial_unknown_state_machine_and_states`.
+
+4. **Unknown Execution Duplicate Exposure (HIGH):**
+   - *Problem:* Unknown execution responses could cause duplicate client order submissions.
+   - *Root Cause:* Simulator lacked explicit unknown execution scenario modeling and separate broker state.
+   - *Implementation:* Added `ExecutionScenario.UNKNOWN_AFTER_FILL`, separate `broker_positions` store, and idempotency protection.
+   - *Regression Test:* `tests/test_adversarial.py::test_adversarial_unknown_execution_no_duplicate_exposure`.
+
+5. **Egg-Info Build Artifacts Committed (HYGIENE):**
+   - *Problem:* `src/fractal_flow.egg-info/` binary metadata files were committed in git.
+   - *Root Cause:* Missing egg-info exclusion in `.gitignore`.
+   - *Implementation:* Removed directory and added `*.egg-info/` to `.gitignore`.
+   - *Regression Test:* Clean git status and CI checkout.
 
 ---
 
-## 5. Phase-Gate Evaluation Across All 19 Subsystems
+## D. Invariant Status
 
-1. **DATA:** IMPLEMENTED (MarketObservation, FeatureSet, DataQualityState).
-2. **FEATURES:** IMPLEMENTED (FeatureSet, data versioning).
-3. **STATE:** IMPLEMENTED (Universal StateEnvelope, fail-closed transitions from spec/transitions.yaml).
-4. **LINEAGE:** IMPLEMENTED (Strict version identity, legal graph edges, parent validation).
-5. **OPPORTUNITY:** IMPLEMENTED (OpportunityObject schema, OpportunityState, TTL class).
-6. **TRADEABILITY:** IMPLEMENTED (TradeabilityAssessment, TradeabilityState).
-7. **RISK:** IMPLEMENTED (BrokerConstraints, RiskAssessment, RiskState).
-8. **PORTFOLIO:** IMPLEMENTED (PortfolioAssessment, ArbitrationResult).
-9. **AUTHORIZATION:** IMPLEMENTED (TradeDecision, hard NEWS_LOCKDOWN boundary).
-10. **EXECUTION:** IMPLEMENTED (ExecutionIntent, ExecutionState, idempotency key).
-11. **POSITION:** IMPLEMENTED (Position, PositionLifecycleState, PositionHealthState, deals).
-12. **MANAGEMENT:** IMPLEMENTED (PositionManagementState, stop-loss ratchet).
-13. **RECONCILIATION:** IMPLEMENTED (ReconciliationStateRecord, unknown execution reconciliation).
-14. **PERSISTENCE:** IMPLEMENTED (IEventStore, InMemoryEventStore, optimistic concurrency, thread safety).
-15. **JOURNAL:** IMPLEMENTED (JournalEvent model).
-16. **SIMULATION:** IMPLEMENTED (DeterministicBrokerSimulator, SimulationClock, partial fills).
-17. **TESTING:** IMPLEMENTED (36 passing pytest suites across invariants, lineage, simulator, parity).
-18. **CI:** IMPLEMENTED (.github/workflows/ci.yml GitHub Actions pipeline).
-19. **AUDITABILITY:** IMPLEMENTED (Full TradeDecision and ExecutionIntent provenance snapshots, effective_config_id).
+Total Invariants Cataloged: **42**
+- **ENFORCED:** 27
+- **INTEGRATION_VERIFIED:** 4
+- **SPECIFIED_ONLY:** 11
+
+### Status Breakdown by Invariant ID:
+- **ENFORCED:** #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12, #13, #14, #17, #19, #20, #23, #24, #25, #27, #30, #35, #36, #37, #38, #39, #42
+- **INTEGRATION_VERIFIED:** #15, #16, #18, #40
+- **SPECIFIED_ONLY:** #21, #22, #26, #28, #29, #31, #32, #33, #34, #41
 
 ---
 
-## 6. Final Evaluation
+## E. State-Machine Verification
 
-"Is the repository technically ready for Phase 2 engine implementation?"
+- **State Machines Validated:** 20 canonical state machines defined in `spec/states.yaml`.
+- **States Validated:** All states loaded and validated at construction time by `StateEnvelope`.
+- **Transitions Validated:** Loaded dynamically from `spec/transitions.yaml` by `StateRegistry`.
+- **Unknown-Machine Behavior:** Fails closed, raising `InvalidStateTransitionException`.
+- **Unknown-State Behavior:** Fails closed, raising `InvalidStateTransitionException`.
+- **Specification Parity Result:** PASS (100% semantic identity between YAML specs and runtime Python registries).
 
-**ANSWER: YES.**
+---
 
-The FRACTAL FLOW foundation is fully hardened, deterministic, fail-closed, version-safe, lineage-safe, persistence-safe, and test-proven. Phase 2 (Data Quality, Volatility, and Adaptive Structure Engines) can now proceed safely on top of this core.
+## F. Execution Simulation
+
+- **Normal Fill:** PASS (creates BrokerOrder, BrokerDeal, Position).
+- **Reject:** PASS (returns `EXEC_REJECTED`).
+- **Unknown Before Receipt:** PASS (returns `EXEC_UNKNOWN`, broker has no record, reconciles to `EXEC_REJECTED`).
+- **Unknown After Accept:** PASS (returns `EXEC_UNKNOWN`, broker records order, reconciles to `EXEC_ACCEPTED`).
+- **Unknown After Fill:** PASS (returns `EXEC_UNKNOWN`, broker records filled position, reconciles to `EXEC_FILLED`, retry creates zero duplicate exposure).
+- **Unknown After Partial Fill:** PASS (returns `EXEC_UNKNOWN`, broker records partial position, reconciles to `EXEC_PARTIAL`).
+- **Duplicate Retry:** PASS (idempotency key match returns existing state without creating duplicate orders or deals).
+- **Partial Progression:** PASS (tracks `requested_volume`, `filled_volume`, `remaining_volume`, deal history).
+- **Close Execution:** PASS (transitions `POS_ACTIVE -> POS_CLOSING -> POS_CLOSED`, computes realized PnL, adds close deal to broker deal store).
+- **Restart Reconciliation:** PASS (reconciles client status against authoritative broker state).
+
+---
+
+## G. CI & Quality Gates
+
+- **Installation:** Clean installation via `pip install -e .` from `pyproject.toml`.
+- **Tests:** 40 passed across 10 test modules in `pytest`.
+- **Lint / Syntax:** Clean syntax validation via `python3 -m py_compile`.
+- **Coverage / Result:** 100% pass rate.
+
+---
+
+## H. Remaining Limitations
+
+1. **Strategy Engines Not Implemented:** Structure, Flow, PDE, Opportunity, Risk, Portfolio, and News engines are represented as schema contracts and state definitions only. Their internal mathematical algorithms will be built in Phase 2+.
+2. **MT5 Live Execution Gateway Not Implemented:** All execution and reconciliation operations use `DeterministicBrokerSimulator`. No live network connections or trading capital are exposed.
+3. **In-Memory Event Store:** `InMemoryEventStore` provides optimistic concurrency and strict aggregate versioning in memory. Production database persistence (PostgreSQL/TimescaleDB) will be implemented during infrastructure deployment.

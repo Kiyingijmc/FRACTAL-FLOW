@@ -1,9 +1,9 @@
 """Integration Tests for DeterministicBrokerSimulator."""
 
 import pytest
-from src.fractal_flow.domain.models import ExecutionIntent
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 from src.fractal_flow.execution.execution_state import ExecutionState
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig
+from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario
 
 
 def test_broker_simulator_successful_fill() -> None:
@@ -15,7 +15,7 @@ def test_broker_simulator_successful_fill() -> None:
         root_id="root_1",
         idempotency_key="key_1",
         symbol="EURUSD",
-        side="BUY",
+        side=OrderSide.BUY,
         requested_volume=0.1,
         entry_price=1.0850,
         sl=1.0820,
@@ -38,7 +38,7 @@ def test_broker_simulator_successful_fill() -> None:
 
 
 def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
-    sim = DeterministicBrokerSimulator(config=SimulationConfig(simulate_network_disconnect=True))
+    sim = DeterministicBrokerSimulator(config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT))
     intent = ExecutionIntent(
         intent_id="intent_2",
         decision_id="dec_2",
@@ -46,7 +46,7 @@ def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
         root_id="root_1",
         idempotency_key="key_2",
         symbol="EURUSD",
-        side="BUY",
+        side=OrderSide.BUY,
         requested_volume=0.1,
         entry_price=1.0850,
         sl=1.0820,
@@ -77,7 +77,7 @@ def test_broker_simulator_stop_loss_tighten_ratchet() -> None:
         root_id="root_1",
         idempotency_key="key_3",
         symbol="EURUSD",
-        side="BUY",
+        side=OrderSide.BUY,
         requested_volume=0.1,
         entry_price=1.0850,
         sl=1.0820,

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Set
+from pathlib import Path
+import yaml
 
 
 class LineageInvalidException(Exception):
@@ -9,26 +11,18 @@ class LineageInvalidException(Exception):
     pass
 
 
-# Legal directed lineage graph edges
-LEGAL_LINEAGE_EDGES: Dict[str, Set[str]] = {
-    "ROOT": {"REGIME", "DATA", "FEATURE", "STRUCTURE", "FLOW", "PULLBACK"},
-    "REGIME": {"SETUP", "OPPORTUNITY"},
-    "SETUP": {"PRIMARY_PULLBACK"},
-    "PRIMARY_PULLBACK": {"SECONDARY_PULLBACK", "MICRO_PULLBACK", "OPPORTUNITY"},
-    "SECONDARY_PULLBACK": {"MICRO_PULLBACK", "OPPORTUNITY"},
-    "MICRO_PULLBACK": {"OPPORTUNITY"},
-    "OPPORTUNITY": {"SIGNAL", "DECISION"},
-    "SIGNAL": {"ORDER", "DECISION"},
-    "DECISION": {"AUTHORIZATION", "ORDER"},
-    "AUTHORIZATION": {"ORDER", "EXECUTION"},
-    "ORDER": {"EXECUTION", "POSITION"},
-    "EXECUTION": {"POSITION"},
-    "POSITION": {"TRADE", "MANAGEMENT", "CLOSURE", "RECONCILIATION"},
-    "TRADE": {"MANAGEMENT", "JOURNAL"},
-    "MANAGEMENT": {"CLOSURE", "JOURNAL"},
-    "CLOSURE": {"RECONCILIATION", "JOURNAL"},
-    "RECONCILIATION": {"JOURNAL"},
-}
+def load_spec_lineage_edges(yaml_path: str = "spec/lineage.yaml") -> Dict[str, Set[str]]:
+    path = Path(yaml_path)
+    if path.exists():
+        with open(path) as f:
+            data = yaml.safe_load(f)
+            raw_edges = data.get("lineage", {}).get("legal_edges", {}) if isinstance(data, dict) else {}
+            return {k: set(v) for k, v in raw_edges.items()}
+    return {}
+
+
+# Dynamic loading of legal lineage edges directly from canonical spec/lineage.yaml
+LEGAL_LINEAGE_EDGES: Dict[str, Set[str]] = load_spec_lineage_edges()
 
 
 @dataclass

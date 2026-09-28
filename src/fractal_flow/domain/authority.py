@@ -5,11 +5,11 @@ from typing import Set
 
 
 class AuthorityViolationException(Exception):
-    """Raised when an engine attempts an unauthorized capability."""
+    """Raised when an engine attempts an unauthorized capability or an unknown engine accesses capabilities."""
     pass
 
 
-# Capability Definitions
+# Capability Definitions for all core system engines
 CAPABILITIES = {
     "PDE": {
         "allowed": {
@@ -24,6 +24,30 @@ CAPABILITIES = {
             "SUBMIT_ORDER",
             "MODIFY_POSITION",
             "CLOSE_POSITION_STRATEGICALLY",
+        },
+    },
+    "Flow": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "READ_FEATURES",
+            "WRITE_FLOW_STATE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "MODIFY_POSITION",
+        },
+    },
+    "NewsShield": {
+        "allowed": {
+            "READ_CALENDAR",
+            "WRITE_NEWS_STATE",
+            "ENFORCE_PROTECTIVE_STOPS",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "MANUFACTURE_DIRECTION",
         },
     },
     "Risk": {
@@ -66,7 +90,9 @@ class AuthorityMatrix:
     def verify_capability(engine_name: str, action: str) -> None:
         """Verifies if an engine has authority to perform a specific action."""
         if engine_name not in CAPABILITIES:
-            raise AuthorityViolationException(f"Unknown engine: '{engine_name}'")
+            raise AuthorityViolationException(
+                f"Authority Violation: Unknown engine '{engine_name}' cannot claim capabilities."
+            )
 
         allowed = CAPABILITIES[engine_name]["allowed"]
         forbidden = CAPABILITIES[engine_name]["forbidden"]
