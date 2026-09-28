@@ -1,6 +1,7 @@
-"""Broker Constraint Model and validation logic."""
+"""Broker Constraint Model with exact Decimal volume step & stop distance validation."""
 
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from src.fractal_flow.domain.units import Volume, PricePips
 
 
@@ -24,27 +25,35 @@ class BrokerConstraints:
     order_mode: str = "MARKET"
 
     def validate_volume(self, requested_volume: float) -> Volume:
-        """Validates and aligns volume against broker constraints."""
-        if requested_volume < self.min_volume:
+        """Validates volume alignment using exact Decimal arithmetic."""
+        req_dec = Decimal(str(requested_volume))
+        min_dec = Decimal(str(self.min_volume))
+        max_dec = Decimal(str(self.max_volume))
+        step_dec = Decimal(str(self.volume_step))
+
+        if req_dec < min_dec:
             raise ValueError(
                 f"Requested volume {requested_volume} below min_volume {self.min_volume} for {self.symbol}"
             )
-        if requested_volume > self.max_volume:
+        if req_dec > max_dec:
             raise ValueError(
                 f"Requested volume {requested_volume} above max_volume {self.max_volume} for {self.symbol}"
             )
 
-        # Check step alignment
-        steps = round((requested_volume - self.min_volume) / self.volume_step, 6)
-        if not steps.is_integer():
+        # Exact Decimal step alignment check
+        remainder = (req_dec - min_dec) % step_dec
+        if remainder != Decimal("0"):
             raise ValueError(
-                f"Requested volume {requested_volume} does not align with volume_step {self.volume_step}"
+                f"Requested volume {requested_volume} does not align with min_volume {self.min_volume} "
+                f"and volume_step {self.volume_step}"
             )
         return Volume(value=requested_volume)
 
     def validate_stop_distance(self, sl_distance_pips: float) -> None:
         """Ensures stop loss distance respects broker stops level."""
-        if sl_distance_pips < self.stops_level:
+        sl_dec = Decimal(str(sl_distance_pips))
+        stops_dec = Decimal(str(self.stops_level))
+        if sl_dec < stops_dec:
             raise ValueError(
                 f"Stop distance {sl_distance_pips} pips is below broker stops_level {self.stops_level} pips"
             )

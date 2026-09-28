@@ -1,18 +1,23 @@
-"""Deterministic Broker Simulator for Integration Testing without Live MT5 Connection."""
+"""Hardened Deterministic Broker Simulator for Integration and Adversarial Testing."""
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-import time
+from decimal import Decimal
 
 from src.fractal_flow.domain.models import ExecutionIntent, BrokerOrder, BrokerDeal, Position
 from src.fractal_flow.execution.execution_state import ExecutionState
+from src.fractal_flow.simulation.clock import SimulationClock
+
+
+class IdempotencyConflictException(Exception):
+    """Raised when an intent with an existing idempotency_key has materially different parameters."""
+    pass
 
 
 @dataclass
 class SimulationConfig:
     auto_accept: bool = True
     auto_fill: bool = True
-    delay_ms: int = 0
     reject_probability: float = 0.0
     simulate_network_disconnect: bool = False
     simulate_partial_fill: bool = False
@@ -20,21 +25,38 @@ class SimulationConfig:
 
 
 class DeterministicBrokerSimulator:
-    """Simulates broker execution behavior deterministically for integration testing."""
+    """Simulates broker execution behavior deterministically with an injected simulation clock."""
 
-    def __init__(self, config: Optional[SimulationConfig] = None) -> None:
+    def __init__(self, clock: Optional[SimulationClock] = None, config: Optional[SimulationConfig] = None) -> None:
+        self.clock = clock or SimulationClock()
         self.config = config or SimulationConfig()
         self.orders: Dict[str, BrokerOrder] = {}
         self.deals: Dict[str, BrokerDeal] = {}
         self.positions: Dict[str, Position] = {}
         self.intent_statuses: Dict[str, ExecutionState] = {}
+        self.idempotency_records: Dict[str, ExecutionIntent] = {}
         self._order_counter = 1000
         self._deal_counter = 5000
         self._pos_counter = 9000
 
     def submit_intent(self, intent: ExecutionIntent) -> ExecutionState:
-        """Processes execution intent submission deterministically."""
-        # Save intent status as SUBMITTING
+        """Processes execution intent with strict idempotency and deterministic fill modeling."""
+        # Check idempotency
+        if intent.idempotency_key in self.idempotency_records:
+            existing = self.idempotency_records[intent.idempotency_key]
+            # Check for material changes
+            if (
+                existing.symbol != intent.symbol
+                or existing.side != intent.side
+                or existing.requested_volume != intent.requested_volume
+                or existing.entry_price != intent.entry_price
+            ):
+                raise IdempotencyConflictException(
+                    f"Idempotency Conflict: Key '{intent.idempotency_key}' already used with different parameters."
+                )
+            return self.intent_statuses.get(existing.intent_id, ExecutionState.EXEC_SUBMITTED)
+
+        self.idempotency_records[intent.idempotency_key] = intent
         self.intent_statuses[intent.intent_id] = ExecutionState.EXEC_SUBMITTING
 
         if self.config.simulate_network_disconnect:
@@ -49,7 +71,13 @@ class DeterministicBrokerSimulator:
         order_id = f"ORD_{self._order_counter}"
 
         if self.config.simulate_partial_fill:
-            fill_vol = round(intent.requested_volume * self.config.partial_fill_ratio, 2)
+            fill_vol = float(
+                (Decimal(str(intent.requested_volume)) * Decimal(str(self.config.partial_fill_ratio))).quantize(
+                    Decimal("0.01")
+                )
+            )
+            rem_vol = float(Decimal(str(intent.requested_volume)) - Decimal(str(fill_vol)))
+
             order = BrokerOrder(
                 order_id=order_id,
                 intent_id=intent.intent_id,
@@ -60,6 +88,42 @@ class DeterministicBrokerSimulator:
                 status="PARTIAL",
             )
             self.orders[order_id] = order
+
+            self._deal_counter += 1
+            self._pos_counter += 1
+            deal_id = f"DEAL_{self._deal_counter}"
+            pos_id = f"POS_{self._pos_counter}"
+
+            deal = BrokerDeal(
+                deal_id=deal_id,
+                order_id=order_id,
+                position_id=pos_id,
+                symbol=intent.symbol,
+                side=intent.side,
+                volume=fill_vol,
+                price=intent.entry_price,
+                commission=1.5,
+                timestamp=self.clock.now_ns(),
+            )
+            self.deals[deal_id] = deal
+
+            pos = Position(
+                position_id=pos_id,
+                intent_id=intent.intent_id,
+                order_id=order_id,
+                symbol=intent.symbol,
+                side=intent.side,
+                requested_volume=intent.requested_volume,
+                filled_volume=fill_vol,
+                remaining_volume=rem_vol,
+                entry_price=intent.entry_price,
+                current_sl=intent.sl,
+                lifecycle_state="POS_ACTIVE",
+                health_state="HEALTH_HEALTHY",
+                opened_at=self.clock.now_ns(),
+                deals=[deal],
+            )
+            self.positions[pos_id] = pos
             self.intent_statuses[intent.intent_id] = ExecutionState.EXEC_PARTIAL
             return ExecutionState.EXEC_PARTIAL
 
@@ -89,20 +153,25 @@ class DeterministicBrokerSimulator:
                 volume=intent.requested_volume,
                 price=intent.entry_price,
                 commission=1.5,
+                timestamp=self.clock.now_ns(),
             )
             self.deals[deal_id] = deal
 
             pos = Position(
                 position_id=pos_id,
                 intent_id=intent.intent_id,
+                order_id=order_id,
                 symbol=intent.symbol,
                 side=intent.side,
-                volume=intent.requested_volume,
+                requested_volume=intent.requested_volume,
+                filled_volume=intent.requested_volume,
+                remaining_volume=0.0,
                 entry_price=intent.entry_price,
                 current_sl=intent.sl,
                 lifecycle_state="POS_ACTIVE",
                 health_state="HEALTH_HEALTHY",
-                opened_at=int(time.time() * 1e9),
+                opened_at=self.clock.now_ns(),
+                deals=[deal],
             )
             self.positions[pos_id] = pos
             self.intent_statuses[intent.intent_id] = ExecutionState.EXEC_FILLED
@@ -112,11 +181,14 @@ class DeterministicBrokerSimulator:
         return ExecutionState.EXEC_ACCEPTED
 
     def modify_stop_loss(self, position_id: str, new_sl: float) -> bool:
-        """Modifies position stop loss."""
+        """Modifies position stop loss with protective ratchet checks."""
         pos = self.positions.get(position_id)
         if not pos:
             return False
-        # Tighten stop validation: Long SL can only increase, Short SL can only decrease
+
+        if pos.lifecycle_state == "POS_CLOSED":
+            raise ValueError(f"Cannot modify stop loss on closed position {position_id}")
+
         if pos.side == "BUY" and new_sl < pos.current_sl:
             raise ValueError(
                 f"Cannot loosen stop loss for Long position {position_id}: {pos.current_sl} -> {new_sl}"
@@ -129,18 +201,33 @@ class DeterministicBrokerSimulator:
         return True
 
     def close_position(self, position_id: str) -> bool:
-        """Closes an active position."""
+        """Closes an active position with lifecycle semantics."""
         pos = self.positions.get(position_id)
-        if not pos:
+        if not pos or pos.lifecycle_state == "POS_CLOSED":
             return False
+
+        pos.lifecycle_state = "POS_CLOSING"
+        # Simulate closing deal
+        self._deal_counter += 1
+        close_deal = BrokerDeal(
+            deal_id=f"DEAL_{self._deal_counter}",
+            order_id=f"CLOSE_ORD_{pos.position_id}",
+            position_id=pos.position_id,
+            symbol=pos.symbol,
+            side="SELL" if pos.side == "BUY" else "BUY",
+            volume=pos.filled_volume,
+            price=pos.entry_price,
+            commission=1.5,
+            timestamp=self.clock.now_ns(),
+        )
+        pos.deals.append(close_deal)
         pos.lifecycle_state = "POS_CLOSED"
         return True
 
     def reconcile_intent(self, intent_id: str) -> ExecutionState:
-        """Reconciles intent status after simulated network disconnect."""
+        """Reconciles intent status after simulated network disconnect or system restart."""
         status = self.intent_statuses.get(intent_id, ExecutionState.EXEC_UNKNOWN)
         if status == ExecutionState.EXEC_UNKNOWN:
-            # Reconcile by checking matching order/position
             for pos in self.positions.values():
                 if pos.intent_id == intent_id:
                     self.intent_statuses[intent_id] = ExecutionState.EXEC_FILLED

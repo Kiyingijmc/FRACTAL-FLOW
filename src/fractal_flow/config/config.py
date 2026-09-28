@@ -1,7 +1,9 @@
-"""Versioned Immutable Configuration Schema with Overlays."""
+"""Versioned Immutable Configuration Schema with Hash Identity."""
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
+import hashlib
+import json
 
 
 @dataclass(frozen=True)
@@ -20,16 +22,19 @@ class BaseConfig:
 class SymbolOverlay:
     symbol: str
     max_spread_pips: Optional[float] = None
+    overlay_version: int = 1
 
 
 @dataclass(frozen=True)
 class NewsOverlay:
     news_lockdown_active: bool = False
     risk_multiplier: float = 1.0
+    overlay_version: int = 1
 
 
 @dataclass(frozen=True)
 class EffectiveConfiguration:
+    effective_config_id: str
     version: int
     symbol: str
     max_spread_pips: float
@@ -46,7 +51,7 @@ def compute_effective_config(
     symbol_overlay: Optional[SymbolOverlay] = None,
     news_overlay: Optional[NewsOverlay] = None,
 ) -> EffectiveConfiguration:
-    """Computes immutable EffectiveConfiguration without mutating BaseConfig."""
+    """Computes immutable EffectiveConfiguration with a unique hash identity."""
     max_spread = base.max_spread_pips
     if symbol_overlay and symbol_overlay.max_spread_pips is not None:
         max_spread = symbol_overlay.max_spread_pips
@@ -54,7 +59,21 @@ def compute_effective_config(
     news_active = news_overlay.news_lockdown_active if news_overlay else False
     risk_mult = news_overlay.risk_multiplier if news_overlay else 1.0
 
+    # Generate deterministic hash identity
+    identity_payload = {
+        "base_version": base.version,
+        "symbol": symbol,
+        "symbol_overlay_version": symbol_overlay.overlay_version if symbol_overlay else 0,
+        "news_overlay_version": news_overlay.overlay_version if news_overlay else 0,
+        "max_spread_pips": max_spread,
+        "news_active": news_active,
+        "risk_mult": risk_mult,
+    }
+    raw_json = json.dumps(identity_payload, sort_keys=True)
+    config_id = f"cfg_{hashlib.sha256(raw_json.encode('utf-8')).hexdigest()[:12]}"
+
     return EffectiveConfiguration(
+        effective_config_id=config_id,
         version=base.version,
         symbol=symbol,
         max_spread_pips=max_spread,

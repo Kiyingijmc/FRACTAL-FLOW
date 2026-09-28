@@ -1,7 +1,7 @@
 """Canonical Lineage Chain and Governance Model."""
 
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Dict, Set
 
 
 class LineageInvalidException(Exception):
@@ -9,29 +9,26 @@ class LineageInvalidException(Exception):
     pass
 
 
-# Hierarchy order from highest (ROOT) to lowest
-LINEAGE_HIERARCHY: List[str] = [
-    "ROOT",
-    "REGIME",
-    "SETUP",
-    "PRIMARY_PULLBACK",
-    "SECONDARY_PULLBACK",
-    "MICRO_PULLBACK",
-    "OPPORTUNITY",
-    "SIGNAL",
-    "ORDER",
-    "POSITION",
-    "TRADE",
-    "MANAGEMENT",
-]
-
-
-@dataclass(frozen=True)
-class LineageNode:
-    tier: str
-    node_id: str
-    version: int
-    is_valid: bool = True
+# Legal directed lineage graph edges
+LEGAL_LINEAGE_EDGES: Dict[str, Set[str]] = {
+    "ROOT": {"REGIME", "DATA", "FEATURE", "STRUCTURE", "FLOW", "PULLBACK"},
+    "REGIME": {"SETUP", "OPPORTUNITY"},
+    "SETUP": {"PRIMARY_PULLBACK"},
+    "PRIMARY_PULLBACK": {"SECONDARY_PULLBACK", "MICRO_PULLBACK", "OPPORTUNITY"},
+    "SECONDARY_PULLBACK": {"MICRO_PULLBACK", "OPPORTUNITY"},
+    "MICRO_PULLBACK": {"OPPORTUNITY"},
+    "OPPORTUNITY": {"SIGNAL", "DECISION"},
+    "SIGNAL": {"ORDER", "DECISION"},
+    "DECISION": {"AUTHORIZATION", "ORDER"},
+    "AUTHORIZATION": {"ORDER", "EXECUTION"},
+    "ORDER": {"EXECUTION", "POSITION"},
+    "EXECUTION": {"POSITION"},
+    "POSITION": {"TRADE", "MANAGEMENT", "CLOSURE", "RECONCILIATION"},
+    "TRADE": {"MANAGEMENT", "JOURNAL"},
+    "MANAGEMENT": {"CLOSURE", "JOURNAL"},
+    "CLOSURE": {"RECONCILIATION", "JOURNAL"},
+    "RECONCILIATION": {"JOURNAL"},
+}
 
 
 @dataclass
@@ -43,33 +40,36 @@ class Lineage:
     current_tier: str
     parent_is_valid: bool = True
 
-    def validate_child_action(self, expected_parent_version: Optional[int] = None) -> None:
-        """Validates that child node can execute based on parent state and version."""
+    def validate_child_action(self, authoritative_parent_version: Optional[int] = None) -> None:
+        """Validates child node execution using strict version identity and parent checks."""
+        if not self.root_id or not self.parent_id:
+            raise LineageInvalidException("Lineage missing root_id or parent_id. Orphaned object cannot execute.")
+
         if not self.parent_is_valid:
             raise LineageInvalidException(
                 f"Parent {self.parent_id} ({self.parent_tier}) is invalid/expired. Child cannot execute."
             )
 
-        if expected_parent_version is not None and self.parent_version < expected_parent_version:
+        if self.parent_version <= 0:
             raise LineageInvalidException(
-                f"Parent version mismatch: child has parent_version={self.parent_version}, "
-                f"latest parent_version={expected_parent_version}. Stale parent blocks child."
+                f"Invalid parent version {self.parent_version}. Version must be positive."
             )
 
-        if not self.root_id or not self.parent_id:
-            raise LineageInvalidException("Lineage missing root_id or parent_id. Orphaned object cannot execute.")
+        if authoritative_parent_version is not None:
+            if self.parent_version != authoritative_parent_version:
+                raise LineageInvalidException(
+                    f"Parent version mismatch: child parent_version={self.parent_version}, "
+                    f"authoritative parent_version={authoritative_parent_version}. Strict version identity required."
+                )
+
+        # Validate legal lineage edge
+        self.verify_legal_edge(self.parent_tier, self.current_tier)
 
     @staticmethod
-    def verify_tier_order(parent_tier: str, child_tier: str) -> None:
-        """Verifies parent tier precedes child tier in legal lineage hierarchy."""
-        if parent_tier not in LINEAGE_HIERARCHY or child_tier not in LINEAGE_HIERARCHY:
-            raise LineageInvalidException(f"Invalid tier name: {parent_tier} or {child_tier}")
-
-        p_idx = LINEAGE_HIERARCHY.index(parent_tier)
-        c_idx = LINEAGE_HIERARCHY.index(child_tier)
-
-        if p_idx >= c_idx:
+    def verify_legal_edge(parent_tier: str, child_tier: str) -> None:
+        """Verifies parent_tier -> child_tier is an explicitly authorized legal lineage edge."""
+        allowed_children = LEGAL_LINEAGE_EDGES.get(parent_tier, set())
+        if child_tier not in allowed_children:
             raise LineageInvalidException(
-                f"Illegal lineage sequence: parent tier '{parent_tier}' (index {p_idx}) "
-                f"must strictly precede child tier '{child_tier}' (index {c_idx})"
+                f"Illegal lineage edge: '{parent_tier}' -> '{child_tier}' is not an authorized parent-child edge."
             )

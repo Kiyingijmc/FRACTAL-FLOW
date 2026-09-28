@@ -1,4 +1,4 @@
-"""Foundational Domain Models for FRACTAL FLOW."""
+"""Foundational Domain Models for FRACTAL FLOW with Full Provenance Snapshots."""
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
@@ -142,6 +142,7 @@ class PortfolioAssessment:
 class TradeDecision:
     decision_id: str
     opportunity_id: str
+    root_id: str
     direction: str
     symbol: str
     environment: str
@@ -163,9 +164,19 @@ class TradeDecision:
     approved_risk: float
     position_size_lots: float
     arbitration_result: str
+    effective_config_id: str
+    broker_constraint_snapshot: Dict[str, Any]
+    quote_timestamp: int
+    spread_pips: float
     configuration_version: int = 1
     lineage_version: int = 1
     authorized: bool = False
+
+    def is_authorized(self) -> bool:
+        """NEWS_LOCKDOWN is a hard authorization boundary that blocks trade authorization."""
+        if self.news_state == "NEWS_LOCKDOWN":
+            return False
+        return self.authorized and self.tradeability == "TRADEABILITY_PASS" and self.portfolio_state == "PORTFOLIO_ALLOW"
 
 
 @dataclass
@@ -173,6 +184,7 @@ class ExecutionIntent:
     intent_id: str
     decision_id: str
     opportunity_id: str
+    root_id: str
     idempotency_key: str
     symbol: str
     side: str
@@ -180,8 +192,11 @@ class ExecutionIntent:
     entry_price: float
     sl: float
     tp_plan: Dict[str, Any]
-    configuration_version: int
+    effective_config_id: str
     lineage_version: int
+    broker_constraint_snapshot: Dict[str, Any]
+    quote_timestamp: int
+    spread_pips: float
     status: str  # ExecutionState enum
     created_at: int
     updated_at: int
@@ -208,20 +223,28 @@ class BrokerDeal:
     volume: float
     price: float
     commission: float
+    timestamp: int
 
 
 @dataclass
 class Position:
     position_id: str
     intent_id: str
+    order_id: str
     symbol: str
     side: str
-    volume: float
+    requested_volume: float
+    filled_volume: float
+    remaining_volume: float
     entry_price: float
     current_sl: float
     lifecycle_state: str  # PositionLifecycleState
     health_state: str  # PositionHealthState
     opened_at: int
+    deals: List[BrokerDeal] = field(default_factory=list)
+    realized_pnl: float = 0.0
+    unrealized_pnl: float = 0.0
+    reconciliation_status: str = "RECON_NORMAL"
 
 
 @dataclass
