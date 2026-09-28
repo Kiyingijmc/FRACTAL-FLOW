@@ -1,7 +1,7 @@
-"""SnapshotEngine providing aggregate snapshot persistence, checksum verification, atomic disk writes, and deterministic journal replay."""
+"""SnapshotEngine providing aggregate snapshot persistence, boundary/provenance validation, atomic disk writes, and deterministic journal replay."""
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 import json
 import hashlib
 import os
@@ -13,7 +13,7 @@ from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRec
 
 
 class SnapshotCorruptionException(Exception):
-    """Raised when aggregate snapshot integrity, checksum, or schema verification fails."""
+    """Raised when aggregate snapshot integrity, checksum, boundary, or schema verification fails."""
     pass
 
 
@@ -51,7 +51,7 @@ class AggregateSnapshot:
 
 
 class SnapshotEngine:
-    """Provides crash-safe aggregate snapshotting with atomic disk persistence and deterministic replay."""
+    """Provides crash-safe aggregate snapshotting with boundary/provenance validation, atomic disk persistence, and deterministic replay."""
 
     def __init__(self, snapshot_dir: Optional[str] = None) -> None:
         self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else None
@@ -124,6 +124,58 @@ class SnapshotEngine:
                 raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
             return snap
 
+    def validate_snapshot_boundary(
+        self,
+        snapshot: AggregateSnapshot,
+        journal: DurableEventJournal,
+        expected_type: str,
+        expected_id: str,
+    ) -> None:
+        """Validates that a snapshot's sequence and aggregate identity rigorously correspond to journal history."""
+        if snapshot.aggregate_type != expected_type or snapshot.aggregate_id != expected_id:
+            raise SnapshotCorruptionException(
+                f"Snapshot aggregate type/id mismatch: '{snapshot.aggregate_type}:{snapshot.aggregate_id}' != '{expected_type}:{expected_id}'"
+            )
+
+        if snapshot.last_sequence_number > journal._global_sequence:
+            raise SnapshotCorruptionException(
+                f"Snapshot sequence {snapshot.last_sequence_number} exceeds journal head sequence {journal._global_sequence}. Fail closed."
+            )
+
+        if snapshot.last_sequence_number > 0:
+            all_records = journal.get_all_records()
+            all_seqs = {r.sequence_number for r in all_records}
+            if snapshot.last_sequence_number not in all_seqs:
+                raise SnapshotCorruptionException(
+                    f"Snapshot sequence {snapshot.last_sequence_number} not found in journal records. Fail closed."
+                )
+
+            # Ensure the specific sequence number snapshot.last_sequence_number belongs to expected_type:expected_id!
+            boundary_record = next((r for r in all_records if r.sequence_number == snapshot.last_sequence_number), None)
+            if not boundary_record or boundary_record.event.aggregate_type != expected_type or boundary_record.event.aggregate_id != expected_id:
+                raise SnapshotCorruptionException(
+                    f"Snapshot boundary sequence {snapshot.last_sequence_number} does not belong to aggregate '{expected_type}:{expected_id}'. Fail closed."
+                )
+
+            # Find aggregate events up to the snapshot sequence boundary
+            agg_records_at_boundary = [
+                r for r in all_records
+                if r.event.aggregate_type == expected_type and r.event.aggregate_id == expected_id
+                and r.sequence_number <= snapshot.last_sequence_number
+            ]
+
+            if not agg_records_at_boundary:
+                raise SnapshotCorruptionException(
+                    f"Snapshot claims sequence {snapshot.last_sequence_number} for aggregate '{expected_type}:{expected_id}', but no events exist for that aggregate at or before sequence {snapshot.last_sequence_number}."
+                )
+
+            latest_agg_record = agg_records_at_boundary[-1]
+            if latest_agg_record.event.aggregate_version != snapshot.aggregate_version:
+                raise SnapshotCorruptionException(
+                    f"Snapshot aggregate version mismatch at boundary sequence {snapshot.last_sequence_number}: "
+                    f"snapshot version {snapshot.aggregate_version} != journal aggregate version {latest_agg_record.event.aggregate_version}"
+                )
+
     def _get_snapshot_file_path(self, aggregate_type: str, aggregate_id: str) -> Path:
         assert self.snapshot_dir is not None
         safe_type = aggregate_type.replace("/", "_")
@@ -192,32 +244,26 @@ class SnapshotEngine:
     ) -> Dict[str, Any]:
         """Replays events deterministically starting after latest snapshot sequence using semantic reducers.
 
-        Falls back gracefully to full genesis replay if snapshot is corrupted or unreadable.
+        Tracks snapshot validity explicitly. Falls back gracefully to full genesis replay if snapshot is corrupt.
         """
         snapshot = None
+        snapshot_valid = False
+        snapshot_fallback_used = False
+
         try:
             snapshot = self.load_snapshot(aggregate_type, aggregate_id)
+            if snapshot:
+                self.validate_snapshot_boundary(snapshot, journal, aggregate_type, aggregate_id)
+                snapshot_valid = True
         except SnapshotCorruptionException:
-            # Corrupt snapshot fallback to full genesis replay
             snapshot = None
+            snapshot_valid = False
+            snapshot_fallback_used = True
 
         min_seq = 0
         state = dict(initial_state or {})
 
-        if snapshot:
-            # Validate snapshot boundary against journal
-            if snapshot.last_sequence_number > journal._global_sequence:
-                raise SnapshotCorruptionException(
-                    f"Snapshot sequence {snapshot.last_sequence_number} exceeds journal head sequence {journal._global_sequence}. Fail closed."
-                )
-
-            if snapshot.last_sequence_number > 0:
-                all_seqs = {r.sequence_number for r in journal.get_all_records()}
-                if snapshot.last_sequence_number not in all_seqs:
-                    raise SnapshotCorruptionException(
-                        f"Snapshot sequence {snapshot.last_sequence_number} not found in journal sequence records. Fail closed."
-                    )
-
+        if snapshot and snapshot_valid:
             state.update(snapshot.state_payload)
             min_seq = snapshot.last_sequence_number
             state["_last_version"] = snapshot.aggregate_version
@@ -241,4 +287,6 @@ class SnapshotEngine:
             state["_last_version"] = evt.aggregate_version
             state["_last_seq"] = record.sequence_number
 
+        state["_snapshot_valid"] = snapshot_valid
+        state["_snapshot_fallback_used"] = snapshot_fallback_used
         return state

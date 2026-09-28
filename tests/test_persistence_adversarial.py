@@ -605,30 +605,254 @@ def test_snapshot_journal_exact_boundary_equivalence() -> None:
             os.remove(journal_path)
 
 
-def test_snapshot_corrupt_fallback_to_genesis_replay() -> None:
+def test_p422_snapshot_sequence_for_wrong_aggregate_rejected() -> None:
+    journal = DurableEventJournal()
+    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
+    journal.append(make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2))
+    journal.append(make_test_event(3, event_id="e3", aggregate_id="B", aggregate_version=1))  # seq 3 belongs to B!
+
+    snap_engine = SnapshotEngine()
+    # Forged snapshot for A claiming sequence 3 (which belongs to B)
+    snap = snap_engine.save_snapshot("Opportunity", "A", version=2, last_seq=3, payload={"state": "OPP_VALID"})
+
+    with pytest.raises(SnapshotCorruptionException) as exc:
+        snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
+    assert "does not belong to aggregate" in str(exc.value)
+
+
+def test_p422_snapshot_aggregate_version_mismatch_at_boundary_rejected() -> None:
+    journal = DurableEventJournal()
+    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
+    journal.append(make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2))
+
+    snap_engine = SnapshotEngine()
+    # Snapshot claiming sequence 2 but aggregate_version 99 (when journal has aggregate_version 2)
+    snap = snap_engine.save_snapshot("Opportunity", "A", version=99, last_seq=2, payload={"state": "OPP_VALID"})
+
+    with pytest.raises(SnapshotCorruptionException) as exc:
+        snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
+    assert "version mismatch" in str(exc.value).lower()
+
+
+def test_p422_snapshot_ahead_of_journal_head_rejected() -> None:
+    journal = DurableEventJournal()
+    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
+
+    snap_engine = SnapshotEngine()
+    snap = snap_engine.save_snapshot("Opportunity", "A", version=5, last_seq=999, payload={"state": "OPP_VALID"})
+
+    with pytest.raises(SnapshotCorruptionException) as exc:
+        snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
+    assert "exceeds journal head" in str(exc.value).lower()
+
+
+def test_p422_corrupt_snapshot_fallback_records_evidence_flags() -> None:
     with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         journal_path = tmp.name
 
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
-        for i in range(1, 6):
-            journal.append(make_test_event(i, event_id=f"evt_c_{i}", aggregate_id="agg_corrupt_snap", aggregate_version=i, payload={"val": i}))
+        journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1, payload={"x": 10}))
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
-        snap_engine.save_snapshot("Opportunity", "agg_corrupt_snap", version=3, last_seq=3, payload={"val": 3})
+        snap_engine.save_snapshot("Opportunity", "A", version=1, last_seq=1, payload={"x": 10})
 
-        # Corrupt snapshot file on disk
-        snap_file = snap_engine._get_snapshot_file_path("Opportunity", "agg_corrupt_snap")
+        # Corrupt snapshot file and clear in-memory cache
+        snap_file = snap_engine._get_snapshot_file_path("Opportunity", "A")
         with open(snap_file, "w", encoding="utf-8") as f:
-            f.write('{"aggregate_type": "Opportunity", "checksum": "corrupted"}')
+            f.write('{"aggregate_type": "Opportunity", "checksum": "invalid"}')
 
-        # Replay journal fallback cleanly catches corruption and replays from genesis
-        reconstructed = snap_engine.replay_journal(journal, "Opportunity", "agg_corrupt_snap")
-        assert reconstructed["val"] == 5
-        assert reconstructed["_last_seq"] == 5
+        snap_engine._snapshots.clear()
+
+        reconstructed = snap_engine.replay_journal(journal, "Opportunity", "A")
+        assert reconstructed["_snapshot_valid"] is False
+        assert reconstructed["_snapshot_fallback_used"] is True
+        assert reconstructed["x"] == 10
     finally:
         if os.path.exists(journal_path):
             os.remove(journal_path)
+
+
+def test_p422_recovery_evidence_gate_matrix_individual_failures() -> None:
+    rec_engine = RecoveryEngine()
+    rec_engine.trigger_system_restart()
+    rec_engine.start_reconciliation()
+
+    # Base good evidence
+    base_kwargs = {
+        "persistence_integrity_valid": True,
+        "journal_integrity_valid": True,
+        "snapshot_integrity_valid": True,
+        "risk_ledger_reconstructed": True,
+        "execution_intents_reconstructed": True,
+        "broker_reconciliation_complete": True,
+        "unresolved_unknown_count": 0,
+        "configuration_identity_matched": True,
+        "protective_monitoring_active": True,
+    }
+
+    # Verify each gate failing individually causes ValueError
+    for gate in base_kwargs.keys():
+        if gate == "unresolved_unknown_count":
+            bad_kwargs = dict(base_kwargs, unresolved_unknown_count=1)
+        elif gate == "protective_monitoring_active":
+            bad_kwargs = dict(base_kwargs, protective_monitoring_active=False)
+        else:
+            bad_kwargs = dict(base_kwargs, **{gate: False})
+
+        ev = RecoveryEvidence(**bad_kwargs)
+        assert ev.is_satisfactory() is False
+
+
+def test_p422_illegal_recovery_state_transitions_rejected() -> None:
+    rec_engine = RecoveryEngine()
+
+    # Attempting complete_recovery_with_evidence from NORMAL state must raise ValueError
+    good_evidence = RecoveryEvidence(
+        persistence_integrity_valid=True,
+        journal_integrity_valid=True,
+        snapshot_integrity_valid=True,
+        risk_ledger_reconstructed=True,
+        execution_intents_reconstructed=True,
+        broker_reconciliation_complete=True,
+        unresolved_unknown_count=0,
+        configuration_identity_matched=True,
+        protective_monitoring_active=True,
+    )
+
+    with pytest.raises(ValueError) as exc:
+        rec_engine.complete_recovery_with_evidence(good_evidence)
+    assert "Cannot complete recovery with evidence from state" in str(exc.value)
+
+
+def test_p422_execution_intent_fingerprint_order_type_mutation_rejected() -> None:
+    repo = DurableExecutionIntentRepository()
+    intent1 = ExecutionIntent(
+        intent_id="intent_opt_1",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_opt_1",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={"tp1": 1.0900},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_READY",
+        created_at=1000,
+        updated_at=1000,
+        order_type="MARKET_BUY",
+    )
+    repo.save_intent(intent1)
+
+    # Attempt reusing idempotency key with OrderType mutation (MARKET -> BUY_LIMIT)
+    intent_mutated = ExecutionIntent(
+        intent_id="intent_opt_2",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_opt_1",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={"tp1": 1.0900},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_READY",
+        created_at=1000,
+        updated_at=1000,
+        order_type="BUY_LIMIT",  # Mutated order_type!
+    )
+
+    with pytest.raises(IdempotencyConflictException):
+        repo.save_intent(intent_mutated)
+
+
+def test_p422_deal_chain_partial_close_and_contradiction_semantics() -> None:
+    intent = ExecutionIntent(
+        intent_id="intent_deal_pc",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_deal_pc",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={"contract_size": 100000.0},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_FILLED",
+        created_at=1000,
+        updated_at=1000,
+    )
+
+    pos = Position(
+        position_id="POS_PC",
+        intent_id="intent_deal_pc",
+        order_id="ORD_OPEN",
+        symbol="EURUSD",
+        side="BUY",
+        requested_volume=1.0,
+        filled_volume=0.6,  # 1.0 open - 0.4 close = 0.6 net filled remaining
+        remaining_volume=0.0,
+        entry_price=1.0850,
+        current_sl=1.0820,
+        lifecycle_state="POS_ACTIVE",
+        health_state="HEALTH_HEALTHY",
+        opened_at=1000,
+    )
+
+    deal_open = BrokerDeal(
+        deal_id="DEAL_OPEN",
+        order_id="ORD_OPEN",
+        position_id="POS_PC",
+        symbol="EURUSD",
+        side="BUY",
+        volume=1.0,
+        price=1.0850,
+        commission=1.5,
+        timestamp=1000,
+        entry_role="OPEN",
+    )
+
+    deal_close = BrokerDeal(
+        deal_id="DEAL_CLOSE",
+        order_id="ORD_CLOSE",
+        position_id="POS_PC",
+        symbol="EURUSD",
+        side="SELL",
+        volume=0.4,
+        price=1.0880,
+        commission=1.5,
+        timestamp=1100,
+        entry_role="CLOSE",
+    )
+
+    res = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={"POS_PC": pos},
+        broker_deals={"DEAL_OPEN": deal_open, "DEAL_CLOSE": deal_close},
+    )
+
+    assert res.mismatch_type == ReconciliationMismatchType.MATCH
+    assert res.resolved_execution_state == ExecutionState.EXEC_FILLED
 
 
 def test_reconciliation_and_recovery_idempotency_stability() -> None:

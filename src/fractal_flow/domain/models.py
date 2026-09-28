@@ -245,6 +245,7 @@ class BrokerDeal:
     price: float
     commission: float
     timestamp: int
+    entry_role: str = "OPEN"
 
 
 @dataclass

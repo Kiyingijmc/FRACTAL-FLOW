@@ -28,6 +28,19 @@ class BrokerQueryQuality(str, Enum):
     QUERY_FAILED = "QUERY_FAILED"
 
 
+@dataclass
+class BrokerQueryResult:
+    """Encapsulates authoritative broker query response metadata and execution objects."""
+    status: str = "SUCCESS"
+    authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
+    query_timestamp: int = 0
+    completeness: bool = True
+    broker_orders: Dict[str, BrokerOrder] = field(default_factory=dict)
+    broker_positions: Dict[str, Position] = field(default_factory=dict)
+    broker_deals: Dict[str, BrokerDeal] = field(default_factory=dict)
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class ReconciliationResult:
     intent_id: str
@@ -46,7 +59,14 @@ class ReconciliationEngine:
         broker_positions: Dict[str, Position],
         broker_deals: Optional[Dict[str, BrokerDeal]] = None,
         query_quality: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
+        query_result: Optional[BrokerQueryResult] = None,
     ) -> ReconciliationResult:
+        if query_result:
+            broker_orders = query_result.broker_orders
+            broker_positions = query_result.broker_positions
+            broker_deals = query_result.broker_deals or broker_deals
+            query_quality = query_result.authority
+
         # Search broker positions directly
         matching_pos = None
         for pos in broker_positions.values():
@@ -61,7 +81,7 @@ class ReconciliationEngine:
                 matching_order = ord_obj
                 break
 
-        # Validate Deal Chain taking into account opening vs closing deal directions
+        # Validate Deal Chain taking into account opening vs closing deal directions and entry_role
         if broker_deals and (matching_pos or matching_order):
             target_order_id = matching_order.order_id if matching_order else (matching_pos.order_id if matching_pos else "")
             target_pos_id = matching_pos.position_id if matching_pos else ""
@@ -73,8 +93,17 @@ class ReconciliationEngine:
 
             if matching_pos:
                 open_side = matching_pos.side
-                opening_vol = sum(d.volume for d in related_deals if d.side == open_side or d.order_id == matching_pos.order_id)
-                closing_vol = sum(d.volume for d in related_deals if d.side != open_side and d.order_id != matching_pos.order_id)
+                opening_vol = sum(
+                    d.volume for d in related_deals
+                    if getattr(d, 'entry_role', 'OPEN') in ('OPEN', 'INCREASE')
+                    or d.side == open_side
+                    or d.order_id == matching_pos.order_id
+                )
+                closing_vol = sum(
+                    d.volume for d in related_deals
+                    if getattr(d, 'entry_role', 'OPEN') in ('CLOSE', 'DECREASE')
+                    or (d.side != open_side and d.order_id != matching_pos.order_id)
+                )
                 net_deal_vol = opening_vol - closing_vol
 
                 if net_deal_vol < 0 or abs(net_deal_vol - matching_pos.filled_volume) > 0.0001:
@@ -135,8 +164,16 @@ class ReconciliationEngine:
         broker_positions: Dict[str, Position],
         broker_deals: Optional[Dict[str, BrokerDeal]] = None,
         authoritative_rejections: Optional[set] = None,
+        query_result: Optional[BrokerQueryResult] = None,
     ) -> List[ReconciliationResult]:
         """Performs full broker-wide multi-directional reconciliation discovering local-only, matched, and orphaned broker objects."""
+        if query_result:
+            broker_orders = query_result.broker_orders
+            broker_positions = query_result.broker_positions
+            broker_deals = query_result.broker_deals or broker_deals
+            if query_result.authority == BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE:
+                authoritative_rejections = set(local_intents.keys())
+
         results = []
         auth_rejections = authoritative_rejections or set()
 

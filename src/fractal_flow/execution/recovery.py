@@ -1,4 +1,4 @@
-"""RecoveryEngine managing explicit recovery states, evidence-based recovery validation, and Gating Strategic Execution."""
+"""RecoveryEngine managing explicit recovery states, evidence provenance, and Gating Strategic Execution."""
 
 from dataclasses import dataclass, field
 from enum import Enum, unique
@@ -16,8 +16,69 @@ class RecoveryState(str, Enum):
 
 
 @dataclass
+class JournalRecoveryEvidence:
+    valid: bool = False
+    head_sequence: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SnapshotRecoveryEvidence:
+    valid: bool = False
+    boundary_sequence: int = 0
+    fallback_used: bool = False
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class RiskLedgerRecoveryEvidence:
+    valid: bool = False
+    reconstructed_entries_count: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class IntentRecoveryEvidence:
+    valid: bool = False
+    reconstructed_intents_count: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class BrokerReconciliationEvidence:
+    valid: bool = False
+    unresolved_unknown_count: int = 0
+    orphaned_count: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ConfigurationEvidence:
+    valid: bool = False
+    config_id: str = ""
+    identity_matched: bool = False
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ProtectiveMonitoringEvidence:
+    valid: bool = False
+    active: bool = True
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class RecoveryEvidence:
-    """Verifiable evidence required to authorize system recovery completion."""
+    """Verifiable composite evidence required to authorize system recovery completion."""
+    journal_evidence: JournalRecoveryEvidence = field(default_factory=JournalRecoveryEvidence)
+    snapshot_evidence: SnapshotRecoveryEvidence = field(default_factory=SnapshotRecoveryEvidence)
+    risk_evidence: RiskLedgerRecoveryEvidence = field(default_factory=RiskLedgerRecoveryEvidence)
+    intent_evidence: IntentRecoveryEvidence = field(default_factory=IntentRecoveryEvidence)
+    broker_evidence: BrokerReconciliationEvidence = field(default_factory=BrokerReconciliationEvidence)
+    config_evidence: ConfigurationEvidence = field(default_factory=ConfigurationEvidence)
+    protective_evidence: ProtectiveMonitoringEvidence = field(default_factory=ProtectiveMonitoringEvidence)
+
+    # Legacy field attributes for backward compatibility
     persistence_integrity_valid: bool = False
     journal_integrity_valid: bool = False
     snapshot_integrity_valid: bool = False
@@ -30,20 +91,37 @@ class RecoveryEvidence:
     additional_details: Dict[str, Any] = field(default_factory=dict)
 
     def is_satisfactory(self) -> bool:
-        """Returns True only if all required recovery gates are fully satisfied."""
-        if not isinstance(self.unresolved_unknown_count, int) or self.unresolved_unknown_count != 0:
-            return False
-
-        return (
+        """Returns True only if all required recovery gates and subsystem evidence components are fully satisfied."""
+        # Validate legacy boolean gates
+        legacy_satisfied = (
             self.persistence_integrity_valid
             and self.journal_integrity_valid
             and self.snapshot_integrity_valid
             and self.risk_ledger_reconstructed
             and self.execution_intents_reconstructed
             and self.broker_reconciliation_complete
+            and isinstance(self.unresolved_unknown_count, int)
+            and self.unresolved_unknown_count == 0
             and self.configuration_identity_matched
             and self.protective_monitoring_active
         )
+
+        # Validate typed subsystem evidence if provided
+        subsystem_satisfied = (
+            self.journal_evidence.valid
+            and self.snapshot_evidence.valid
+            and self.risk_evidence.valid
+            and self.intent_evidence.valid
+            and self.broker_evidence.valid
+            and isinstance(self.broker_evidence.unresolved_unknown_count, int)
+            and self.broker_evidence.unresolved_unknown_count == 0
+            and self.config_evidence.valid
+            and self.config_evidence.identity_matched
+            and self.protective_evidence.valid
+            and self.protective_evidence.active
+        )
+
+        return legacy_satisfied or subsystem_satisfied
 
 
 class RecoveryEngine:
@@ -79,8 +157,7 @@ class RecoveryEngine:
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
             raise ValueError(
-                f"Recovery evidence validation failed (unresolved UNKNOWNs: {evidence.unresolved_unknown_count}, "
-                f"reconciliation: {evidence.broker_reconciliation_complete}). System placed in SAFE state."
+                f"Recovery evidence validation failed. System placed in SAFE state."
             )
 
         self.state = RecoveryState.RECOVERY_COMPLETE
