@@ -1,10 +1,11 @@
 """Authoritative Reconciliation Engine comparing local intents against broker truth, preserving UNKNOWN semantics when evidence is non-authoritative."""
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Mapping, Tuple, Iterator
 
-from src.fractal_flow.domain.models import ExecutionIntent, Position, BrokerOrder, BrokerDeal
+from src.fractal_flow.domain.models import ExecutionIntent, Position, BrokerOrder, BrokerDeal, DealEntryRole
 from src.fractal_flow.execution.execution_state import ExecutionState
 
 
@@ -64,16 +65,17 @@ class BrokerQueryQuality(str, Enum):
     STALE = "STALE"
 
 
-@dataclass
+@dataclass(frozen=True)
 class BrokerQueryResult:
     """Encapsulates authoritative broker query response metadata and execution objects."""
     status: str = "SUCCESS"
     authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
     query_timestamp: int = 0
     completeness: bool = True
-    broker_orders: Dict[str, BrokerOrder] = field(default_factory=dict)
-    broker_positions: Dict[str, Position] = field(default_factory=dict)
-    broker_deals: Dict[str, BrokerDeal] = field(default_factory=dict)
+    broker_orders: Mapping[str, BrokerOrder] = field(default_factory=dict)
+    broker_positions: Mapping[str, Position] = field(default_factory=dict)
+    broker_deals: Mapping[str, BrokerDeal] = field(default_factory=dict)
+    provider_identity: str = "BrokerQueryProvider"
     details: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -88,6 +90,7 @@ class BrokerQueryProvider:
         authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
         max_age_seconds: int = 300,
         query_timestamp: int = 0,
+        provider_identity: str = "BrokerQueryProvider",
     ) -> None:
         self._orders = orders or {}
         self._positions = positions or {}
@@ -95,6 +98,7 @@ class BrokerQueryProvider:
         self._authority = authority
         self._max_age_seconds = max_age_seconds
         self._query_timestamp = query_timestamp
+        self._provider_identity = provider_identity
 
     def query_broker_state(self, current_timestamp: int = 0) -> BrokerQueryResult:
         now = current_timestamp or self._query_timestamp
@@ -113,6 +117,7 @@ class BrokerQueryProvider:
             broker_orders=dict(self._orders),
             broker_positions=dict(self._positions),
             broker_deals=dict(self._deals),
+            provider_identity=self._provider_identity,
         )
 
 
@@ -124,15 +129,54 @@ class ReconciliationResult:
     details: Dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ReconciliationReport:
+    """Typed, immutable reconciliation report deriving all counts and metrics internally."""
+    results: Tuple[ReconciliationResult, ...]
+    unknown_count: int
+    orphaned_count: int
+    authoritative: bool
+    complete: bool
+    query_quality: BrokerQueryQuality
+    query_timestamp: int
+    temporal_boundary: int
+    broker_orders_seen: int
+    broker_positions_seen: int
+    broker_deals_seen: int
+    generated_at: int
+    orphan_records: Tuple[OrphanRecord, ...] = field(default_factory=tuple)
+
+    def __getitem__(self, index: Any) -> ReconciliationResult:
+        return self.results[index]
+
+    def __iter__(self) -> Iterator[ReconciliationResult]:
+        return iter(self.results)
+
+    def __len__(self) -> int:
+        return len(self.results)
+
+
 class ReconciliationEngine:
     """Authoritative reconciliation engine comparing local execution intent state against broker-side order/position/deal truth."""
 
     @staticmethod
+    def _normalize_role(role_val: Any) -> DealEntryRole:
+        if isinstance(role_val, DealEntryRole):
+            return role_val
+        if isinstance(role_val, str):
+            try:
+                return DealEntryRole(role_val.upper())
+            except ValueError:
+                return DealEntryRole.UNKNOWN
+        return DealEntryRole.UNKNOWN
+
+    @classmethod
     def reconcile_intent(
+        cls,
         local_intent: ExecutionIntent,
-        broker_orders: Dict[str, BrokerOrder],
-        broker_positions: Dict[str, Position],
-        broker_deals: Optional[Dict[str, BrokerDeal]] = None,
+        broker_orders: Mapping[str, BrokerOrder],
+        broker_positions: Mapping[str, Position],
+        broker_deals: Optional[Mapping[str, BrokerDeal]] = None,
         query_quality: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
         query_result: Optional[BrokerQueryResult] = None,
     ) -> ReconciliationResult:
@@ -176,26 +220,37 @@ class ReconciliationEngine:
                     details={"note": "Duplicate deal IDs detected in deal chain"},
                 )
 
-            if matching_pos:
-                open_side = matching_pos.side
-                valid_roles = ("OPEN", "INCREASE", "CLOSE", "DECREASE", "REVERSAL")
-                for d in related_deals:
-                    role = getattr(d, 'entry_role', 'OPEN')
-                    if role not in valid_roles:
+            # Check deal sequence and deal entry roles
+            sorted_deals = sorted(related_deals, key=lambda x: getattr(x, 'timestamp', 0))
+            seen_open = False
+            for d in sorted_deals:
+                role = cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN))
+                if role == DealEntryRole.UNKNOWN:
+                    return ReconciliationResult(
+                        intent_id=local_intent.intent_id,
+                        mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                        resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                        details={"note": f"Missing or unknown deal entry role for deal '{d.deal_id}'"},
+                    )
+                if role in (DealEntryRole.OPEN, DealEntryRole.INCREASE):
+                    seen_open = True
+                elif role in (DealEntryRole.CLOSE, DealEntryRole.DECREASE):
+                    if not seen_open:
                         return ReconciliationResult(
                             intent_id=local_intent.intent_id,
                             mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
                             resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
-                            details={"note": f"Invalid deal entry_role '{role}' in deal '{d.deal_id}'"},
+                            details={"note": f"Contradictory deal sequence: CLOSE/DECREASE deal '{d.deal_id}' before OPEN"},
                         )
 
+            if matching_pos:
                 opening_vol = sum(
                     d.volume for d in related_deals
-                    if getattr(d, 'entry_role', 'OPEN') in ('OPEN', 'INCREASE')
+                    if cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN)) in (DealEntryRole.OPEN, DealEntryRole.INCREASE)
                 )
                 closing_vol = sum(
                     d.volume for d in related_deals
-                    if getattr(d, 'entry_role', 'OPEN') in ('CLOSE', 'DECREASE')
+                    if cls._normalize_role(getattr(d, 'entry_role', DealEntryRole.UNKNOWN)) in (DealEntryRole.CLOSE, DealEntryRole.DECREASE)
                 )
                 net_deal_vol = opening_vol - closing_vol
 
@@ -253,41 +308,51 @@ class ReconciliationEngine:
     def reconcile_broker_wide(
         cls,
         local_intents: Dict[str, ExecutionIntent],
-        broker_orders: Dict[str, BrokerOrder],
-        broker_positions: Dict[str, Position],
-        broker_deals: Optional[Dict[str, BrokerDeal]] = None,
+        broker_orders: Optional[Mapping[str, BrokerOrder]] = None,
+        broker_positions: Optional[Mapping[str, Position]] = None,
+        broker_deals: Optional[Mapping[str, BrokerDeal]] = None,
         authoritative_rejections: Optional[set] = None,
         query_result: Optional[BrokerQueryResult] = None,
-    ) -> List[ReconciliationResult]:
-        """Performs full broker-wide multi-directional reconciliation discovering local-only, matched, and orphaned broker objects."""
-        if query_result:
+    ) -> ReconciliationReport:
+        """Performs full broker-wide multi-directional reconciliation discovering local-only, matched, and orphaned broker objects.
+
+        Returns an immutable ReconciliationReport with internally derived counts and orphan tracking.
+        """
+        now = int(time.time())
+        q_timestamp = now
+        q_quality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
+        q_complete = False
+
+        if query_result is not None:
             broker_orders = query_result.broker_orders
             broker_positions = query_result.broker_positions
             broker_deals = query_result.broker_deals or broker_deals
-            if query_result.authority == BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE:
-                authoritative_rejections = set(local_intents.keys())
+            q_quality = query_result.authority
+            q_timestamp = query_result.query_timestamp or now
+            q_complete = query_result.completeness
+        else:
+            broker_orders = broker_orders or {}
+            broker_positions = broker_positions or {}
+            broker_deals = broker_deals or {}
 
-        results = []
-        auth_rejections = authoritative_rejections or set()
+        results_list: List[ReconciliationResult] = []
+        orphan_records: List[OrphanRecord] = []
 
+        # Reconcile local intents against broker truth
         for intent in local_intents.values():
-            query_q = (
-                BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE
-                if intent.intent_id in auth_rejections
-                else BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
-            )
             res = cls.reconcile_intent(
                 local_intent=intent,
                 broker_orders=broker_orders,
                 broker_positions=broker_positions,
                 broker_deals=broker_deals,
-                query_quality=query_q,
+                query_quality=q_quality,
             )
-            results.append(res)
+            results_list.append(res)
 
+        # Discover orphaned broker positions
         for pos in broker_positions.values():
             if pos.intent_id not in local_intents:
-                results.append(
+                results_list.append(
                     ReconciliationResult(
                         intent_id=pos.intent_id or f"ORPHAN_POS_{pos.position_id}",
                         mismatch_type=ReconciliationMismatchType.ORPHANED_BROKER,
@@ -295,10 +360,25 @@ class ReconciliationEngine:
                         details={"position_id": pos.position_id, "symbol": pos.symbol, "volume": pos.filled_volume},
                     )
                 )
+                orphan_records.append(
+                    OrphanRecord(
+                        orphan_id=f"ORPHAN_POS_{pos.position_id}",
+                        object_type="POSITION",
+                        object_id=pos.position_id,
+                        symbol=pos.symbol,
+                        volume=pos.filled_volume,
+                        status=OrphanStatus.DETECTED,
+                        protective_monitoring_active=True,
+                        detected_at=now,
+                        updated_at=now,
+                        details={"intent_id": pos.intent_id},
+                    )
+                )
 
+        # Discover orphaned broker orders
         for ord_obj in broker_orders.values():
             if ord_obj.intent_id not in local_intents and not any(p.order_id == ord_obj.order_id for p in broker_positions.values()):
-                results.append(
+                results_list.append(
                     ReconciliationResult(
                         intent_id=ord_obj.intent_id or f"ORPHAN_ORD_{ord_obj.order_id}",
                         mismatch_type=ReconciliationMismatchType.ORPHANED_BROKER,
@@ -306,5 +386,47 @@ class ReconciliationEngine:
                         details={"order_id": ord_obj.order_id, "symbol": ord_obj.symbol, "volume": ord_obj.volume},
                     )
                 )
+                orphan_records.append(
+                    OrphanRecord(
+                        orphan_id=f"ORPHAN_ORD_{ord_obj.order_id}",
+                        object_type="ORDER",
+                        object_id=ord_obj.order_id,
+                        symbol=ord_obj.symbol,
+                        volume=ord_obj.volume,
+                        status=OrphanStatus.DETECTED,
+                        protective_monitoring_active=True,
+                        detected_at=now,
+                        updated_at=now,
+                        details={"intent_id": ord_obj.intent_id},
+                    )
+                )
 
-        return results
+        results_tuple = tuple(results_list)
+
+        # Derive counts internally from actual results tuple
+        unknown_count = sum(
+            1 for r in results_tuple if r.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
+        )
+        orphaned_count = sum(
+            1 for r in results_tuple if r.mismatch_type == ReconciliationMismatchType.ORPHANED_BROKER
+        )
+
+        authoritative = (q_quality in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE))
+
+        report = ReconciliationReport(
+            results=results_tuple,
+            unknown_count=unknown_count,
+            orphaned_count=orphaned_count,
+            authoritative=authoritative,
+            complete=q_complete,
+            query_quality=q_quality,
+            query_timestamp=q_timestamp,
+            temporal_boundary=q_timestamp,
+            broker_orders_seen=len(broker_orders),
+            broker_positions_seen=len(broker_positions),
+            broker_deals_seen=len(broker_deals) if broker_deals else 0,
+            generated_at=now,
+            orphan_records=tuple(orphan_records),
+        )
+
+        return report
