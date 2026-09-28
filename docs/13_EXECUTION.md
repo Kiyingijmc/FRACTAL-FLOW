@@ -36,19 +36,17 @@ arbitration_result
 configuration_version
 lineage_version
 
-## 3. Decision lifecycle
+## 3. Decision & Order Lifecycle (ExecutionState)
 
-CANDIDATE
-→ VALIDATING
-→ TRADEABILITY_CHECK
-→ RISK_CHECK
-→ PORTFOLIO_CHECK
-→ ARBITRATION
-→ AUTHORIZED
-→ EXECUTION
+EXEC_READY
+→ EXEC_SUBMITTING
+→ EXEC_SUBMITTED
+→ EXEC_ACCEPTED
+→ EXEC_PARTIAL
+→ EXEC_FILLED
 
-Failure:
-REJECTED + reason
+Execution outcomes/failures:
+EXEC_REJECTED / EXEC_CANCELLED / EXEC_UNKNOWN / EXEC_RECONCILING
 
 ## 4. Pre-submit race checks
 
@@ -102,8 +100,8 @@ A filled order can produce one or multiple deals depending on execution conditio
 ## 8. Unknown execution
 
 If broker response is uncertain:
-UNKNOWN
-→ RECONCILING
+EXEC_UNKNOWN
+→ EXEC_RECONCILING
 
 Never assume rejection merely because response is missing.
 

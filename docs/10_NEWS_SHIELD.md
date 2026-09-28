@@ -163,12 +163,12 @@ If 75% cannot be safely protected, use the maximum feasible protection rather th
 
 ## 11. Losing positions
 
-Health:
-HEALTHY_LOSS
-STALLING_LOSS
-THESIS_DAMAGE
-THESIS_INVALID
-CRITICAL_LOSS
+Health (PositionHealthState overlay):
+HEALTH_HEALTHY
+HEALTH_STALLED
+HEALTH_DAMAGED
+HEALTH_INVALID
+HEALTH_CRITICAL
 
 Actions:
 HOLD

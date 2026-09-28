@@ -34,7 +34,8 @@ Swing strength considers:
 - persistence
 - subsequent structure
 
-States:
+States (SwingState):
+SWING_NONE
 SWING_CANDIDATE
 SWING_CONFIRMED
 SWING_PROTECTED
@@ -63,7 +64,8 @@ RECLAIM_CANDIDATE
 StructuralBreak =
 LevelCross × DisplacementConfirmation × PersistenceConfirmation
 
-Break states:
+Break states (BreakState):
+BREAK_NONE
 BREAK_CANDIDATE
 BREAK_CONFIRMED
 BREAK_ESTABLISHED

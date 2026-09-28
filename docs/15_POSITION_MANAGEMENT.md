@@ -3,21 +3,22 @@ Version 1.0
 
 ## 1. Lifecycle
 
-OPENING
-→ ACTIVE
-→ PROTECTED
-→ RUNNER
-→ DECAYING
-→ EXPIRING
-→ CLOSING
-→ CLOSED
+PositionLifecycleState:
+POS_OPENING
+→ POS_ACTIVE
+→ POS_PROTECTED
+→ POS_RUNNER
+→ POS_DECAYING
+→ POS_EXPIRING
+→ POS_CLOSING
+→ POS_CLOSED
 
-Health:
-HEALTHY
-STALLED
-DAMAGED
-INVALID
-CRITICAL
+PositionHealthState:
+HEALTH_HEALTHY
+HEALTH_STALLED
+HEALTH_DAMAGED
+HEALTH_INVALID
+HEALTH_CRITICAL
 
 ## 2. Initial stop
 
@@ -112,12 +113,12 @@ Profitable positions may target a percentage of current realizable profit protec
 
 ## 8. Losing positions
 
-Health classification:
-HEALTHY
-STALLING
-DAMAGED
-INVALID
-CRITICAL
+Health classification (PositionHealthState):
+HEALTH_HEALTHY
+HEALTH_STALLED
+HEALTH_DAMAGED
+HEALTH_INVALID
+HEALTH_CRITICAL
 
 Actions:
 HOLD
