@@ -91,6 +91,20 @@ states:
     - OPP_STALE
     - OPP_EXPIRED
 
+  MarketState:
+    - DISCOVERED
+    - CATALOGUED
+    - ELIGIBLE
+    - USER_SELECTED
+    - QUEUED
+    - WARMING_UP
+    - DATA_READY
+    - ACTIVE
+    - DORMANT
+    - SUSPENDED
+    - BLOCKED
+    - UNAVAILABLE
+
   EntryState:
     - ENTRY_CREATED
     - ENTRY_VALIDATING

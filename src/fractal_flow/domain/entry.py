@@ -62,10 +62,19 @@ class EntryTriggerType(str, Enum):
 
 
 @dataclass(frozen=True)
+class ActiveMarketContext:
+    canonical_id: str
+    activation_state: str
+    entry_analysis_enabled: bool
+    is_tradable_session: bool
+    broker_constraints: Dict[str, Any]
+
+
+@dataclass(frozen=True)
 class EntryTrigger:
     trigger_type: EntryTriggerType
     target_price: float
-    secondary_price: Optional[float] = None  # For corridors or stop-limit activation
+    secondary_price: Optional[float] = None
     required_states: Dict[str, str] = field(default_factory=dict)
 
 
@@ -161,7 +170,7 @@ class ContingentExposure:
 
 
 class EntryPolicyEngine:
-    """Entry Policy Engine selecting entry mechanisms and constructing EntryPlans without placing orders."""
+    """Entry Policy Engine selecting entry mechanisms and constructing EntryPlans requiring ActiveMarketContext."""
 
     PREFERRED_MODELS: Dict[str, List[EntryModel]] = {
         "SCALPING": [EntryModel.MARKET_CONFIRMATION, EntryModel.MOMENTUM_MARKET, EntryModel.PULLBACK_LIMIT],
@@ -176,15 +185,17 @@ class EntryPolicyEngine:
         direction: Direction,
         reference_price: float,
         structural_sl: float,
-        broker_constraints: Dict[str, Any],
+        market_context: ActiveMarketContext,
         fallback_allowed: bool = True,
     ) -> EntryModel:
-        """Determines best entry model for strategy mode and broker capabilities."""
+        """Determines best entry model ensuring MURG entry analysis is enabled."""
+        if not market_context.entry_analysis_enabled or not market_context.is_tradable_session:
+            return EntryModel.NO_ENTRY
+
         preferred = self.PREFERRED_MODELS.get(strategy_mode, [EntryModel.MARKET_CONFIRMATION])
-        supported_orders = broker_constraints.get("supported_order_types", [])
+        supported_orders = market_context.broker_constraints.get("supported_order_types", [])
 
         for model in preferred:
-            # Check broker order type compatibility
             try:
                 required_order = self.map_model_to_order_type(model, direction)
                 if not supported_orders or required_order.value in supported_orders:
@@ -193,7 +204,6 @@ class EntryPolicyEngine:
                 continue
 
         if fallback_allowed:
-            # Fallback to MARKET_CONFIRMATION if supported
             try:
                 market_order = self.map_model_to_order_type(EntryModel.MARKET_CONFIRMATION, direction)
                 if not supported_orders or market_order.value in supported_orders:

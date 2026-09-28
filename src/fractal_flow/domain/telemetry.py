@@ -1,4 +1,4 @@
-"""EntryAuthorizationEvidence and Entry Model Research Telemetry for FRACTAL FLOW Pass 4D."""
+"""EntryAuthorizationEvidence, MURG Telemetry, and Entry Model Research Telemetry for FRACTAL FLOW Pass 4F."""
 
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
@@ -16,6 +16,20 @@ class EntryAuthorizationEvidence:
     effective_config_id: str
     created_at: int
     expires_at: int
+
+
+@dataclass
+class MURGTelemetry:
+    telemetry_id: str
+    canonical_id: str
+    broker_symbol: str
+    activation_state: str
+    priority_score: float
+    capacity_multiplier: float
+    entry_analysis_enabled: bool
+    position_monitoring_enabled: bool
+    pending_order_monitoring_enabled: bool
+    timestamp: int
 
 
 @dataclass
