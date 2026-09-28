@@ -676,39 +676,11 @@ def test_p422_corrupt_snapshot_fallback_records_evidence_flags() -> None:
 def test_p422_recovery_evidence_gate_matrix_individual_failures() -> None:
     rec_engine = RecoveryEngine()
     rec_engine.trigger_system_restart()
+    session_id = rec_engine.session_id
     rec_engine.start_reconciliation()
 
-    # Base good evidence
-    base_kwargs = {
-        "persistence_integrity_valid": True,
-        "journal_integrity_valid": True,
-        "snapshot_integrity_valid": True,
-        "risk_ledger_reconstructed": True,
-        "execution_intents_reconstructed": True,
-        "broker_reconciliation_complete": True,
-        "unresolved_unknown_count": 0,
-        "configuration_identity_matched": True,
-        "protective_monitoring_active": True,
-    }
-
-    # Verify each gate failing individually causes ValueError
-    for gate in base_kwargs.keys():
-        if gate == "unresolved_unknown_count":
-            bad_kwargs = dict(base_kwargs, unresolved_unknown_count=1)
-        elif gate == "protective_monitoring_active":
-            bad_kwargs = dict(base_kwargs, protective_monitoring_active=False)
-        else:
-            bad_kwargs = dict(base_kwargs, **{gate: False})
-
-        ev = RecoveryEvidence(**bad_kwargs)
-        assert ev.is_satisfactory() is False
-
-
-def test_p422_illegal_recovery_state_transitions_rejected() -> None:
-    rec_engine = RecoveryEngine()
-
-    # Attempting complete_recovery_with_evidence from NORMAL state must raise ValueError
-    good_evidence = RecoveryEvidence(
+    # Self-attested legacy booleans alone MUST NOT satisfy evidence
+    legacy_only_ev = RecoveryEvidence(
         persistence_integrity_valid=True,
         journal_integrity_valid=True,
         snapshot_integrity_valid=True,
@@ -719,6 +691,40 @@ def test_p422_illegal_recovery_state_transitions_rejected() -> None:
         configuration_identity_matched=True,
         protective_monitoring_active=True,
     )
+    assert legacy_only_ev.is_satisfactory() is False
+
+    base_kwargs = {
+        "journal_valid": True,
+        "snapshot_valid": True,
+        "risk_valid": True,
+        "intent_valid": True,
+        "broker_valid": True,
+        "unresolved_unknown_count": 0,
+        "orphaned_count": 0,
+        "config_valid": True,
+        "config_identity_matched": True,
+        "protective_valid": True,
+        "protective_active": True,
+    }
+
+    # Verify each gate failing individually causes is_satisfactory to return False
+    for gate in base_kwargs.keys():
+        if gate in ("unresolved_unknown_count", "orphaned_count"):
+            bad_kwargs = dict(base_kwargs, **{gate: 1})
+        elif gate == "protective_active":
+            bad_kwargs = dict(base_kwargs, protective_active=False)
+        else:
+            bad_kwargs = dict(base_kwargs, **{gate: False})
+
+        ev = RecoveryEvidence.create_authoritative_evidence(session_id=session_id, **bad_kwargs)
+        assert ev.is_satisfactory(required_session=session_id) is False
+
+
+def test_p422_illegal_recovery_state_transitions_rejected() -> None:
+    rec_engine = RecoveryEngine()
+
+    # Attempting complete_recovery_with_evidence from NORMAL state must raise ValueError
+    good_evidence = RecoveryEvidence.create_authoritative_evidence(session_id=rec_engine.session_id)
 
     with pytest.raises(ValueError) as exc:
         rec_engine.complete_recovery_with_evidence(good_evidence)
@@ -976,17 +982,7 @@ def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
     # Verifiable evidence authorizes strategic execution after restart/recovery workflow
     rec_engine.trigger_system_restart()
     rec_engine.start_reconciliation()
-    good_evidence = RecoveryEvidence(
-        persistence_integrity_valid=True,
-        journal_integrity_valid=True,
-        snapshot_integrity_valid=True,
-        risk_ledger_reconstructed=True,
-        execution_intents_reconstructed=True,
-        broker_reconciliation_complete=True,
-        unresolved_unknown_count=0,
-        configuration_identity_matched=True,
-        protective_monitoring_active=True,
-    )
+    good_evidence = RecoveryEvidence.create_authoritative_evidence(session_id=rec_engine.session_id)
     rec_engine.complete_recovery_with_evidence(good_evidence)
     assert rec_engine.can_authorize_strategic_action() is True
 
@@ -998,3 +994,200 @@ def test_p42_07_08_snapshot_engine_checksum_verification() -> None:
     loaded = snap_engine.load_snapshot("Opportunity", "opp_1")
     assert loaded is not None
     assert loaded.checksum == snap.checksum
+
+
+def test_forensic_evidence_provenance_session_mismatch_rejected() -> None:
+    rec_engine = RecoveryEngine()
+    rec_engine.trigger_system_restart()
+    rec_engine.start_reconciliation()
+
+    # Create evidence with wrong/stale session ID in provenance
+    bad_session_evidence = RecoveryEvidence.create_authoritative_evidence(session_id="wrong_stale_session_id")
+
+    with pytest.raises(ValueError) as exc:
+        rec_engine.complete_recovery_with_evidence(bad_session_evidence)
+    assert "placed in SAFE state" in str(exc.value)
+    assert rec_engine.can_authorize_strategic_action() is False
+
+
+def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
+    rec_engine = RecoveryEngine()
+    rec_engine.trigger_system_restart()
+    rec_engine.start_reconciliation()
+
+    # Evidence with orphaned_count = 1
+    orphan_evidence = RecoveryEvidence.create_authoritative_evidence(
+        session_id=rec_engine.session_id,
+        orphaned_count=1
+    )
+
+    with pytest.raises(ValueError) as exc:
+        rec_engine.complete_recovery_with_evidence(orphan_evidence)
+    assert rec_engine.state == RecoveryState.SAFE
+    assert rec_engine.can_authorize_strategic_action() is False
+
+
+def test_forensic_broker_query_provider_authority_boundary() -> None:
+    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider, BrokerQueryQuality
+
+    intent = ExecutionIntent(
+        intent_id="intent_q_bound",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_q_bound",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_SUBMITTED",
+        created_at=1000,
+        updated_at=1000,
+    )
+
+    # 1. Query Provider returning NOT_FOUND_NON_AUTHORITATIVE
+    non_auth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE)
+    query_res_non_auth = non_auth_provider.query_broker_state()
+
+    rec_res1 = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={},
+        query_result=query_res_non_auth,
+    )
+    assert rec_res1.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
+
+    # 2. Query Provider returning STALE
+    stale_provider = BrokerQueryProvider(authority=BrokerQueryQuality.FOUND, max_age_seconds=10, query_timestamp=1000)
+    query_res_stale = stale_provider.query_broker_state(current_timestamp=2000)
+    assert query_res_stale.authority == BrokerQueryQuality.STALE
+
+    rec_res2 = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={},
+        query_result=query_res_stale,
+    )
+    assert rec_res2.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
+
+    # 3. Query Provider returning NOT_FOUND_AUTHORITATIVE
+    auth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
+    query_res_auth = auth_provider.query_broker_state()
+
+    rec_res3 = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={},
+        query_result=query_res_auth,
+    )
+    assert rec_res3.resolved_execution_state == ExecutionState.EXEC_REJECTED
+
+
+def test_forensic_snapshot_state_hash_mismatch_rejected() -> None:
+    from src.fractal_flow.persistence.snapshot import AggregateSnapshot
+
+    snap_engine = SnapshotEngine()
+    snap = snap_engine.save_snapshot("Opportunity", "opp_hash", version=1, last_seq=1, payload={"val": 100})
+
+    # Mutate in-memory snapshot state_hash maliciously
+    key = "Opportunity:opp_hash"
+    mutated_snap = AggregateSnapshot(
+        aggregate_type=snap.aggregate_type,
+        aggregate_id=snap.aggregate_id,
+        aggregate_version=snap.aggregate_version,
+        last_sequence_number=snap.last_sequence_number,
+        state_payload=snap.state_payload,
+        checksum=snap.checksum,
+        state_hash="forged_state_hash_value",
+        schema_version=snap.schema_version,
+        created_at=snap.created_at,
+    )
+    snap_engine._snapshots[key] = mutated_snap
+
+    with pytest.raises(SnapshotCorruptionException) as exc:
+        snap_engine.load_snapshot("Opportunity", "opp_hash")
+    assert "state hash mismatch" in str(exc.value).lower()
+
+
+def test_forensic_deal_chain_contradictions_and_duplicate_deals_rejected() -> None:
+    intent = ExecutionIntent(
+        intent_id="intent_dup_deal",
+        decision_id="dec_1",
+        opportunity_id="opp_1",
+        root_id="root_1",
+        idempotency_key="key_dup_deal",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={},
+        effective_config_id="cfg_1",
+        lineage_version=1,
+        broker_constraint_snapshot={},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_FILLED",
+        created_at=1000,
+        updated_at=1000,
+    )
+
+    pos = Position(
+        position_id="POS_DUP",
+        intent_id="intent_dup_deal",
+        order_id="ORD_OPEN",
+        symbol="EURUSD",
+        side="BUY",
+        requested_volume=1.0,
+        filled_volume=1.0,
+        remaining_volume=0.0,
+        entry_price=1.0850,
+        current_sl=1.0820,
+        lifecycle_state="POS_ACTIVE",
+        health_state="HEALTH_HEALTHY",
+        opened_at=1000,
+    )
+
+    deal1 = BrokerDeal(
+        deal_id="DEAL_SAME_ID",
+        order_id="ORD_OPEN",
+        position_id="POS_DUP",
+        symbol="EURUSD",
+        side="BUY",
+        volume=1.0,
+        price=1.0850,
+        commission=1.5,
+        timestamp=1000,
+        entry_role="OPEN",
+    )
+
+    # Duplicate deal with same deal_id
+    deal2 = BrokerDeal(
+        deal_id="DEAL_SAME_ID",
+        order_id="ORD_OPEN",
+        position_id="POS_DUP",
+        symbol="EURUSD",
+        side="BUY",
+        volume=1.0,
+        price=1.0850,
+        commission=1.5,
+        timestamp=1005,
+        entry_role="OPEN",
+    )
+
+    res = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={"POS_DUP": pos},
+        broker_deals={"d1": deal1, "d2": deal2},
+    )
+
+    assert res.mismatch_type == ReconciliationMismatchType.DEAL_CONTRADICTION
+    assert res.resolved_execution_state == ExecutionState.EXEC_UNKNOWN

@@ -21,11 +21,47 @@ class ReconciliationMismatchType(str, Enum):
 
 
 @unique
+class OrphanStatus(str, Enum):
+    DETECTED = "DETECTED"
+    RECONCILING = "RECONCILING"
+    REATTACHED = "REATTACHED"
+    RECOVERED = "RECOVERED"
+    QUARANTINED = "QUARANTINED"
+    EXPIRED = "EXPIRED"
+
+
+@dataclass
+class OrphanRecord:
+    """Tracks orphaned broker positions or orders through explicit resolution lifecycle."""
+    orphan_id: str
+    object_type: str  # "POSITION" or "ORDER"
+    object_id: str
+    symbol: str
+    volume: float
+    status: OrphanStatus = OrphanStatus.DETECTED
+    protective_monitoring_active: bool = True
+    detected_at: int = 0
+    updated_at: int = 0
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def is_resolved_or_quarantined(self) -> bool:
+        """Returns True if the orphan is resolved or safely quarantined under protective monitoring."""
+        return self.status in (
+            OrphanStatus.REATTACHED,
+            OrphanStatus.RECOVERED,
+            OrphanStatus.QUARANTINED,
+            OrphanStatus.EXPIRED,
+        )
+
+
+@unique
 class BrokerQueryQuality(str, Enum):
     FOUND = "FOUND"
     NOT_FOUND_AUTHORITATIVE = "NOT_FOUND_AUTHORITATIVE"
     NOT_FOUND_NON_AUTHORITATIVE = "NOT_FOUND_NON_AUTHORITATIVE"
     QUERY_FAILED = "QUERY_FAILED"
+    PARTIAL = "PARTIAL"
+    STALE = "STALE"
 
 
 @dataclass
@@ -39,6 +75,45 @@ class BrokerQueryResult:
     broker_positions: Dict[str, Position] = field(default_factory=dict)
     broker_deals: Dict[str, BrokerDeal] = field(default_factory=dict)
     details: Dict[str, Any] = field(default_factory=dict)
+
+
+class BrokerQueryProvider:
+    """Authoritative provider boundary responsible for issuing broker state queries and asserting query quality."""
+
+    def __init__(
+        self,
+        orders: Optional[Dict[str, BrokerOrder]] = None,
+        positions: Optional[Dict[str, Position]] = None,
+        deals: Optional[Dict[str, BrokerDeal]] = None,
+        authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
+        max_age_seconds: int = 300,
+        query_timestamp: int = 0,
+    ) -> None:
+        self._orders = orders or {}
+        self._positions = positions or {}
+        self._deals = deals or {}
+        self._authority = authority
+        self._max_age_seconds = max_age_seconds
+        self._query_timestamp = query_timestamp
+
+    def query_broker_state(self, current_timestamp: int = 0) -> BrokerQueryResult:
+        now = current_timestamp or self._query_timestamp
+        authority = self._authority
+
+        # Enforce temporal freshness check
+        if self._max_age_seconds > 0 and self._query_timestamp > 0 and now > 0:
+            if now - self._query_timestamp > self._max_age_seconds:
+                authority = BrokerQueryQuality.STALE
+
+        return BrokerQueryResult(
+            status="SUCCESS" if authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE) else "NON_AUTHORITATIVE",
+            authority=authority,
+            query_timestamp=now,
+            completeness=(authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)),
+            broker_orders=dict(self._orders),
+            broker_positions=dict(self._positions),
+            broker_deals=dict(self._deals),
+        )
 
 
 @dataclass(frozen=True)
@@ -81,7 +156,7 @@ class ReconciliationEngine:
                 matching_order = ord_obj
                 break
 
-        # Validate Deal Chain taking into account opening vs closing deal directions and entry_role
+        # Validate Deal Chain taking into account explicit entry_role semantics and duplicate detection
         if broker_deals and (matching_pos or matching_order):
             target_order_id = matching_order.order_id if matching_order else (matching_pos.order_id if matching_pos else "")
             target_pos_id = matching_pos.position_id if matching_pos else ""
@@ -91,28 +166,46 @@ class ReconciliationEngine:
                 if (target_order_id and d.order_id == target_order_id) or (target_pos_id and d.position_id == target_pos_id)
             ]
 
+            # Detect duplicate deal IDs
+            deal_ids = [d.deal_id for d in related_deals]
+            if len(deal_ids) != len(set(deal_ids)):
+                return ReconciliationResult(
+                    intent_id=local_intent.intent_id,
+                    mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                    resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                    details={"note": "Duplicate deal IDs detected in deal chain"},
+                )
+
             if matching_pos:
                 open_side = matching_pos.side
+                valid_roles = ("OPEN", "INCREASE", "CLOSE", "DECREASE", "REVERSAL")
+                for d in related_deals:
+                    role = getattr(d, 'entry_role', 'OPEN')
+                    if role not in valid_roles:
+                        return ReconciliationResult(
+                            intent_id=local_intent.intent_id,
+                            mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
+                            resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
+                            details={"note": f"Invalid deal entry_role '{role}' in deal '{d.deal_id}'"},
+                        )
+
                 opening_vol = sum(
                     d.volume for d in related_deals
                     if getattr(d, 'entry_role', 'OPEN') in ('OPEN', 'INCREASE')
-                    or d.side == open_side
-                    or d.order_id == matching_pos.order_id
                 )
                 closing_vol = sum(
                     d.volume for d in related_deals
                     if getattr(d, 'entry_role', 'OPEN') in ('CLOSE', 'DECREASE')
-                    or (d.side != open_side and d.order_id != matching_pos.order_id)
                 )
                 net_deal_vol = opening_vol - closing_vol
 
-                if net_deal_vol < 0 or abs(net_deal_vol - matching_pos.filled_volume) > 0.0001:
+                if closing_vol > opening_vol or net_deal_vol < 0 or abs(net_deal_vol - matching_pos.filled_volume) > 0.0001:
                     return ReconciliationResult(
                         intent_id=local_intent.intent_id,
                         mismatch_type=ReconciliationMismatchType.DEAL_CONTRADICTION,
                         resolved_execution_state=ExecutionState.EXEC_UNKNOWN,
                         details={
-                            "note": f"Net deal volume ({net_deal_vol}) contradicts position filled volume ({matching_pos.filled_volume})",
+                            "note": f"Net deal volume ({net_deal_vol}) contradicts position filled volume ({matching_pos.filled_volume}) or over-close detected",
                             "position_id": matching_pos.position_id,
                             "opening_volume": opening_vol,
                             "closing_volume": closing_vol,

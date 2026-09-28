@@ -25,8 +25,14 @@ class AggregateSnapshot:
     last_sequence_number: int
     state_payload: Dict[str, Any]
     checksum: str
+    state_hash: str = ""
     schema_version: str = "1.0"
     created_at: int = 0
+
+    @staticmethod
+    def compute_state_hash(payload: Dict[str, Any]) -> str:
+        """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
+        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
     @staticmethod
     def compute_checksum(
@@ -37,13 +43,16 @@ class AggregateSnapshot:
         payload: Dict[str, Any],
         schema_version: str = "1.0",
         created_at: int = 0,
+        state_hash: str = "",
     ) -> str:
+        st_hash = state_hash or AggregateSnapshot.compute_state_hash(payload)
         raw_data = {
             "type": aggregate_type,
             "id": aggregate_id,
             "version": aggregate_version,
             "seq": last_seq,
             "payload": payload,
+            "state_hash": st_hash,
             "schema_version": schema_version,
             "created_at": created_at,
         }
@@ -77,8 +86,9 @@ class SnapshotEngine:
         created_at: int = 0,
     ) -> AggregateSnapshot:
         key = f"{aggregate_type}:{aggregate_id}"
+        st_hash = AggregateSnapshot.compute_state_hash(payload)
         checksum = AggregateSnapshot.compute_checksum(
-            aggregate_type, aggregate_id, version, last_seq, payload, schema_version, created_at
+            aggregate_type, aggregate_id, version, last_seq, payload, schema_version, created_at, state_hash=st_hash
         )
         snap = AggregateSnapshot(
             aggregate_type=aggregate_type,
@@ -87,6 +97,7 @@ class SnapshotEngine:
             last_sequence_number=last_seq,
             state_payload=payload,
             checksum=checksum,
+            state_hash=st_hash,
             schema_version=schema_version,
             created_at=created_at,
         )
@@ -111,6 +122,10 @@ class SnapshotEngine:
             if not snap:
                 return None
 
+            expected_st_hash = AggregateSnapshot.compute_state_hash(snap.state_payload)
+            if snap.state_hash and snap.state_hash != expected_st_hash:
+                raise SnapshotCorruptionException(f"Snapshot state hash mismatch for aggregate '{key}'")
+
             expected_chk = AggregateSnapshot.compute_checksum(
                 snap.aggregate_type,
                 snap.aggregate_id,
@@ -119,6 +134,7 @@ class SnapshotEngine:
                 snap.state_payload,
                 snap.schema_version,
                 snap.created_at,
+                state_hash=snap.state_hash,
             )
             if snap.checksum != expected_chk:
                 raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
@@ -226,6 +242,7 @@ class SnapshotEngine:
                 last_sequence_number=data["last_sequence_number"],
                 state_payload=data["state_payload"],
                 checksum=data["checksum"],
+                state_hash=data.get("state_hash", AggregateSnapshot.compute_state_hash(data["state_payload"])),
                 schema_version=data.get("schema_version", "1.0"),
                 created_at=data.get("created_at", 0),
             )
