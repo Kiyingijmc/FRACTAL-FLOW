@@ -1,4 +1,4 @@
-"""Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and crash-tail recovery policy."""
+"""Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and conservative crash-tail recovery policy."""
 
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Set
@@ -112,26 +112,51 @@ class DurableEventJournal:
                 f.write(line)
                 f.flush()
                 os.fsync(f.fileno())
-        except Exception as e:
-            # Physical append failed: attempt to rollback file to orig_offset
+        except Exception as write_err:
+            # Physical append failed: attempt durable rollback to orig_offset
             rollback_succeeded = False
             if orig_offset is not None and self.journal_file_path.exists():
                 try:
-                    with open(self.journal_file_path, "a+", encoding="utf-8") as f:
-                        f.seek(orig_offset)
-                        f.truncate()
-                        f.flush()
-                        rollback_succeeded = True
+                    with open(self.journal_file_path, "a+", encoding="utf-8") as rf:
+                        rf.seek(orig_offset)
+                        rf.truncate()
+                        rf.flush()
+                        os.fsync(rf.fileno())
+                    rollback_succeeded = True
                 except Exception:
                     rollback_succeeded = False
 
             if not rollback_succeeded:
                 self._faulted = True
                 raise JournalDurabilityException(
-                    f"Durable append failed AND physical file rollback failed: {e}. Journal placed in FAULTED state."
-                ) from e
+                    f"Durable append failed AND rollback durability (fsync) failed: {write_err}. Journal placed in FAULTED state."
+                ) from write_err
 
-            raise JournalDurabilityException(f"Durable append failed: {e}") from e
+            raise JournalDurabilityException(
+                f"Durable append failed (durably rolled back to offset {orig_offset}): {write_err}"
+            ) from write_err
+
+    @staticmethod
+    def _is_incomplete_json_tail(line_str: str, err: Exception) -> bool:
+        if not isinstance(err, json.JSONDecodeError):
+            return False
+
+        stripped = line_str.rstrip()
+        # Every valid JournalRecord JSON object must end with '}'
+        if stripped.endswith("}"):
+            return False
+
+        msg = str(err).lower()
+        incomplete_indicators = [
+            "unterminated",
+            "expecting value",
+            "expecting property name",
+            "expecting ':' delimiter",
+            "expecting ',' delimiter",
+            "end of line",
+            "unexpected end",
+        ]
+        return any(ind in msg for ind in incomplete_indicators) or err.pos >= len(stripped) - 1
 
     def _load_from_file(self) -> None:
         assert self.journal_file_path is not None
@@ -216,16 +241,19 @@ class DurableEventJournal:
                 last_valid_byte_offset = offset + len(line_bytes)
 
             except Exception as e:
-                # Distinguish incomplete/unterminated JSON tail at EOF vs completed invalid records or middle corruption
-                is_json_syntax_error = isinstance(e, json.JSONDecodeError)
-                if is_last_line and self.truncate_corrupted_tail and is_json_syntax_error:
-                    # Truncate physical file at last valid byte offset
-                    with open(self.journal_file_path, "a+b") as f:
-                        f.seek(last_valid_byte_offset)
-                        f.truncate()
-                        f.flush()
-                        os.fsync(f.fileno())
-                    break
+                # Distinguish demonstrably incomplete EOF JSON syntax tail vs completed invalid records or middle corruption
+                if is_last_line and self.truncate_corrupted_tail and self._is_incomplete_json_tail(line_str, e):
+                    try:
+                        with open(self.journal_file_path, "a+b") as tf:
+                            tf.seek(last_valid_byte_offset)
+                            tf.truncate()
+                            tf.flush()
+                            os.fsync(tf.fileno())
+                        break
+                    except Exception as trunc_err:
+                        raise JournalDurabilityException(
+                            f"EOF tail truncation recovery failed to fsync at offset {last_valid_byte_offset}: {trunc_err}"
+                        ) from trunc_err
                 else:
                     raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}") from e
 

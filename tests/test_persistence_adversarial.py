@@ -135,6 +135,37 @@ def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.Mo
             os.remove(path)
 
 
+def test_journal_rollback_fsync_failure_faults_journal(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+
+        def mock_fsync_always_fail(fd: int) -> None:
+            raise OSError("I/O error on fsync")
+
+        monkeypatch.setattr(os, "fsync", mock_fsync_always_fail)
+
+        with pytest.raises(JournalDurabilityException):
+            journal.append(make_test_event(2, event_id="e2"))
+
+        # The journal should now be in a faulted state!
+        assert journal._faulted is True
+
+        # Un-mock fsync
+        monkeypatch.undo()
+
+        # Attempting append on a faulted journal MUST be rejected!
+        with pytest.raises(JournalDurabilityException) as exc:
+            journal.append(make_test_event(2, event_id="e2_retry"))
+        assert "faulted" in str(exc.value).lower()
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def test_journal_restart_after_failed_append(monkeypatch: pytest.MonkeyPatch) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
