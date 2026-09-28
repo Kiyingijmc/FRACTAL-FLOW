@@ -1,4 +1,4 @@
-"""Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, and crash-tail recovery policy."""
+"""Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and crash-tail recovery policy."""
 
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Set
@@ -16,6 +16,11 @@ class JournalCorruptionException(Exception):
     pass
 
 
+class JournalDurabilityException(Exception):
+    """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
+    pass
+
+
 @dataclass(frozen=True)
 class JournalRecord:
     sequence_number: int
@@ -30,15 +35,16 @@ class JournalRecord:
 
 
 class DurableEventJournal:
-    """Thread-safe, crash-safe, append-only event journal enforcing monotonic sequence numbers, event ID uniqueness, and checksums."""
+    """Thread-safe, crash-safe, append-only event journal enforcing monotonic sequence numbers, event ID uniqueness, checksums, and physical append failure atomicity."""
 
     def __init__(self, journal_file_path: Optional[str] = None, truncate_corrupted_tail: bool = False) -> None:
         self.journal_file_path = Path(journal_file_path) if journal_file_path else None
         self.truncate_corrupted_tail = truncate_corrupted_tail
         self._records: List[JournalRecord] = []
         self._aggregate_sequences: Dict[str, int] = {}
-        self._event_ids: Set[str] = set()
+        self._event_ids: Dict[str, int] = {}  # event_id -> global_sequence mapping
         self._global_sequence: int = 0
+        self._faulted: bool = False
         self._lock = threading.Lock()
 
         if self.journal_file_path and self.journal_file_path.exists():
@@ -46,8 +52,13 @@ class DurableEventJournal:
 
     def append(self, event: Event) -> JournalRecord:
         with self._lock:
+            if self._faulted:
+                raise JournalDurabilityException("Journal is in a faulted/unrecoverable state. Appends prohibited.")
+
             if event.event_id in self._event_ids:
-                raise JournalCorruptionException(f"Duplicate event_id '{event.event_id}' detected.")
+                raise JournalCorruptionException(
+                    f"Duplicate event_id '{event.event_id}' detected (previously registered at global sequence {self._event_ids[event.event_id]})."
+                )
 
             key = f"{event.aggregate_type}:{event.aggregate_id}"
             curr_seq = self._aggregate_sequences.get(key, 0)
@@ -63,10 +74,11 @@ class DurableEventJournal:
             record = JournalRecord(sequence_number=next_global_seq, event=event, checksum=checksum)
 
             if self.journal_file_path:
-                self._append_to_file(record)
+                self._append_to_file_atomically(record)
 
+            # In-memory publication barrier: updated ONLY after file write + flush + fsync succeed
             self._records.append(record)
-            self._event_ids.add(event.event_id)
+            self._event_ids[event.event_id] = next_global_seq
             self._aggregate_sequences[key] = event.aggregate_version
             self._global_sequence = next_global_seq
             return record
@@ -82,7 +94,7 @@ class DurableEventJournal:
         with self._lock:
             return list(self._records)
 
-    def _append_to_file(self, record: JournalRecord) -> None:
+    def _append_to_file_atomically(self, record: JournalRecord) -> None:
         assert self.journal_file_path is not None
         rec_data = {
             "sequence_number": record.sequence_number,
@@ -90,13 +102,45 @@ class DurableEventJournal:
             "checksum": record.checksum,
         }
         line = json.dumps(rec_data, sort_keys=True) + "\n"
-        with open(self.journal_file_path, "a", encoding="utf-8") as f:
-            f.write(line)
-            f.flush()
-            os.fsync(f.fileno())
+
+        orig_offset = None
+        try:
+            with open(self.journal_file_path, "a+", encoding="utf-8") as f:
+                f.seek(0, os.SEEK_END)
+                orig_offset = f.tell()
+
+                f.write(line)
+                f.flush()
+                os.fsync(f.fileno())
+        except Exception as e:
+            # Physical append failed: attempt to rollback file to orig_offset
+            rollback_succeeded = False
+            if orig_offset is not None and self.journal_file_path.exists():
+                try:
+                    with open(self.journal_file_path, "a+", encoding="utf-8") as f:
+                        f.seek(orig_offset)
+                        f.truncate()
+                        f.flush()
+                        rollback_succeeded = True
+                except Exception:
+                    rollback_succeeded = False
+
+            if not rollback_succeeded:
+                self._faulted = True
+                raise JournalDurabilityException(
+                    f"Durable append failed AND physical file rollback failed: {e}. Journal placed in FAULTED state."
+                ) from e
+
+            raise JournalDurabilityException(f"Durable append failed: {e}") from e
 
     def _load_from_file(self) -> None:
         assert self.journal_file_path is not None
+
+        temp_records: List[JournalRecord] = []
+        temp_aggregate_sequences: Dict[str, int] = {}
+        temp_event_ids: Dict[str, int] = {}
+        temp_global_sequence: int = 0
+
         lines_with_pos = []
         with open(self.journal_file_path, "rb") as f:
             pos = 0
@@ -118,48 +162,75 @@ class DurableEventJournal:
             is_last_line = (idx == total_lines)
 
             try:
+                # 1. Structural JSON decoding
                 data = json.loads(line_str)
+
+                # 2. Strict type & field validation
+                if not isinstance(data, dict) or "sequence_number" not in data or "event" not in data or "checksum" not in data:
+                    raise json.JSONDecodeError("Missing required record schema fields", line_str, 0)
+
                 seq_num = data["sequence_number"]
+                if not isinstance(seq_num, int) or isinstance(seq_num, bool) or seq_num <= 0:
+                    raise JournalCorruptionException(f"Invalid sequence number type or value at line {idx}: {seq_num}")
+
                 evt_data = data["event"]
                 recorded_checksum = data["checksum"]
 
-                if seq_num != self._global_sequence + 1:
+                if not isinstance(evt_data, dict) or not isinstance(recorded_checksum, str):
+                    raise JournalCorruptionException(f"Invalid event payload or checksum format at line {idx}")
+
+                # 3. Global sequence continuity check
+                if seq_num != temp_global_sequence + 1:
                     raise JournalCorruptionException(
-                        f"Journal global sequence gap/disorder at line {idx}: sequence {seq_num} != expected {self._global_sequence + 1}"
+                        f"Journal global sequence gap/disorder at line {idx}: sequence {seq_num} != expected {temp_global_sequence + 1}"
                     )
 
                 evt = Event(**evt_data)
 
-                if evt.event_id in self._event_ids:
+                # 4. Event ID uniqueness check
+                if evt.event_id in temp_event_ids:
                     raise JournalCorruptionException(
-                        f"Journal corruption at line {idx}: duplicate event_id '{evt.event_id}'"
+                        f"Journal corruption at line {idx}: duplicate event_id '{evt.event_id}' (first seen at sequence {temp_event_ids[evt.event_id]})"
                     )
 
+                # 5. Checksum validation
                 computed_checksum = JournalRecord.compute_checksum(seq_num, evt)
                 if recorded_checksum != computed_checksum:
                     raise JournalCorruptionException(
                         f"Journal corruption at line {idx}: checksum mismatch."
                     )
 
+                # 6. Aggregate version continuity check
                 key = f"{evt.aggregate_type}:{evt.aggregate_id}"
-                curr_seq = self._aggregate_sequences.get(key, 0)
+                curr_seq = temp_aggregate_sequences.get(key, 0)
                 if evt.aggregate_version != curr_seq + 1:
                     raise JournalCorruptionException(
                         f"Journal aggregate sequence gap at line {idx} for '{key}': {evt.aggregate_version} != {curr_seq + 1}"
                     )
 
                 record = JournalRecord(sequence_number=seq_num, event=evt, checksum=recorded_checksum)
-                self._records.append(record)
-                self._event_ids.add(evt.event_id)
-                self._aggregate_sequences[key] = evt.aggregate_version
-                self._global_sequence = seq_num
+                temp_records.append(record)
+                temp_event_ids[evt.event_id] = seq_num
+                temp_aggregate_sequences[key] = evt.aggregate_version
+                temp_global_sequence = seq_num
                 last_valid_byte_offset = offset + len(line_bytes)
 
-            except (json.JSONDecodeError, KeyError, TypeError, JournalCorruptionException) as e:
-                if is_last_line and self.truncate_corrupted_tail and isinstance(e, (json.JSONDecodeError, KeyError, TypeError)):
-                    with open(self.journal_file_path, "ab") as f:
+            except Exception as e:
+                # Distinguish incomplete/unterminated JSON tail at EOF vs completed invalid records or middle corruption
+                is_json_syntax_error = isinstance(e, json.JSONDecodeError)
+                if is_last_line and self.truncate_corrupted_tail and is_json_syntax_error:
+                    # Truncate physical file at last valid byte offset
+                    with open(self.journal_file_path, "a+b") as f:
                         f.seek(last_valid_byte_offset)
                         f.truncate()
+                        f.flush()
+                        os.fsync(f.fileno())
                     break
                 else:
-                    raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}")
+                    raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}") from e
+
+        # Commit temporary loaded structures to instance state only after full validation and tail recovery succeed
+        self._records = temp_records
+        self._aggregate_sequences = temp_aggregate_sequences
+        self._event_ids = temp_event_ids
+        self._global_sequence = temp_global_sequence

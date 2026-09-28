@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException
+from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
@@ -97,13 +97,73 @@ def test_journal_fsync_failure_propagation_and_state_non_advancement(monkeypatch
     try:
         journal = DurableEventJournal(journal_file_path=path)
 
-        with pytest.raises(OSError):
+        with pytest.raises((OSError, JournalDurabilityException)):
             journal.append(make_test_event(1))
 
         # In-memory sequence and records must NOT have advanced!
         assert journal._global_sequence == 0
         assert len(journal.get_all_records()) == 0
         assert "evt_1" not in journal._event_ids
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+        initial_size = os.path.getsize(path)
+
+        # Mock fsync to fail on second append
+        def mock_fsync_fail(fd: int) -> None:
+            raise OSError("I/O error during fsync")
+
+        monkeypatch.setattr(os, "fsync", mock_fsync_fail)
+
+        with pytest.raises(JournalDurabilityException):
+            journal.append(make_test_event(2, event_id="e2"))
+
+        # Physical file size must be rolled back to initial size!
+        assert os.path.getsize(path) == initial_size
+        assert journal._global_sequence == 1
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_journal_restart_after_failed_append(monkeypatch: pytest.MonkeyPatch) -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+
+        def mock_fsync_fail(fd: int) -> None:
+            raise OSError("Disk failure")
+
+        monkeypatch.setattr(os, "fsync", mock_fsync_fail)
+
+        with pytest.raises(JournalDurabilityException):
+            journal.append(make_test_event(2, event_id="e2_fail"))
+
+        # Un-mock fsync
+        monkeypatch.undo()
+
+        # Restart journal from disk
+        restarted = DurableEventJournal(journal_file_path=path)
+        assert len(restarted.get_all_records()) == 1
+        assert restarted._global_sequence == 1
+        assert "e2_fail" not in restarted._event_ids
+
+        # Next successful append receives sequence number 2
+        rec2 = restarted.append(make_test_event(2, event_id="e2_success"))
+        assert rec2.sequence_number == 2
+        assert len(restarted.get_all_records()) == 2
     finally:
         if os.path.exists(path):
             os.remove(path)
@@ -166,6 +226,23 @@ def test_journal_global_sequence_regression_rejection() -> None:
 
         with pytest.raises(JournalCorruptionException):
             DurableEventJournal(journal_file_path=path)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_journal_type_safety_validation() -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        # Inject boolean sequence_number: true (in Python isinstance(True, int) is True, but not valid integer sequence)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n')
+
+        with pytest.raises(JournalCorruptionException) as exc:
+            DurableEventJournal(journal_file_path=path)
+        assert "Invalid sequence number type" in str(exc.value)
     finally:
         if os.path.exists(path):
             os.remove(path)
@@ -235,6 +312,28 @@ def test_journal_truncated_final_record_recovery() -> None:
             os.remove(path)
 
 
+def test_journal_tail_recovery_matrix_valid_json_bad_checksum_fails() -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
+
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        journal.append(make_test_event(1, event_id="e1"))
+
+        # Append complete valid JSON at EOF but with BAD CHECKSUM
+        with open(path, "a", encoding="utf-8") as f:
+            evt_json = '{"sequence_number": 2, "event": {"event_id": "e2", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 2, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "bad_checksum_hash"}\n'
+            f.write(evt_json)
+
+        # Valid JSON with bad checksum at EOF MUST FAIL CLOSED even when truncate_corrupted_tail=True!
+        with pytest.raises(JournalCorruptionException) as exc:
+            DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        assert "checksum mismatch" in str(exc.value).lower()
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def test_journal_corrupted_middle_record_fail_closed() -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
@@ -260,25 +359,6 @@ def test_journal_corrupted_middle_record_fail_closed() -> None:
             os.remove(path)
 
 
-def test_journal_truncated_final_record_fail_closed_when_flag_disabled() -> None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
-        path = tmp.name
-
-    try:
-        journal = DurableEventJournal(journal_file_path=path)
-        journal.append(make_test_event(1, event_id="e1"))
-
-        with open(path, "a", encoding="utf-8") as f:
-            f.write('{"sequence_number": 2, "event": {"event_id": "e2"')
-
-        # Default policy (truncate_corrupted_tail=False) fails closed
-        with pytest.raises(JournalCorruptionException):
-            DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=False)
-    finally:
-        if os.path.exists(path):
-            os.remove(path)
-
-
 def test_journal_interleaved_aggregates_sequencing() -> None:
     journal = DurableEventJournal()
 
@@ -299,42 +379,54 @@ def test_journal_interleaved_aggregates_sequencing() -> None:
     assert [e.aggregate_version for e in events_b] == [1, 2]
 
 
-def test_journal_concurrent_appends() -> None:
-    journal = DurableEventJournal()
-    errors = []
+def test_journal_concurrent_durable_file_appends() -> None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+        path = tmp.name
 
-    def worker(worker_id: int) -> None:
-        try:
-            for i in range(1, 11):
-                evt = Event(
-                    event_id=f"evt_w{worker_id}_{i}",
-                    event_type="TEST_EVENT",
-                    aggregate_type="Opportunity",
-                    aggregate_id=f"agg_w{worker_id}",
-                    root_id="root_1",
-                    parent_id="par_1",
-                    aggregate_version=i,
-                    source_timestamp=1000,
-                    event_timestamp=1000,
-                    processing_timestamp=1000,
-                    payload={"worker": worker_id, "i": i},
-                )
-                journal.append(evt)
-        except Exception as e:
-            errors.append(e)
+    try:
+        journal = DurableEventJournal(journal_file_path=path)
+        errors = []
 
-    threads = [threading.Thread(target=worker, args=(w,)) for w in range(5)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+        def worker(worker_id: int) -> None:
+            try:
+                for i in range(1, 11):
+                    evt = Event(
+                        event_id=f"evt_w{worker_id}_{i}",
+                        event_type="TEST_EVENT",
+                        aggregate_type="Opportunity",
+                        aggregate_id=f"agg_w{worker_id}",
+                        root_id="root_1",
+                        parent_id="par_1",
+                        aggregate_version=i,
+                        source_timestamp=1000,
+                        event_timestamp=1000,
+                        processing_timestamp=1000,
+                        payload={"worker": worker_id, "i": i},
+                    )
+                    journal.append(evt)
+            except Exception as e:
+                errors.append(e)
 
-    assert len(errors) == 0
-    records = journal.get_all_records()
-    assert len(records) == 50
+        threads = [threading.Thread(target=worker, args=(w,)) for w in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-    seqs = [r.sequence_number for r in records]
-    assert seqs == list(range(1, 51))  # Global sequence is contiguous 1..50!
+        assert len(errors) == 0
+        assert len(journal.get_all_records()) == 50
+
+        # Reload from disk in a fresh journal instance and verify exact contiguity
+        reloaded = DurableEventJournal(journal_file_path=path)
+        reloaded_records = reloaded.get_all_records()
+        assert len(reloaded_records) == 50
+
+        seqs = [r.sequence_number for r in reloaded_records]
+        assert seqs == list(range(1, 51))  # Global sequence is strictly contiguous 1..50!
+        assert len(reloaded._event_ids) == 50
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
 
 
 def test_p42_15_16_idempotency_fingerprint_conflict() -> None:

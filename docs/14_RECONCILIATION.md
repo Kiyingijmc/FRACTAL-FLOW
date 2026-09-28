@@ -165,14 +165,14 @@ ORPHAN_REATTACHED
 QUARANTINE_ENTERED
 QUARANTINE_RELEASED
 
-Durability protocol:
-`write → flush → fsync`
-In-memory state is published only after `os.fsync()` succeeds.
+Durability & Failure Atomicity Protocol:
+`PREPARE → CAPTURE_OFFSET → WRITE → FLUSH → FSYNC → PUBLISH_MEMORY → COMMITTED`
+In-memory state is published only after `os.fsync()` succeeds. If `write`/`flush`/`fsync` fails, the physical file is rolled back to the pre-append byte offset. If rollback fails, the journal enters an explicit faulted state (`JournalDurabilityException`).
 
 Invariants:
-- Global sequence: strictly contiguous starting from 1 (1, 2, 3...). Gaps, duplicates, or regressions fail closed.
-- Event ID: globally unique across all records. Maintained via an in-memory index rebuilt during reload.
-- Tail recovery policy: incomplete JSON fragments at EOF are safely truncated at last valid byte offset when tail recovery is enabled. Corruption in the middle of the journal fails closed.
+- Global sequence: strictly contiguous starting from 1 (1, 2, 3...). Strict type validation rejects booleans, floats, or gaps/duplicates/regressions.
+- Event ID: globally unique across all records. Maintained via an in-memory `Dict[str, int]` mapping `event_id → global_sequence` rebuilt during reload.
+- Tail recovery policy: incomplete JSON syntax fragments at EOF are safely truncated at `last_valid_byte_offset` when `truncate_corrupted_tail=True`. Complete records at EOF with checksum or sequence violations fail closed.
 
 ## 11. Protective continuity
 
