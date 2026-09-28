@@ -177,6 +177,24 @@ def test_subsystem_state_forgery_attacks_rejected() -> None:
     p_ev = ProtectiveMonitoringValidator.validate(inactive_prot, session_id)
     assert p_ev.valid is False
 
+    # 3. Manually Constructed ReconciliationReport Lacking Authority Stamp
+    unauthenticated_report = ReconciliationReport(
+        results=(),
+        unknown_count=0,
+        orphaned_count=0,
+        authoritative=True,
+        complete=True,
+        query_quality=BrokerQueryQuality.FOUND,
+        query_timestamp=1000,
+        temporal_boundary=1000,
+        broker_orders_seen=0,
+        broker_positions_seen=0,
+        broker_deals_seen=0,
+        generated_at=1000,
+    )
+    b_ev = BrokerReconciliationValidator.reconcile(unauthenticated_report, session_id)
+    assert b_ev.valid is False
+
 
 def test_caller_cannot_forge_authoritative_evidence() -> None:
     engine = RecoveryEngine()
@@ -269,6 +287,18 @@ def test_orphan_illegal_state_machine_transitions_rejected() -> None:
     with pytest.raises(ValueError) as exc:
         orphan.transition(OrphanStatus.RECOVERED, reason="Direct recovery attempt")
     assert "Illegal orphan status transition" in str(exc.value)
+
+
+def test_orphan_record_details_mutation_rejected() -> None:
+    orphan = OrphanRecord(
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
+        details={"key": "value"},
+    )
+
+    # Attempting in-place dictionary mutation must fail because details is MappingProxyType
+    with pytest.raises(TypeError):
+        orphan.details["key"] = "tampered"  # type: ignore
 
 
 # --- 3. Orphan Propagation & Authorization Blocking ---

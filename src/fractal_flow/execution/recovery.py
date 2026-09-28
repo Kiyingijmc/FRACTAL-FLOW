@@ -8,7 +8,8 @@ import json
 import dataclasses
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from typing import Dict, List, Optional, Any, TYPE_CHECKING, Mapping
+from types import MappingProxyType
 
 if TYPE_CHECKING:
     from src.fractal_flow.execution.reconciliation import ReconciliationReport
@@ -33,7 +34,7 @@ class RecoveryState(str, Enum):
 # --- Canonical Evidence Digest Computation ---
 
 def compute_evidence_digest(evidence_obj: Any) -> str:
-    """Computes deterministic SHA-256 hash over canonical representation of evidence object, excluding authority tokens."""
+    """Computes deterministic SHA-256 hash over canonical representation of evidence object, failing closed on unsupported types."""
     def _canonicalize(val: Any) -> Any:
         if val is None:
             return None
@@ -48,11 +49,11 @@ def compute_evidence_digest(evidence_obj: Any) -> str:
                     continue
                 d[k] = _canonicalize(getattr(val, k))
             return d
-        if isinstance(val, dict):
+        if isinstance(val, (dict, MappingProxyType, Mapping)):
             return {str(k): _canonicalize(v) for k, v in sorted(val.items())}
         if isinstance(val, (list, tuple)):
             return [_canonicalize(x) for x in val]
-        return str(val)
+        raise RecoveryEvidenceError(f"Fail-closed: Unsupported type '{type(val).__name__}' in canonical evidence digest computation.")
 
     raw_dict = _canonicalize(evidence_obj)
     canonical_json = json.dumps(raw_dict, sort_keys=True, separators=(",", ":"))
@@ -505,13 +506,13 @@ class BrokerReconciliationValidator:
     @staticmethod
     def reconcile(reconciliation_report: Any, session_id: str) -> BrokerReconciliationEvidence:
         from src.fractal_flow.execution.reconciliation import ReconciliationReport
-        if not isinstance(reconciliation_report, ReconciliationReport):
+        if not isinstance(reconciliation_report, ReconciliationReport) or not reconciliation_report.has_valid_authority_stamp():
             prov = EvidenceProvenance(
                 source_component="BrokerReconciliationValidator",
                 source_operation="reconcile",
                 source_session=session_id,
                 result="FAILED",
-                failure_reason="Authorization requires a ReconciliationReport instance",
+                failure_reason="Authorization requires an authentic ReconciliationReport instance with valid ReconciliationAuthorityStamp",
             )
             return BrokerReconciliationEvidence(
                 valid=False,
