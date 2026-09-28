@@ -12,6 +12,15 @@ class InvalidStateTransitionException(Exception):
     pass
 
 
+# Non-state-bearing entity object types declared explicitly by canonical specification
+NON_STATE_BEARING_TYPES: Set[str] = {
+    "MarketObservation",
+    "FeatureSet",
+    "JournalEvent",
+    "BrokerConstraints",
+}
+
+
 class StateRegistry:
     """Canonical runtime registry loading states and transitions directly from spec/*.yaml."""
 
@@ -46,7 +55,7 @@ class StateRegistry:
         return state_name in self._states[machine_name]
 
     def validate_transition(self, machine_name: str, current_state: str, new_state: str) -> None:
-        """Fails closed if machine is unknown, state is unknown, or transition is illegal."""
+        """Fails closed if machine is unknown, current state is unknown, target state is unknown, or transition is illegal."""
         if not self.is_known_machine(machine_name):
             raise InvalidStateTransitionException(f"Unknown state machine: '{machine_name}'. Fail-closed.")
 
@@ -128,15 +137,21 @@ class StateEnvelope:
                 f"StateEnvelope valid_until ({self.valid_until}) cannot be prior to last_seen ({self.last_seen})"
             )
 
-        # Fail closed on state membership
-        m_type = f"{self.object_type}State"
-        if self.registry.is_known_machine(m_type):
+        # Fail closed on state machine and state membership
+        m_type = f"{self.object_type}State" if not self.object_type.endswith("State") else self.object_type
+        if self.object_type not in NON_STATE_BEARING_TYPES:
+            if not self.registry.is_known_machine(m_type):
+                raise ValueError(f"StateEnvelope object_type '{self.object_type}' maps to unknown machine '{m_type}'. Fail-closed.")
+
             if not self.registry.is_valid_state(m_type, self.state):
-                raise ValueError(f"Invalid canonical state '{self.state}' for machine '{m_type}'")
+                raise ValueError(f"Invalid canonical current state '{self.state}' for machine '{m_type}'. Fail-closed.")
+
+            if self.previous_state and not self.registry.is_valid_state(m_type, self.previous_state):
+                raise ValueError(f"Invalid canonical previous state '{self.previous_state}' for machine '{m_type}'. Fail-closed.")
 
     def transition_to(self, new_state: str, machine_type: Optional[str] = None) -> None:
-        """Attempts state transition; fails closed if transition is illegal."""
-        m_type = machine_type or f"{self.object_type}State"
+        """Attempts state transition; fails closed if transition is illegal or target/machine is unknown."""
+        m_type = machine_type or (f"{self.object_type}State" if not self.object_type.endswith("State") else self.object_type)
         self.registry.validate_transition(m_type, self.state, new_state)
         self.previous_state = self.state
         self.state = new_state

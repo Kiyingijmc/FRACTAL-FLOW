@@ -51,7 +51,7 @@ def compute_effective_config(
     symbol_overlay: Optional[SymbolOverlay] = None,
     news_overlay: Optional[NewsOverlay] = None,
 ) -> EffectiveConfiguration:
-    """Computes immutable EffectiveConfiguration with canonical deterministic SHA256 hashing."""
+    """Computes immutable EffectiveConfiguration with canonical deterministic SHA256 hashing covering all fields."""
     max_spread = base.max_spread_pips
     if symbol_overlay and symbol_overlay.max_spread_pips is not None:
         max_spread = symbol_overlay.max_spread_pips
@@ -59,7 +59,7 @@ def compute_effective_config(
     news_active = news_overlay.news_lockdown_active if news_overlay else False
     risk_mult = news_overlay.risk_multiplier if news_overlay else 1.0
 
-    temp_config = {
+    eff_dict = {
         "version": base.version,
         "symbol": symbol,
         "max_spread_pips": max_spread,
@@ -68,12 +68,12 @@ def compute_effective_config(
         "risk_multiplier": risk_mult,
         "ttl_default_ns": base.ttl_default_ns,
         "max_currency_exposure_lots": base.max_currency_exposure_lots,
-        "symbol_overlay_version": symbol_overlay.overlay_version if symbol_overlay else 0,
-        "news_overlay_version": news_overlay.overlay_version if news_overlay else 0,
+        "symbol_overlay": asdict(symbol_overlay) if symbol_overlay else None,
+        "news_overlay": asdict(news_overlay) if news_overlay else None,
     }
 
     # Canonical sorted JSON serialization
-    canonical_json = json.dumps(temp_config, sort_keys=True)
+    canonical_json = json.dumps(eff_dict, sort_keys=True)
     config_id = f"cfg_{hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()[:12]}"
 
     return EffectiveConfiguration(

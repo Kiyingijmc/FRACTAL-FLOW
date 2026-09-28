@@ -73,10 +73,10 @@ class DeterministicBrokerSimulator:
         return side_obj.value if hasattr(side_obj, "value") else str(side_obj)
 
     def submit_intent(self, intent: ExecutionIntent) -> ExecutionState:
-        """Processes execution intent with strict idempotency and scenario modeling."""
+        """Processes execution intent with strict canonical idempotency and scenario modeling."""
         side_val = self._side_str(intent.side)
 
-        # Idempotency Enforcement
+        # Canonical Idempotency Enforcement
         if intent.idempotency_key in self.idempotency_records:
             existing = self.idempotency_records[intent.idempotency_key]
             existing_side_val = self._side_str(existing.side)
@@ -85,11 +85,13 @@ class DeterministicBrokerSimulator:
                 or existing_side_val != side_val
                 or existing.requested_volume != intent.requested_volume
                 or existing.entry_price != intent.entry_price
+                or existing.decision_id != intent.decision_id
+                or existing.sl != intent.sl
+                or existing.effective_config_id != intent.effective_config_id
             ):
                 raise IdempotencyConflictException(
                     f"Idempotency Conflict: Key '{intent.idempotency_key}' already used with different parameters."
                 )
-            # Return existing client-observed state without creating new broker orders/deals
             return self.client_intent_statuses.get(existing.intent_id, ExecutionState.EXEC_SUBMITTED)
 
         self.idempotency_records[intent.idempotency_key] = intent
@@ -102,12 +104,27 @@ class DeterministicBrokerSimulator:
             return ExecutionState.EXEC_REJECTED
 
         if scenario == ExecutionScenario.UNKNOWN_BEFORE_RECEIPT:
-            # Order lost in network before hitting broker
             self.client_intent_statuses[intent.intent_id] = ExecutionState.EXEC_UNKNOWN
             return ExecutionState.EXEC_UNKNOWN
 
         self._order_counter += 1
         order_id = f"ORD_{self._order_counter}"
+
+        if scenario == ExecutionScenario.UNKNOWN_AFTER_ACCEPT:
+            # Order accepted on broker order book, but NO fill, NO deals, NO position created
+            order = BrokerOrder(
+                order_id=order_id,
+                intent_id=intent.intent_id,
+                symbol=intent.symbol,
+                side=side_val,
+                volume=intent.requested_volume,
+                price=intent.entry_price,
+                status="ACCEPTED",
+            )
+            self.broker_orders[order_id] = order
+            self.broker_intent_statuses[intent.intent_id] = ExecutionState.EXEC_ACCEPTED
+            self.client_intent_statuses[intent.intent_id] = ExecutionState.EXEC_UNKNOWN
+            return ExecutionState.EXEC_UNKNOWN
 
         if scenario in (ExecutionScenario.PARTIAL_FILL, ExecutionScenario.UNKNOWN_AFTER_PARTIAL_FILL):
             fill_vol = float(
@@ -248,18 +265,27 @@ class DeterministicBrokerSimulator:
         pos.current_sl = new_sl
         return True
 
-    def close_position(self, position_id: str, exit_price: Optional[float] = None) -> bool:
-        """Closes an active position with realistic close execution lifecycle and PnL calculation."""
+    def close_position(self, position_id: str, exit_price: Optional[float] = None, close_volume: Optional[float] = None) -> bool:
+        """Closes an active position with partial closing support and instrument-native PnL calculation."""
         pos = self.broker_positions.get(position_id)
         if not pos or pos.lifecycle_state == "POS_CLOSED":
             return False
 
-        pos.lifecycle_state = "POS_CLOSING"
+        vol_to_close = close_volume or pos.remaining_volume if pos.remaining_volume > 0 else pos.filled_volume
+        if vol_to_close > (pos.remaining_volume if pos.remaining_volume > 0 else pos.filled_volume):
+            raise ValueError(f"Cannot close volume {vol_to_close} exceeding active position volume {pos.filled_volume}")
+
         close_price = exit_price or pos.entry_price
 
-        # Calculate realized PnL deterministically
+        # Extract instrument metadata from intent snapshot or default contract size
+        contract_size = Decimal("100000.0")
+        if pos.intent_id in self.idempotency_records:
+            snap = self.idempotency_records[pos.intent_id].broker_constraint_snapshot
+            if "contract_size" in snap:
+                contract_size = Decimal(str(snap["contract_size"]))
+
         price_diff = close_price - pos.entry_price if pos.side in ("BUY", "LONG") else pos.entry_price - close_price
-        pnl = float((Decimal(str(price_diff)) * Decimal(str(pos.filled_volume)) * Decimal("100000.0")).quantize(Decimal("0.01")))
+        pnl = float((Decimal(str(price_diff)) * Decimal(str(vol_to_close)) * contract_size).quantize(Decimal("0.01")))
 
         self._deal_counter += 1
         close_deal = BrokerDeal(
@@ -268,15 +294,23 @@ class DeterministicBrokerSimulator:
             position_id=pos.position_id,
             symbol=pos.symbol,
             side="SELL" if pos.side in ("BUY", "LONG") else "BUY",
-            volume=pos.filled_volume,
+            volume=vol_to_close,
             price=close_price,
             commission=1.5,
             timestamp=self.clock.now_ns(),
         )
         self.broker_deals[close_deal.deal_id] = close_deal
         pos.deals.append(close_deal)
-        pos.realized_pnl = pnl
-        pos.lifecycle_state = "POS_CLOSED"
+        pos.realized_pnl += pnl
+
+        new_remaining = float(Decimal(str(pos.filled_volume)) - Decimal(str(vol_to_close)))
+        if new_remaining == 0.0:
+            pos.lifecycle_state = "POS_CLOSED"
+            pos.remaining_volume = 0.0
+        else:
+            pos.lifecycle_state = "POS_ACTIVE"
+            pos.remaining_volume = new_remaining
+
         return True
 
     def reconcile_intent(self, intent_id: str) -> ExecutionState:

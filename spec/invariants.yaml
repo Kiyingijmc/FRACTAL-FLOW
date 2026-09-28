@@ -164,7 +164,7 @@ invariants:
     rule: "Scheduled news and observed shock are separate concepts."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 5 News Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 5 implementation"
 
   - id: 22
@@ -172,21 +172,21 @@ invariants:
     rule: "Ten minutes after news is a validation checkpoint, not an automatic restart rule."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 5 News Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 5 implementation"
 
   - id: 23
     title: no_future_data_lookahead
     rule: "No future data/lookahead."
-    status: ENFORCED
-    enforcement_mechanism: "TradeDecision and ExecutionIntent store immutable quote_timestamp"
-    test_reference: tests/test_provenance_authorization.py::test_provenance_snapshots_preserved
-    failure_mode: "Mismatch detected in audit timestamp"
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 8 Research Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 8 FeatureStore implementation"
 
   - id: 24
     title: decisions_use_past_data
     rule: "Decisions use data available at or before decision time."
-    status: ENFORCED
+    status: INTEGRATION_VERIFIED
     enforcement_mechanism: "TradeDecision quote_timestamp snapshot"
     test_reference: tests/test_provenance_authorization.py::test_provenance_snapshots_preserved
     failure_mode: "Mismatch detected in audit timestamp"
@@ -204,7 +204,7 @@ invariants:
     rule: "Primary pullback normally occurs on a timeframe strictly higher than execution timeframe."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: tests/test_lineage.py::test_legal_lineage_edges_all_valid
+    test_reference: None
     failure_mode: "Requires Layer 2 PDE implementation"
 
   - id: 27
@@ -220,7 +220,7 @@ invariants:
     rule: "Flipping is not immediate loss-to-opposite; opposite direction requires an independently valid structural reversal."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 4 Portfolio Arbitration specification"
-    test_reference: tests/test_lineage.py::test_legal_lineage_edges_all_valid
+    test_reference: None
     failure_mode: "Requires Layer 4 implementation"
 
   - id: 29
@@ -228,7 +228,7 @@ invariants:
     rule: "Liquidity sweeps are trigger modifiers, not standalone strategies."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 3 Opportunity Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 3 implementation"
 
   - id: 30
@@ -236,7 +236,7 @@ invariants:
     rule: "Compression is a state, not an automatic signal."
     status: ENFORCED
     enforcement_mechanism: "VolatilityState enum and StateEnvelope validation"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: tests/test_spec_parity.py::test_states_exact_parity
     failure_mode: "InvalidStateTransitionException"
 
   - id: 31
@@ -244,7 +244,7 @@ invariants:
     rule: "Static EMA crossover is not the core strategy."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 2 Structure Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 2 implementation"
 
   - id: 32
@@ -252,7 +252,7 @@ invariants:
     rule: "Fixed three-candle fractals are not the core structure engine."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 2 Structure Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 2 implementation"
 
   - id: 33
@@ -260,7 +260,7 @@ invariants:
     rule: "Fixed Fibonacci thresholds are not constitutional pullback rules."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 2 implementation"
 
   - id: 34
@@ -268,21 +268,21 @@ invariants:
     rule: "Fixed candle-count pullback rules are not constitutional."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 2 implementation"
 
   - id: 35
     title: structural_stops_primary
     rule: "Structural stops are primary; ATR/volatility is a buffer/rescue reference, not the thesis."
-    status: ENFORCED
-    enforcement_mechanism: "BrokerConstraints.validate_stop_distance exact check"
-    test_reference: tests/test_units_broker.py::test_broker_constraints_decimal_validation
-    failure_mode: "ValueError raised if below stops_level"
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 2 Structure Engine stop generation contract"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
 
   - id: 36
     title: finite_lifetime_ttl
     rule: "Every trade has finite lifetime through TTL."
-    status: ENFORCED
+    status: INTEGRATION_VERIFIED
     enforcement_mechanism: "TradeDecision.ttl_ns positive validation"
     test_reference: tests/test_provenance_authorization.py::test_news_lockdown_blocks_trade_decision_authorization
     failure_mode: "ValueError"
@@ -290,18 +290,18 @@ invariants:
   - id: 37
     title: portfolio_currency_and_correlation_aware
     rule: "Portfolio exposure must be currency-aware and correlation-aware."
-    status: ENFORCED
-    enforcement_mechanism: "AuthorityMatrix capability boundaries"
-    test_reference: tests/test_invariants.py::test_invariant_portfolio_cannot_manufacture_direction
-    failure_mode: "AuthorityViolationException"
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 4 Portfolio Arbitration Engine specification"
+    test_reference: None
+    failure_mode: "Requires Layer 4 implementation"
 
   - id: 38
     title: account_feasibility_checked
     rule: "Account feasibility must be checked before sizing/execution."
-    status: ENFORCED
-    enforcement_mechanism: "BrokerConstraints.validate_volume step and limit checks"
-    test_reference: tests/test_invariants.py::test_invariant_broker_constraints_stops_level
-    failure_mode: "ValueError"
+    status: SPECIFIED_ONLY
+    enforcement_mechanism: "Layer 4 Risk Engine account feasibility contract"
+    test_reference: None
+    failure_mode: "Requires Layer 4 Risk implementation"
 
   - id: 39
     title: configuration_versioned_and_reproducible
@@ -324,7 +324,7 @@ invariants:
     rule: "Research must test incremental information value rather than merely maximize backtest profit."
     status: SPECIFIED_ONLY
     enforcement_mechanism: "Layer 8 Research Engine specification"
-    test_reference: tests/test_spec_parity.py::test_states_parity
+    test_reference: None
     failure_mode: "Requires Layer 8 implementation"
 
   - id: 42

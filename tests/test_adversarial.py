@@ -1,4 +1,4 @@
-"""Adversarial Regression Test Suite testing critical security, lineage, execution, and state-machine boundaries."""
+"""Comprehensive Adversarial Regression Test Suite covering state-machine closure, execution uncertainty, lineage integrity, and news lockdown boundaries."""
 
 import pytest
 from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
@@ -22,6 +22,14 @@ def test_adversarial_stale_and_future_lineage_child() -> None:
     assert "Parent version mismatch" in str(exc2.value)
 
 
+def test_adversarial_illegal_lineage_edge_shortcut_rejected() -> None:
+    # Attempting illegal edge ROOT -> POSITION
+    shortcut_child = Lineage("root_1", "root_1", parent_version=1, parent_tier="ROOT", current_tier="POSITION")
+    with pytest.raises(LineageInvalidException) as exc:
+        shortcut_child.validate_child_action(authoritative_parent_version=1)
+    assert "Illegal lineage edge" in str(exc.value)
+
+
 def test_adversarial_unknown_state_machine_and_states() -> None:
     reg = StateRegistry()
     with pytest.raises(InvalidStateTransitionException) as exc1:
@@ -31,6 +39,46 @@ def test_adversarial_unknown_state_machine_and_states() -> None:
     with pytest.raises(InvalidStateTransitionException) as exc2:
         reg.validate_transition("PDEState", "UNKNOWN_STATE", "PDE_IMPULSE")
     assert "Unknown current state" in str(exc2.value)
+
+
+def test_adversarial_unknown_after_accept_scenario() -> None:
+    clock = SimulationClock(1000)
+    sim = DeterministicBrokerSimulator(
+        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_AFTER_ACCEPT)
+    )
+    intent = ExecutionIntent(
+        intent_id="intent_accept_unk",
+        decision_id="dec_adv1",
+        opportunity_id="opp_adv1",
+        root_id="root_1",
+        idempotency_key="key_accept_unk",
+        symbol="EURUSD",
+        side=OrderSide.BUY,
+        requested_volume=1.0,
+        entry_price=1.0850,
+        sl=1.0820,
+        tp_plan={},
+        effective_config_id="cfg_123",
+        lineage_version=1,
+        broker_constraint_snapshot={},
+        quote_timestamp=1000,
+        spread_pips=1.0,
+        status="EXEC_READY",
+        created_at=100,
+        updated_at=100,
+    )
+
+    status = sim.submit_intent(intent)
+    assert status == ExecutionState.EXEC_UNKNOWN
+
+    # Order must exist on broker order book, but ZERO positions and ZERO deals created
+    assert len(sim.broker_orders) == 1
+    assert len(sim.broker_positions) == 0
+    assert len(sim.broker_deals) == 0
+
+    # Reconciliation resolves status to EXEC_ACCEPTED
+    recon = sim.reconcile_intent("intent_accept_unk")
+    assert recon == ExecutionState.EXEC_ACCEPTED
 
 
 def test_adversarial_unknown_execution_no_duplicate_exposure() -> None:

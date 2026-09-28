@@ -64,3 +64,11 @@ class BrokerConstraints:
             raise ValueError(
                 f"Stop distance {sl_distance_pips} pips violates broker freeze_level {self.freeze_level} pips"
             )
+
+    def validate_price_tick_alignment(self, price: float) -> None:
+        """Ensures price aligns with broker tick_size."""
+        p_dec = Decimal(str(price))
+        t_dec = Decimal(str(self.tick_size))
+        remainder = p_dec % t_dec
+        if remainder != Decimal("0"):
+            raise ValueError(f"Price {price} does not align with tick_size {self.tick_size} for {self.symbol}")
