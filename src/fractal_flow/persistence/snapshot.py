@@ -32,7 +32,11 @@ class AggregateSnapshot:
     @staticmethod
     def compute_state_hash(payload: Dict[str, Any]) -> str:
         """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        canonical_payload = {
+            k: v for k, v in payload.items()
+            if not k.startswith("_")
+        }
+        return hashlib.sha256(json.dumps(canonical_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
     @staticmethod
     def compute_checksum(
@@ -69,6 +73,8 @@ class SnapshotEngine:
         self._snapshots: Dict[str, AggregateSnapshot] = {}
         self._reducers: Dict[str, Callable[[Dict[str, Any], Event], Dict[str, Any]]] = {}
         self._lock = threading.Lock()
+        self._snapshot_valid: bool = True
+        self._snapshot_fallback_used: bool = False
 
     def register_reducer(self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]) -> None:
         """Registers an explicit semantic event reducer for state transitions during replay."""
@@ -140,6 +146,66 @@ class SnapshotEngine:
                 raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
             return snap
 
+    def canonicalize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Strips replay diagnostics and metadata starting with '_' from business state."""
+        return {k: v for k, v in state.items() if not k.startswith("_")}
+
+    def replay_to_sequence(
+        self,
+        journal: DurableEventJournal,
+        aggregate_type: str,
+        aggregate_id: str,
+        target_sequence: int,
+        initial_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Replays journal from genesis up to target_sequence strictly using registered reducers."""
+        state = dict(initial_state or {})
+        all_records = journal.get_all_records()
+        agg_records = [
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
+            and r.sequence_number <= target_sequence
+        ]
+
+        for record in agg_records:
+            evt = record.event
+            reducer = self._reducers.get(evt.event_type)
+            if reducer:
+                state = reducer(state, evt)
+            else:
+                state.update(evt.payload)
+
+        return state
+
+    def verify_snapshot_equivalence(
+        self,
+        snapshot: AggregateSnapshot,
+        journal: DurableEventJournal,
+        aggregate_type: str,
+        aggregate_id: str,
+        initial_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Verifies independent replay equivalence between snapshot state payload and journal replay from genesis."""
+        replayed = self.replay_to_sequence(
+            journal=journal,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            target_sequence=snapshot.last_sequence_number,
+            initial_state=initial_state,
+        )
+
+        canonical_replayed = self.canonicalize_state(replayed)
+        canonical_snapshot = self.canonicalize_state(snapshot.state_payload)
+
+        expected_hash = AggregateSnapshot.compute_state_hash(canonical_replayed)
+        actual_hash = AggregateSnapshot.compute_state_hash(canonical_snapshot)
+
+        if expected_hash != actual_hash:
+            raise SnapshotCorruptionException(
+                f"Snapshot state payload is not semantically equivalent to deterministic journal replay from genesis. "
+                f"Expected hash: {expected_hash}, actual hash: {actual_hash}"
+            )
+
     def validate_snapshot_boundary(
         self,
         snapshot: AggregateSnapshot,
@@ -191,6 +257,9 @@ class SnapshotEngine:
                     f"Snapshot aggregate version mismatch at boundary sequence {snapshot.last_sequence_number}: "
                     f"snapshot version {snapshot.aggregate_version} != journal aggregate version {latest_agg_record.event.aggregate_version}"
                 )
+
+            # Enforce independent replay equivalence
+            self.verify_snapshot_equivalence(snapshot, journal, expected_type, expected_id)
 
     def _get_snapshot_file_path(self, aggregate_type: str, aggregate_id: str) -> Path:
         assert self.snapshot_dir is not None
@@ -276,6 +345,9 @@ class SnapshotEngine:
             snapshot = None
             snapshot_valid = False
             snapshot_fallback_used = True
+
+        self._snapshot_valid = snapshot_valid
+        self._snapshot_fallback_used = snapshot_fallback_used
 
         min_seq = 0
         state = dict(initial_state or {})

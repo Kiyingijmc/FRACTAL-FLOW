@@ -17,6 +17,16 @@ class OrderSide(str, Enum):
     SELL = "SELL"
 
 
+@unique
+class DealEntryRole(str, Enum):
+    UNKNOWN = "UNKNOWN"
+    OPEN = "OPEN"
+    INCREASE = "INCREASE"
+    CLOSE = "CLOSE"
+    DECREASE = "DECREASE"
+    REVERSAL = "REVERSAL"
+
+
 @dataclass(frozen=True)
 class MarketObservation:
     symbol: str
@@ -245,7 +255,7 @@ class BrokerDeal:
     price: float
     commission: float
     timestamp: int
-    entry_role: str = "OPEN"
+    entry_role: DealEntryRole = DealEntryRole.UNKNOWN
 
 
 @dataclass
