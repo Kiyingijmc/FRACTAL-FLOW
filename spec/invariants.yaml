@@ -1,0 +1,52 @@
+invariants:
+  - id: 1
+    name: pde_cannot_execute
+    rule: "PDE cannot issue execution orders directly"
+  - id: 2
+    name: flow_cannot_execute
+    rule: "Flow engine cannot open positions"
+  - id: 3
+    name: risk_cannot_manufacture_direction
+    rule: "Risk engine cannot generate trade direction"
+  - id: 4
+    name: portfolio_cannot_manufacture_direction
+    rule: "Portfolio arbitration cannot generate trade direction"
+  - id: 5
+    name: confidence_cannot_bypass_validity
+    rule: "Confidence score cannot override mandatory validity gates"
+  - id: 6
+    name: invalid_parent_blocks_child
+    rule: "An invalid parent blocks child execution or setup creation"
+  - id: 7
+    name: stale_parent_version_blocks_child
+    rule: "A child referencing an obsolete parent version cannot execute"
+  - id: 8
+    name: orphan_signal_cannot_execute
+    rule: "Orphaned signals without valid parent setups cannot execute"
+  - id: 9
+    name: unknown_execution_not_rejection
+    rule: "EXEC_UNKNOWN must trigger reconciliation, not treat as rejection"
+  - id: 10
+    name: unknown_execution_not_retried_blindly
+    rule: "EXEC_UNKNOWN cannot be re-submitted without status confirmation"
+  - id: 11
+    name: news_lockdown_blocks_strategic_exposure
+    rule: "NEWS_LOCKDOWN prohibits all new strategic position entries"
+  - id: 12
+    name: protective_sl_cannot_loosen
+    rule: "Protective stops can only be tightened or maintained, never loosened"
+  - id: 13
+    name: ttl_cannot_rescue_invalidation
+    rule: "TTL duration extension cannot override structural invalidation"
+  - id: 14
+    name: loss_cannot_cause_flipping
+    rule: "Trade loss cannot trigger immediate opposite flipping without independent setup"
+  - id: 15
+    name: m1_micro_not_primary
+    rule: "M1 micro pullback cannot masquerade as primary pullback without explicit exception"
+  - id: 16
+    name: reconciliation_completes_before_auth
+    rule: "System restart requires reconciliation completion before trade authorization"
+  - id: 17
+    name: no_lookahead_in_research
+    rule: "Research features and signals must strictly use past data"

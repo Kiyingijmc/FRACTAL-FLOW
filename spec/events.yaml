@@ -1,0 +1,17 @@
+events:
+  schema:
+    - event_id
+    - event_type
+    - aggregate_type
+    - aggregate_id
+    - root_id
+    - parent_id
+    - aggregate_version
+    - source_timestamp
+    - event_timestamp
+    - processing_timestamp
+    - configuration_version
+    - data_version
+    - feature_version
+    - reason_codes
+    - payload
