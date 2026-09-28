@@ -1,4 +1,4 @@
-"""Canonical Entry Model Domain Types and EntryPolicyEngine for FRACTAL FLOW."""
+"""Canonical Entry Model Domain Types, Authoritative State Machine, Validators, and Policy Engine for FRACTAL FLOW."""
 
 from dataclasses import dataclass, field
 from enum import Enum, unique
@@ -7,6 +7,8 @@ from decimal import Decimal
 
 from src.fractal_flow.domain.models import Direction, OrderSide
 from src.fractal_flow.domain.reason_codes import ReasonCode
+from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY, InvalidStateTransitionException
+from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
 
 
 @unique
@@ -78,21 +80,57 @@ class EntryTrigger:
     required_states: Dict[str, str] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
+@dataclass
 class OpportunityRiskBudget:
     opportunity_id: str
     total_risk_currency: float
     total_allowed_volume: float
     allocated_risk: float = 0.0
     allocated_volume: float = 0.0
+    reserved_risk: float = 0.0
 
     @property
     def remaining_risk(self) -> float:
-        return max(0.0, float(Decimal(str(self.total_risk_currency)) - Decimal(str(self.allocated_risk))))
+        tot = Decimal(str(self.total_risk_currency))
+        alloc = Decimal(str(self.allocated_risk))
+        res = Decimal(str(self.reserved_risk))
+        return max(0.0, float(tot - alloc - res))
 
     @property
     def remaining_volume(self) -> float:
         return max(0.0, float(Decimal(str(self.total_allowed_volume)) - Decimal(str(self.allocated_volume))))
+
+    def reserve(self, amount: float) -> None:
+        if amount <= 0.0:
+            raise ValueError("Reservation amount must be positive")
+        if Decimal(str(amount)) > Decimal(str(self.remaining_risk)):
+            raise ValueError(f"Cannot reserve {amount}: exceeds remaining risk {self.remaining_risk}")
+        self.reserved_risk = float(Decimal(str(self.reserved_risk)) + Decimal(str(amount)))
+
+    def allocate(self, amount: float, volume: float) -> None:
+        if amount < 0.0 or volume < 0.0:
+            raise ValueError("Allocation amount and volume must be non-negative")
+        req_risk = Decimal(str(amount))
+        req_vol = Decimal(str(volume))
+        if req_risk > Decimal(str(self.remaining_risk)) + Decimal(str(self.reserved_risk)):
+            raise ValueError(f"Cannot allocate risk {amount}: exceeds total risk budget {self.total_risk_currency}")
+        if req_vol > Decimal(str(self.remaining_volume)):
+            raise ValueError(f"Cannot allocate volume {volume}: exceeds total volume budget {self.total_allowed_volume}")
+
+        # If reserved, deduct from reserved first
+        if self.reserved_risk >= amount:
+            self.reserved_risk = float(Decimal(str(self.reserved_risk)) - req_risk)
+        else:
+            self.reserved_risk = 0.0
+
+        self.allocated_risk = float(Decimal(str(self.allocated_risk)) + req_risk)
+        self.allocated_volume = float(Decimal(str(self.allocated_volume)) + req_vol)
+
+    def release(self, amount: float, volume: float) -> None:
+        rel_risk = Decimal(str(amount))
+        rel_vol = Decimal(str(volume))
+        self.allocated_risk = max(0.0, float(Decimal(str(self.allocated_risk)) - rel_risk))
+        self.allocated_volume = max(0.0, float(Decimal(str(self.allocated_volume)) - rel_vol))
 
 
 @dataclass(frozen=True)
@@ -157,16 +195,91 @@ class HybridEntryPlan:
     risk_budget: OpportunityRiskBudget
     legs: List[EntryPlan]
 
+    def validate_budget_limits(self) -> None:
+        total_leg_risk = sum(Decimal(str(leg.allocated_risk)) for leg in self.legs)
+        total_leg_vol = sum(Decimal(str(leg.approved_volume)) for leg in self.legs)
+
+        if total_leg_risk > Decimal(str(self.risk_budget.total_risk_currency)):
+            raise ValueError(f"Hybrid plan total risk {total_leg_risk} exceeds opportunity budget {self.risk_budget.total_risk_currency}")
+        if total_leg_vol > Decimal(str(self.risk_budget.total_allowed_volume)):
+            raise ValueError(f"Hybrid plan total volume {total_leg_vol} exceeds opportunity volume limit {self.risk_budget.total_allowed_volume}")
+
 
 @dataclass(frozen=True)
 class ContingentExposure:
     symbol: str
     current_open_volume: float
     contingent_pending_volume: float
+    risk_weighted_exposure: float = 0.0
 
     @property
     def worst_case_contingent_volume(self) -> float:
         return float(Decimal(str(self.current_open_volume)) + Decimal(str(self.contingent_pending_volume)))
+
+
+class EntryStateMachine:
+    """Authoritative transition service for EntryPlan state transitions."""
+
+    @staticmethod
+    def transition(plan: EntryPlan, new_state: str) -> None:
+        """Transitions EntryPlan state using StateRegistry fail-closed validation."""
+        GLOBAL_STATE_REGISTRY.validate_transition("EntryState", plan.state, new_state)
+        plan.state = new_state
+
+
+class EntryPlanValidator:
+    """Validates structural and domain invariants of EntryPlan before arming or submission."""
+
+    @staticmethod
+    def validate(plan: EntryPlan) -> None:
+        if not plan.entry_plan_id or not plan.opportunity_id or not plan.decision_id or not plan.root_id or not plan.parent_id:
+            raise ValueError("EntryPlan missing required structural identity fields")
+
+        if plan.parent_version <= 0 or plan.lineage_version <= 0:
+            raise ValueError("EntryPlan parent_version and lineage_version must be positive integers")
+
+        if plan.approved_volume <= 0.0 or plan.approved_volume > plan.requested_volume:
+            raise ValueError(f"Approved volume {plan.approved_volume} must be > 0 and <= requested volume {plan.requested_volume}")
+
+        if plan.allocated_risk < 0.0 or plan.allocated_risk > plan.risk_budget:
+            raise ValueError(f"Allocated risk {plan.allocated_risk} must be non-negative and <= risk_budget {plan.risk_budget}")
+
+        if plan.expires_at > 0 and plan.expires_at < plan.created_at:
+            raise ValueError(f"EntryPlan expires_at ({plan.expires_at}) cannot be prior to created_at ({plan.created_at})")
+
+
+class ConditionalEntryValidator:
+    """Revalidates armed EntryPlans continuously prior to execution or trigger activation."""
+
+    @staticmethod
+    def revalidate(
+        plan: EntryPlan,
+        authoritative_parent_version: int,
+        current_news_state: str,
+        current_tradeability_state: str,
+        current_clock_ns: int,
+    ) -> bool:
+        # Strict parent version equality
+        if plan.parent_version != authoritative_parent_version:
+            EntryStateMachine.transition(plan, "ENTRY_STALE")
+            return False
+
+        # Expiry check
+        if plan.expires_at > 0 and current_clock_ns >= plan.expires_at:
+            EntryStateMachine.transition(plan, "ENTRY_EXPIRED")
+            return False
+
+        # News lockdown
+        if current_news_state == "NEWS_LOCKDOWN":
+            EntryStateMachine.transition(plan, "ENTRY_INVALIDATED")
+            return False
+
+        # Tradeability
+        if current_tradeability_state != "TRADEABILITY_PASS":
+            EntryStateMachine.transition(plan, "ENTRY_INVALIDATED")
+            return False
+
+        return True
 
 
 class EntryPolicyEngine:

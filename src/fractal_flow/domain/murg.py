@@ -166,6 +166,15 @@ class AccountResourceContext:
 
 
 @dataclass
+class MarketActivationLease:
+    canonical_id: str
+    activated_at_ns: int
+    minimum_dwell_until_ns: int
+    lease_expiry_ns: int
+    priority_score_snapshot: float
+
+
+@dataclass
 class MarketActivationDecision:
     canonical_id: str
     activation_state: str  # ACTIVE, WARMING, QUEUED, DORMANT, BLOCKED
@@ -176,8 +185,19 @@ class MarketActivationDecision:
     pending_order_monitoring_enabled: bool
 
 
+@dataclass(frozen=True)
+class MarketProcessingCost:
+    base_cost: float = 1.0
+    active_timeframes_cost: float = 0.5
+    indicator_cost: float = 0.2
+
+    @property
+    def total_cost(self) -> float:
+        return float(Decimal(str(self.base_cost)) + Decimal(str(self.active_timeframes_cost)) + Decimal(str(self.indicator_cost)))
+
+
 class ResourceGovernor:
-    """Resource Governor enforcing hard active caps, warm-up queues, and hysteresis thresholds."""
+    """Resource Governor enforcing hard active caps, warm-up queues, leases, and hysteresis thresholds."""
 
     def __init__(
         self,
@@ -185,15 +205,18 @@ class ResourceGovernor:
         max_warming_symbols: int = 3,
         activation_threshold: float = 75.0,
         deactivation_threshold: float = 65.0,
+        minimum_dwell_ns: int = 60_000_000_000,  # 60s
     ) -> None:
         self.max_active_symbols = max_active_symbols
         self.max_warming_symbols = max_warming_symbols
         self.activation_threshold = activation_threshold
         self.deactivation_threshold = deactivation_threshold
+        self.minimum_dwell_ns = minimum_dwell_ns
 
         self.active_markets: Set[str] = set()
         self.warming_markets: Set[str] = set()
         self.queued_markets: List[str] = []
+        self.leases: Dict[str, MarketActivationLease] = {}
 
     def evaluate_universe_activation(
         self,
@@ -203,13 +226,13 @@ class ResourceGovernor:
         session_context: MarketSessionContext,
         has_open_position: Dict[str, bool],
         has_pending_order: Dict[str, bool],
+        current_time_ns: int = 0,
     ) -> Dict[str, MarketActivationDecision]:
         decisions: Dict[str, MarketActivationDecision] = {}
 
         # Adjust capacity using account capacity multiplier
         effective_active_cap = max(1, int(self.max_active_symbols * account_context.capacity_multiplier))
 
-        # Candidate canonical IDs
         candidate_ids = catalog.list_all_canonical_ids()
 
         for canonical_id in candidate_ids:
@@ -245,31 +268,50 @@ class ResourceGovernor:
                 )
                 continue
 
-            # Priority Scoring
+            # Priority Scoring with Universe Mode Awareness
             score = 50.0
-            if canonical_id in universe.pinned_canonical_ids:
-                score += 30.0
-            if canonical_id in universe.manual_canonical_ids:
-                score += 20.0
+            if universe.mode == UniverseMode.MANUAL and canonical_id not in universe.manual_canonical_ids:
+                score = 0.0
+            else:
+                if canonical_id in universe.pinned_canonical_ids:
+                    score += 30.0
+                if canonical_id in universe.manual_canonical_ids:
+                    score += 20.0
 
-            # Activation decision based on cap and hysteresis
+            # Lease / Hysteresis check
             is_currently_active = canonical_id in self.active_markets
-            threshold = self.deactivation_threshold if is_currently_active else self.activation_threshold
+            lease = self.leases.get(canonical_id)
 
-            reasons: List[ReasonCode] = []
-            if score >= threshold and len(self.active_markets) < effective_active_cap:
-                self.active_markets.add(canonical_id)
+            if is_currently_active and lease and current_time_ns < lease.minimum_dwell_until_ns:
+                # Protected by active lease dwell time
                 state = "ACTIVE"
                 entry_analysis = True
-                reasons.append(ReasonCode.MARKET_ACTIVE)
+                reasons = [ReasonCode.MARKET_ACTIVE, ReasonCode.MARKET_PINNED]
             else:
-                if is_currently_active and score < self.deactivation_threshold:
-                    self.active_markets.discard(canonical_id)
-                state = "DORMANT"
-                entry_analysis = False
-                reasons.append(ReasonCode.MARKET_DORMANT)
-                if len(self.active_markets) >= effective_active_cap:
-                    reasons.append(ReasonCode.MARKET_SYMBOL_LIMIT)
+                threshold = self.deactivation_threshold if is_currently_active else self.activation_threshold
+
+                reasons: List[ReasonCode] = []
+                if score >= threshold and len(self.active_markets) < effective_active_cap:
+                    self.active_markets.add(canonical_id)
+                    self.leases[canonical_id] = MarketActivationLease(
+                        canonical_id=canonical_id,
+                        activated_at_ns=current_time_ns,
+                        minimum_dwell_until_ns=current_time_ns + self.minimum_dwell_ns,
+                        lease_expiry_ns=current_time_ns + self.minimum_dwell_ns * 5,
+                        priority_score_snapshot=score,
+                    )
+                    state = "ACTIVE"
+                    entry_analysis = True
+                    reasons.append(ReasonCode.MARKET_ACTIVE)
+                else:
+                    if is_currently_active and score < self.deactivation_threshold:
+                        self.active_markets.discard(canonical_id)
+                        self.leases.pop(canonical_id, None)
+                    state = "DORMANT"
+                    entry_analysis = False
+                    reasons.append(ReasonCode.MARKET_DORMANT)
+                    if len(self.active_markets) >= effective_active_cap:
+                        reasons.append(ReasonCode.MARKET_SYMBOL_LIMIT)
 
             decisions[canonical_id] = MarketActivationDecision(
                 canonical_id=canonical_id,
