@@ -9,6 +9,9 @@ import pytest
 import time
 import uuid
 import json
+import copy
+import sys
+from typing import Any
 from dataclasses import replace
 
 from src.fractal_flow.domain.models import (
@@ -50,6 +53,7 @@ from src.fractal_flow.execution.recovery import (
     BrokerReconciliationEvidence,
     ConfigurationEvidence,
     ProtectiveMonitoringEvidence,
+    _AuthorityToken,
 )
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
@@ -59,27 +63,24 @@ from src.fractal_flow.domain.event import Event
 
 # --- Helper functions for valid evidence creation ---
 
-def _create_valid_journal(tmp_path) -> DurableEventJournal:
-    j_path = str(tmp_path / "journal.log")
-    return DurableEventJournal(j_path)
-
-
-def _create_assembled_evidence(session_id: str, recon_report: ReconciliationReport, journal_head_seq: int = 0) -> RecoveryEvidence:
-    p_j = EvidenceProvenance(source_component="JournalRecoveryValidator", source_operation="validate", source_session=session_id, source_sequence=journal_head_seq, result="SUCCESS")
-    p_s = EvidenceProvenance(source_component="SnapshotRecoveryValidator", source_operation="validate", source_session=session_id, result="SUCCESS")
-    p_r = EvidenceProvenance(source_component="RiskLedgerRecoveryValidator", source_operation="reconstruct", source_session=session_id, result="SUCCESS")
-    p_i = EvidenceProvenance(source_component="IntentRecoveryValidator", source_operation="reconstruct", source_session=session_id, result="SUCCESS")
-    p_b = EvidenceProvenance(source_component="BrokerReconciliationValidator", source_operation="reconcile", source_session=session_id, result="SUCCESS")
-    p_c = EvidenceProvenance(source_component="ConfigurationValidator", source_operation="validate", source_session=session_id, result="SUCCESS")
-    p_p = EvidenceProvenance(source_component="ProtectiveMonitoringValidator", source_operation="validate", source_session=session_id, result="SUCCESS")
-
-    j_ev = JournalRecoveryEvidence(valid=True, head_sequence=journal_head_seq, provenance=p_j)
-    s_ev = SnapshotRecoveryEvidence(valid=True, provenance=p_s)
-    r_ev = RiskLedgerRecoveryEvidence(valid=True, provenance=p_r)
-    i_ev = IntentRecoveryEvidence(valid=True, provenance=p_i)
+def _create_assembled_evidence(
+    session_id: str,
+    recon_report: ReconciliationReport,
+    journal_obj: Any = None,
+    journal_head_seq: int = 0,
+    snapshot_engine_obj: Any = None,
+    risk_ledger_obj: Any = None,
+    intent_repo_obj: Any = None,
+    config_id: str = "cfg_1",
+    protective_active: bool = True,
+) -> RecoveryEvidence:
+    j_ev = JournalRecoveryValidator.validate(journal_obj or type("MockJournal", (), {"_faulted": False, "_global_sequence": journal_head_seq})(), session_id)
+    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj or type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), session_id)
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj or type("MockRisk", (), {"_entries_by_id": {}})(), session_id)
+    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj or type("MockRepo", (), {})(), session_id)
     b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id)
-    c_ev = ConfigurationEvidence(valid=True, config_id="cfg_1", identity_matched=True, provenance=p_c)
-    p_ev = ProtectiveMonitoringEvidence(valid=True, active=True, provenance=p_p)
+    c_ev = ConfigurationValidator.validate(config_id, session_id)
+    p_ev = ProtectiveMonitoringValidator.validate(protective_active, session_id)
 
     return RecoveryEvidenceAssembler.assemble(
         journal=j_ev,
@@ -108,6 +109,66 @@ def test_caller_cannot_forge_authoritative_evidence() -> None:
 
     assert engine.state == RecoveryState.SAFE
     assert engine.can_authorize_strategic_action() is False
+
+
+def test_fabricated_seven_validator_bundle_rejected() -> None:
+    engine = RecoveryEngine()
+    engine.trigger_system_restart()
+    session_id = engine.session_id
+    engine.start_reconciliation()
+
+    # Constructing evidence objects directly without authority tokens
+    p_j = EvidenceProvenance(source_component="JournalRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_s = EvidenceProvenance(source_component="SnapshotRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_r = EvidenceProvenance(source_component="RiskLedgerRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_i = EvidenceProvenance(source_component="IntentRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_b = EvidenceProvenance(source_component="BrokerReconciliationValidator", source_session=session_id, result="SUCCESS")
+    p_c = EvidenceProvenance(source_component="ConfigurationValidator", source_session=session_id, result="SUCCESS")
+    p_p = EvidenceProvenance(source_component="ProtectiveMonitoringValidator", source_session=session_id, result="SUCCESS")
+
+    j_ev = JournalRecoveryEvidence(valid=True, provenance=p_j)
+    s_ev = SnapshotRecoveryEvidence(valid=True, provenance=p_s)
+    r_ev = RiskLedgerRecoveryEvidence(valid=True, provenance=p_r)
+    i_ev = IntentRecoveryEvidence(valid=True, provenance=p_i)
+    b_ev = BrokerReconciliationEvidence(valid=True, unresolved_unknown_count=0, orphaned_count=0, provenance=p_b)
+    c_ev = ConfigurationEvidence(valid=True, config_id="cfg_1", identity_matched=True, provenance=p_c)
+    p_ev = ProtectiveMonitoringEvidence(valid=True, active=True, provenance=p_p)
+
+    # Attempt assembler assembly with tokenless evidence
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        RecoveryEvidenceAssembler.assemble(
+            journal=j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
+            broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id
+        )
+    assert "forged subsystem authority token" in str(exc.value)
+
+    fake_evidence = RecoveryEvidence(
+        journal_evidence=j_ev, snapshot_evidence=s_ev, risk_evidence=r_ev, intent_evidence=i_ev,
+        broker_evidence=b_ev, config_evidence=c_ev, protective_evidence=p_ev
+    )
+
+    with pytest.raises(RecoveryEvidenceError):
+        engine.complete_recovery_with_evidence(fake_evidence)
+
+    assert engine.state == RecoveryState.SAFE
+
+
+def test_token_issuance_direct_call_rejected() -> None:
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        _AuthorityToken.issue("JournalRecoveryValidator", "session_1", secret_key="unauthorized_caller")
+    assert "Unauthorized authority token issuance" in str(exc.value)
+
+
+def test_copy_or_deepcopy_strips_authority_token() -> None:
+    engine = RecoveryEngine()
+    engine.trigger_system_restart()
+    session_id = engine.session_id
+
+    module_secret = getattr(sys.modules["src.fractal_flow.execution.recovery"], "_VALIDATOR_SECRET")
+    tok = _AuthorityToken.issue("JournalRecoveryValidator", session_id, module_secret)
+    assert tok is not None
+    assert copy.copy(tok) is None
+    assert copy.deepcopy(tok) is None
 
 
 # --- 2. Orphan Propagation & Authorization Blocking ---
@@ -158,22 +219,17 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     )
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
 
+    j_ev = JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), engine.session_id)
+    s_ev = SnapshotRecoveryValidator.validate(type("MockEngine", (), {"_snapshot_fallback_used": False, "_snapshot_valid": True})(), engine.session_id)
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(type("MockRisk", (), {"_entries_by_id": {}})(), engine.session_id)
+    i_ev = IntentRecoveryValidator.reconstruct(type("MockRepo", (), {})(), engine.session_id)
     b_ev = BrokerReconciliationValidator.reconcile(report, engine.session_id)
-    p_j = EvidenceProvenance(source_component="JournalRecoveryValidator", source_session=engine.session_id, result="SUCCESS")
-    p_s = EvidenceProvenance(source_component="SnapshotRecoveryValidator", source_session=engine.session_id, result="SUCCESS")
-    p_r = EvidenceProvenance(source_component="RiskLedgerRecoveryValidator", source_session=engine.session_id, result="SUCCESS")
-    p_i = EvidenceProvenance(source_component="IntentRecoveryValidator", source_session=engine.session_id, result="SUCCESS")
-    p_c = EvidenceProvenance(source_component="ConfigurationValidator", source_session=engine.session_id, result="SUCCESS")
-    p_p = EvidenceProvenance(source_component="ProtectiveMonitoringValidator", source_session=engine.session_id, result="SUCCESS")
+    c_ev = ConfigurationValidator.validate("cfg_1", engine.session_id)
+    p_ev = ProtectiveMonitoringValidator.validate(True, engine.session_id)
 
     evidence = RecoveryEvidence(
-        journal_evidence=JournalRecoveryEvidence(valid=True, provenance=p_j),
-        snapshot_evidence=SnapshotRecoveryEvidence(valid=True, provenance=p_s),
-        risk_evidence=RiskLedgerRecoveryEvidence(valid=True, provenance=p_r),
-        intent_evidence=IntentRecoveryEvidence(valid=True, provenance=p_i),
-        broker_evidence=b_ev,
-        config_evidence=ConfigurationEvidence(valid=True, config_id="cfg_1", identity_matched=True, provenance=p_c),
-        protective_evidence=ProtectiveMonitoringEvidence(valid=True, active=True, provenance=p_p),
+        journal_evidence=j_ev, snapshot_evidence=s_ev, risk_evidence=r_ev, intent_evidence=i_ev,
+        broker_evidence=b_ev, config_evidence=c_ev, protective_evidence=p_ev
     )
 
     with pytest.raises(RecoveryEvidenceError):

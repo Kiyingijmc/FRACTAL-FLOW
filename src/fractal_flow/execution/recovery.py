@@ -1,7 +1,9 @@
-"""RecoveryEngine managing explicit recovery states, evidence provenance, and Gating Strategic Execution."""
+"""RecoveryEngine managing explicit recovery states, evidence provenance, sealed authority capabilities, and Gating Strategic Execution."""
 
 import time
 import uuid
+import hmac
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum, unique
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
@@ -25,9 +27,83 @@ class RecoveryState(str, Enum):
     SAFE = "SAFE"
 
 
+# --- Sealed Authority Token & Capability Boundary ---
+
+_MODULE_SECRET: bytes = uuid.uuid4().bytes
+_VALIDATOR_SECRET: object = object()
+
+
+@dataclass(frozen=True)
+class _AuthorityToken:
+    """Opaque, unforgeable capability token proving evidence was produced by an authorized validator during active session."""
+    validator_id: str
+    session_id: str
+    signature: str
+
+    def __copy__(self) -> None:
+        return None
+
+    def __deepcopy__(self, memo: Any) -> None:
+        return None
+
+    @classmethod
+    def issue(cls, validator_id: str, session_id: str, secret_key: object) -> "_AuthorityToken":
+        if secret_key is not _VALIDATOR_SECRET:
+            raise RecoveryEvidenceError("Unauthorized authority token issuance attempt rejected.")
+        msg = f"{validator_id}:{session_id}".encode("utf-8")
+        sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
+        return cls(validator_id=validator_id, session_id=session_id, signature=sig)
+
+    def verify(self, expected_validator: str, expected_session: str) -> bool:
+        if self.validator_id != expected_validator or self.session_id != expected_session:
+            return False
+        msg = f"{expected_validator}:{expected_session}".encode("utf-8")
+        expected_sig = hmac.new(_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(self.signature, expected_sig)
+
+
+@dataclass(frozen=True)
+class _RecoveryAuthorityBundle:
+    """Sealed bundle encapsulating verified authority capabilities for all seven recovery subsystems."""
+    journal_token: Optional[_AuthorityToken] = None
+    snapshot_token: Optional[_AuthorityToken] = None
+    risk_token: Optional[_AuthorityToken] = None
+    intent_token: Optional[_AuthorityToken] = None
+    broker_token: Optional[_AuthorityToken] = None
+    config_token: Optional[_AuthorityToken] = None
+    protective_token: Optional[_AuthorityToken] = None
+    session_id: str = ""
+
+    def __copy__(self) -> None:
+        return None
+
+    def __deepcopy__(self, memo: Any) -> None:
+        return None
+
+    def is_valid(self, required_session: str) -> bool:
+        if not required_session or self.session_id != required_session:
+            return False
+
+        validators = [
+            ("JournalRecoveryValidator", self.journal_token),
+            ("SnapshotRecoveryValidator", self.snapshot_token),
+            ("RiskLedgerRecoveryValidator", self.risk_token),
+            ("IntentRecoveryValidator", self.intent_token),
+            ("BrokerReconciliationValidator", self.broker_token),
+            ("ConfigurationValidator", self.config_token),
+            ("ProtectiveMonitoringValidator", self.protective_token),
+        ]
+
+        for expected_val, tok in validators:
+            if tok is None or not tok.verify(expected_val, required_session):
+                return False
+
+        return True
+
+
 @dataclass(frozen=True)
 class EvidenceProvenance:
-    """Verifiable, immutable metadata capturing the authoritative source, boundary, and session of produced recovery evidence."""
+    """Verifiable, immutable metadata capturing the audit trail of produced recovery evidence."""
     evidence_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     source_component: str = ""
     source_operation: str = ""
@@ -46,6 +122,7 @@ class JournalRecoveryEvidence:
     head_sequence: int = 0
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -55,6 +132,7 @@ class SnapshotRecoveryEvidence:
     fallback_used: bool = False
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -63,6 +141,7 @@ class RiskLedgerRecoveryEvidence:
     reconstructed_entries_count: int = 0
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -71,6 +150,7 @@ class IntentRecoveryEvidence:
     reconstructed_intents_count: int = 0
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -80,6 +160,7 @@ class BrokerReconciliationEvidence:
     orphaned_count: int = 0
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -89,6 +170,7 @@ class ConfigurationEvidence:
     identity_matched: bool = False
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -97,6 +179,7 @@ class ProtectiveMonitoringEvidence:
     active: bool = True
     provenance: Optional[EvidenceProvenance] = None
     details: Dict[str, Any] = field(default_factory=dict)
+    _authority_token: Optional[_AuthorityToken] = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -109,6 +192,7 @@ class RecoveryEvidence:
     broker_evidence: BrokerReconciliationEvidence = field(default_factory=BrokerReconciliationEvidence)
     config_evidence: ConfigurationEvidence = field(default_factory=ConfigurationEvidence)
     protective_evidence: ProtectiveMonitoringEvidence = field(default_factory=ProtectiveMonitoringEvidence)
+    _authority_bundle: Optional[_RecoveryAuthorityBundle] = field(default=None, repr=False, compare=False)
 
     # Legacy attributes maintained purely for backward compatibility/diagnostics.
     # DEPRECATED: These fields CANNOT authorize strategic execution.
@@ -122,6 +206,12 @@ class RecoveryEvidence:
     configuration_identity_matched: bool = False
     protective_monitoring_active: bool = True
     additional_details: Dict[str, Any] = field(default_factory=dict)
+
+    def has_valid_authority_capability(self, required_session: str) -> bool:
+        """Verifies that this composite evidence object encapsulates a valid, un-forged, active authority bundle."""
+        if self._authority_bundle is None:
+            return False
+        return self._authority_bundle.is_valid(required_session)
 
     def is_satisfactory(self, required_session: Optional[str] = None) -> bool:
         """Returns True only if all required typed subsystem evidence components and valid provenances are satisfied."""
@@ -212,7 +302,7 @@ class RecoveryEvidence:
 # --- Controlled Evidence Assembler ---
 
 class RecoveryEvidenceAssembler:
-    """Assembles typed recovery evidence from subsystem producers and enforces provenance and session consistency."""
+    """Assembles typed recovery evidence from subsystem producers and enforces provenance, token capabilities, and session consistency."""
 
     @staticmethod
     def assemble(
@@ -227,6 +317,20 @@ class RecoveryEvidenceAssembler:
         session_id: str,
     ) -> RecoveryEvidence:
 
+        bundle = _RecoveryAuthorityBundle(
+            journal_token=journal._authority_token,
+            snapshot_token=snapshot._authority_token,
+            risk_token=risk._authority_token,
+            intent_token=intents._authority_token,
+            broker_token=broker._authority_token,
+            config_token=config._authority_token,
+            protective_token=protective._authority_token,
+            session_id=session_id,
+        )
+
+        if not bundle.is_valid(session_id):
+            raise RecoveryEvidenceError("Recovery evidence assembly failed: invalid or forged subsystem authority token(s)")
+
         evidence = RecoveryEvidence(
             journal_evidence=journal,
             snapshot_evidence=snapshot,
@@ -235,6 +339,7 @@ class RecoveryEvidenceAssembler:
             broker_evidence=broker,
             config_evidence=config,
             protective_evidence=protective,
+            _authority_bundle=bundle,
         )
 
         if not evidence.is_satisfactory(required_session=session_id):
@@ -260,7 +365,8 @@ class JournalRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Journal in faulted state" if faulted else None,
         )
-        return JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
+        token = _AuthorityToken.issue("JournalRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
+        return JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov, _authority_token=token)
 
 
 class SnapshotRecoveryValidator:
@@ -286,7 +392,7 @@ class SnapshotRecoveryValidator:
                         aggregate_type=aggregate_type,
                         aggregate_id=aggregate_id,
                     )
-            except Exception as e:
+            except Exception:
                 valid = False
                 fallback = True
 
@@ -297,7 +403,8 @@ class SnapshotRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Snapshot invalid or corrupt" if not valid else None,
         )
-        return SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov)
+        token = _AuthorityToken.issue("SnapshotRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
+        return SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov, _authority_token=token)
 
 
 class RiskLedgerRecoveryValidator:
@@ -305,20 +412,21 @@ class RiskLedgerRecoveryValidator:
     def reconstruct(risk_ledger: Any, session_id: str) -> RiskLedgerRecoveryEvidence:
         entries = getattr(risk_ledger, "_entries_by_id", {})
         count = len(entries)
-        valid = True
+        valid = risk_ledger is not None
         prov = EvidenceProvenance(
             source_component="RiskLedgerRecoveryValidator",
             source_operation="reconstruct",
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
         )
-        return RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
+        token = _AuthorityToken.issue("RiskLedgerRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
+        return RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov, _authority_token=token)
 
 
 class IntentRecoveryValidator:
     @staticmethod
     def reconstruct(intent_repo: Any, session_id: str) -> IntentRecoveryEvidence:
-        valid = True
+        valid = intent_repo is not None
         count = 0
         if hasattr(intent_repo, "get_all_intents"):
             try:
@@ -332,13 +440,13 @@ class IntentRecoveryValidator:
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
         )
-        return IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
+        token = _AuthorityToken.issue("IntentRecoveryValidator", session_id, _VALIDATOR_SECRET) if valid else None
+        return IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov, _authority_token=token)
 
 
 class BrokerReconciliationValidator:
     @staticmethod
     def reconcile(reconciliation_report: Any, session_id: str) -> BrokerReconciliationEvidence:
-        # Require typed ReconciliationReport
         from src.fractal_flow.execution.reconciliation import ReconciliationReport
         if not isinstance(reconciliation_report, ReconciliationReport):
             prov = EvidenceProvenance(
@@ -372,11 +480,13 @@ class BrokerReconciliationValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason=None if valid else f"Reconciliation invalid (auth={reconciliation_report.authoritative}, comp={reconciliation_report.complete}, unknown={unknown}, orphaned={orphaned})",
         )
+        token = _AuthorityToken.issue("BrokerReconciliationValidator", session_id, _VALIDATOR_SECRET) if valid else None
         return BrokerReconciliationEvidence(
             valid=valid,
             unresolved_unknown_count=unknown,
             orphaned_count=orphaned,
             provenance=prov,
+            _authority_token=token,
         )
 
 
@@ -393,11 +503,13 @@ class ConfigurationValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason=None if valid else "Configuration identity mismatch or empty config_id",
         )
+        token = _AuthorityToken.issue("ConfigurationValidator", session_id, _VALIDATOR_SECRET) if valid else None
         return ConfigurationEvidence(
             valid=valid,
             config_id=config_id,
             identity_matched=identity_matched,
             provenance=prov,
+            _authority_token=token,
         )
 
 
@@ -411,11 +523,12 @@ class ProtectiveMonitoringValidator:
             result="SUCCESS" if active else "FAILED",
             failure_reason=None if active else "Protective monitoring is inactive",
         )
-        return ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
+        token = _AuthorityToken.issue("ProtectiveMonitoringValidator", session_id, _VALIDATOR_SECRET) if active else None
+        return ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov, _authority_token=token)
 
 
 class RecoveryEngine:
-    """Manages system recovery lifecycle and gates strategic execution authorization based on verifiable evidence."""
+    """Manages system recovery lifecycle and gates strategic execution authorization based on verifiable sealed evidence capabilities."""
 
     def __init__(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> None:
         self.state = initial_state
@@ -440,7 +553,7 @@ class RecoveryEngine:
         self.state = RecoveryState.RECONCILING
 
     def complete_recovery_with_evidence(self, evidence: RecoveryEvidence) -> None:
-        """Completes recovery using verifiable evidence object containing all required gate checks."""
+        """Completes recovery using verifiable evidence object containing sealed authority capability bundle."""
         if self.state not in (RecoveryState.RECONCILING, RecoveryState.RECOVERING):
             raise ValueError(f"Cannot complete recovery with evidence from state '{self.state}'")
 
@@ -449,7 +562,11 @@ class RecoveryEngine:
             self.strategic_authorization_enabled = False
             raise RecoveryEvidenceError("Recovery evidence must be an instance of RecoveryEvidence")
 
-        self.last_evidence = evidence
+        if not evidence.has_valid_authority_capability(required_session=self.session_id):
+            self.state = RecoveryState.SAFE
+            self.strategic_authorization_enabled = False
+            raise RecoveryEvidenceError("Recovery evidence authority capability invalid or un-forged. System placed in SAFE state.")
+
         if not evidence.is_satisfactory(required_session=self.session_id):
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
@@ -457,6 +574,7 @@ class RecoveryEngine:
                 "Recovery evidence validation failed. System placed in SAFE state."
             )
 
+        self.last_evidence = evidence
         self.state = RecoveryState.RECOVERY_COMPLETE
         self.strategic_authorization_enabled = True
 
