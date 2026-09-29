@@ -465,36 +465,31 @@ def test_scenario_v_fake_minting_frame_spoofing_rejected() -> None:
 # --- Scenario W: Fake issuer ---
 
 def test_scenario_w_fake_issuer_rejected() -> None:
-    # Attempting to directly instantiate capability with spoofed mint context parameters
-    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
-    domain = prod_bootstrap.domain
+    # Attempting to call ProducerCapability._mint from a non-AuthorityDomain or finalized domain fails closed
+    fake_domain = object()
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        ProducerCapability._mint(fake_domain, CapabilityRole.JOURNAL, "JournalSubsystem", b"0" * 32)
+    assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
 
+
+# --- Scenario X: Object.__setattr__ bypass regression test ---
+
+def test_scenario_x_object_setattr_cannot_forge_capability_issuance() -> None:
+    domain = AuthorityDomain("ATTACKER_DOMAIN")
+
+    # Attacker uses object.__setattr__ to inject arbitrary attributes on AuthorityDomain instance
+    ctx = object()
+    object.__setattr__(domain, "_active_mint_context", ctx)
+
+    # Calling ProducerCapability directly MUST fail closed
     with pytest.raises(RecoveryEvidenceError) as exc:
         ProducerCapability(
             authority_domain_id=domain.domain_id,
             role=CapabilityRole.JOURNAL,
-            producer_id="JournalSubsystem",
-            _role_key=b"0" * 32,
-            _domain=domain,
-            _mint_ctx=object(),
+            producer_id="ATTACKER",
+            _role_key=b"attacker-controlled-key",
         )
     assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
-
-
-# --- Scenario X: Issuer extraction ---
-
-def test_scenario_x_issuer_extraction_impossible() -> None:
-    from src.fractal_flow.execution.recovery import _DOMAIN_PROTECTED_ATTRS
-
-    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
-    domain = prod_bootstrap.domain
-
-    assert getattr(domain, "_active_mint_context", None) is None
-    assert "_active_mint_context" in _DOMAIN_PROTECTED_ATTRS
-
-    # Mutation or attribute replacement on active mint context is protected
-    with pytest.raises(AuthorityError):
-        domain._active_mint_context = object()
 
 
 # --- Scenario Y: Capability reconstruction from observable state ---

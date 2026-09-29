@@ -107,7 +107,6 @@ _DOMAIN_PROTECTED_ATTRS = (
     "_producer_capabilities",
     "_registered_producers",
     "_producer_bindings",
-    "_active_mint_context",
 )
 
 _BOOTSTRAP_PROTECTED_ATTRS = (
@@ -124,18 +123,26 @@ class ProducerCapability:
     role: CapabilityRole
     producer_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _domain: Any = field(default=None, repr=False, compare=False)
-    _mint_ctx: Any = field(default=None, repr=False, compare=False)
 
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self._domain, AuthorityDomain)
-            or getattr(self._domain, "_finalized", True)
-            or getattr(self._domain, "_active_mint_context", None) is None
-            or getattr(self._domain, "_active_mint_context", None) is not self._mint_ctx
-            or self.authority_domain_id != getattr(self._domain, "domain_id", None)
-        ):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
+
+    @classmethod
+    def _mint(
+        cls,
+        domain: "AuthorityDomain",
+        role: CapabilityRole,
+        producer_id: str,
+        role_key: bytes,
+    ) -> "ProducerCapability":
+        if not isinstance(domain, AuthorityDomain) or getattr(domain, "_finalized", True):
             raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
+        inst = object.__new__(cls)
+        object.__setattr__(inst, "authority_domain_id", domain.domain_id)
+        object.__setattr__(inst, "role", role)
+        object.__setattr__(inst, "producer_id", producer_id)
+        object.__setattr__(inst, "_role_key", role_key)
+        return inst
 
     def __copy__(self) -> None:
         return None
@@ -161,18 +168,26 @@ class ValidatorCapability:
     role: CapabilityRole
     validator_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _domain: Any = field(default=None, repr=False, compare=False)
-    _mint_ctx: Any = field(default=None, repr=False, compare=False)
 
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self._domain, AuthorityDomain)
-            or getattr(self._domain, "_finalized", True)
-            or getattr(self._domain, "_active_mint_context", None) is None
-            or getattr(self._domain, "_active_mint_context", None) is not self._mint_ctx
-            or self.authority_domain_id != getattr(self._domain, "domain_id", None)
-        ):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
+
+    @classmethod
+    def _mint(
+        cls,
+        domain: "AuthorityDomain",
+        role: CapabilityRole,
+        validator_id: str,
+        role_key: bytes,
+    ) -> "ValidatorCapability":
+        if not isinstance(domain, AuthorityDomain) or getattr(domain, "_finalized", True):
             raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
+        inst = object.__new__(cls)
+        object.__setattr__(inst, "authority_domain_id", domain.domain_id)
+        object.__setattr__(inst, "role", role)
+        object.__setattr__(inst, "validator_id", validator_id)
+        object.__setattr__(inst, "_role_key", role_key)
+        return inst
 
     def __copy__(self) -> None:
         return None
@@ -239,7 +254,6 @@ class AuthorityDomain:
         object.__setattr__(self, "_producer_capabilities", {})
         object.__setattr__(self, "_registered_producers", {})
         object.__setattr__(self, "_producer_bindings", {})
-        object.__setattr__(self, "_active_mint_context", None)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_finalized", False) or name in _DOMAIN_PROTECTED_ATTRS:
@@ -320,20 +334,7 @@ class AuthorityDomain:
 
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, producer_id)
-        ctx = object()
-        object.__setattr__(self, "_active_mint_context", ctx)
-        try:
-            cap = ProducerCapability(
-                authority_domain_id=self.domain_id,
-                role=role,
-                producer_id=producer_id,
-                _role_key=role_key,
-                _domain=self,
-                _mint_ctx=ctx,
-            )
-        finally:
-            object.__setattr__(self, "_active_mint_context", None)
-
+        cap = ProducerCapability._mint(self, role, producer_id, role_key)
         self._producer_capabilities[role] = cap
 
         if role in self._registered_producers:
@@ -368,20 +369,7 @@ class AuthorityDomain:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'.")
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, validator_id)
-        ctx = object()
-        object.__setattr__(self, "_active_mint_context", ctx)
-        try:
-            cap = ValidatorCapability(
-                authority_domain_id=self.domain_id,
-                role=role,
-                validator_id=validator_id,
-                _role_key=role_key,
-                _domain=self,
-                _mint_ctx=ctx,
-            )
-        finally:
-            object.__setattr__(self, "_active_mint_context", None)
-
+        cap = ValidatorCapability._mint(self, role, validator_id, role_key)
         self._validator_capabilities[validator_id] = cap
         return cap
 
