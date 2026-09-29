@@ -66,13 +66,30 @@ def _reset_bootstrap() -> None:
 
 
 def _provision_full_production_authority(prod_bootstrap: TrustedRuntimeBootstrap) -> None:
-    prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
-    prod_bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
+    journal = DurableEventJournal()
+    snap_engine = SnapshotEngine()
+    risk_ledger = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
+    intent_repo = DurableExecutionIntentRepository()
+    config = compute_effective_config(BaseConfig(), "EURUSD")
+    protective = ProtectiveMonitoringSubsystem()
+
+    j_prod = prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod = prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod = prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod = prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod = prod_bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod = prod_bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
+    p_prod = prod_bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
+
+    adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
+
+    prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
+    prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
+    prod_bootstrap.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
+    prod_bootstrap.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
+    prod_bootstrap.register_producer(CapabilityRole.BROKER_QUERY, adapter)
+    prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
+    prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
     prod_bootstrap.get_validator_capability("JournalRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
     prod_bootstrap.get_validator_capability("SnapshotRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
@@ -81,20 +98,6 @@ def _provision_full_production_authority(prod_bootstrap: TrustedRuntimeBootstrap
     prod_bootstrap.get_validator_capability("BrokerReconciliationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
     prod_bootstrap.get_validator_capability("ConfigurationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
     prod_bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
-
-    journal = DurableEventJournal()
-    snap_engine = SnapshotEngine()
-    risk_ledger = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
-    intent_repo = DurableExecutionIntentRepository()
-    config = compute_effective_config(BaseConfig(), "EURUSD")
-    protective = ProtectiveMonitoringSubsystem()
-
-    prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
-    prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
-    prod_bootstrap.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
-    prod_bootstrap.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
-    prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
-    prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
 
 # --- Attack A: Import the supposedly private provisioning token ---
@@ -398,14 +401,6 @@ def test_full_production_recovery_lifecycle_succeeds() -> None:
     c_val = prod_bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
     p_val = prod_bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
-    j_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
-    s_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
-    r_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
-    i_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
-    b_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
-    c_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
-    p_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
-
     journal = DurableEventJournal()
     snap_engine = SnapshotEngine()
     risk_ledger = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
@@ -413,10 +408,21 @@ def test_full_production_recovery_lifecycle_succeeds() -> None:
     config = compute_effective_config(BaseConfig(), "EURUSD")
     protective = ProtectiveMonitoringSubsystem()
 
+    j_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
+    p_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
+
+    adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
+
     prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
     prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
     prod_bootstrap.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
     prod_bootstrap.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
+    prod_bootstrap.register_producer(CapabilityRole.BROKER_QUERY, adapter)
     prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
     prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
@@ -457,3 +463,130 @@ def test_full_production_recovery_lifecycle_succeeds() -> None:
 
     assert engine.state == RecoveryState.RECOVERY_COMPLETE
     assert engine.can_authorize_strategic_action() is True
+
+
+# --- Additional Direct Private-Attribute Replacement Attacks ---
+
+def test_direct_private_attribute_replacement_rejected_before_and_after_sealing() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    domain = prod_bootstrap.domain
+
+    # Attempt attribute replacement before sealing MUST raise AuthorityError
+    with pytest.raises(AuthorityError):
+        domain._provisioning_token = object()
+
+    with pytest.raises(AuthorityError):
+        domain._master_key = b"\x01" * 32
+
+    with pytest.raises(AuthorityError):
+        domain._validator_capabilities = {}
+
+    with pytest.raises(AuthorityError):
+        domain._producer_capabilities = {}
+
+    with pytest.raises(AuthorityError):
+        domain._registered_producers = {}
+
+    with pytest.raises(AuthorityError):
+        domain._minted_roles = set()
+
+    with pytest.raises(AuthorityError):
+        domain.domain_id = "SPOOF_DOMAIN_ID"
+
+    with pytest.raises(AuthorityError):
+        domain._finalized = True
+
+    with pytest.raises(AuthorityError):
+        domain._is_production = False
+
+    with pytest.raises(AuthorityError):
+        del domain._finalized
+
+    with pytest.raises(AuthorityError):
+        prod_bootstrap._domain = None  # type: ignore
+
+    with pytest.raises(AuthorityError):
+        prod_bootstrap._provisioning_token = object()
+
+    with pytest.raises(AuthorityError):
+        del prod_bootstrap._is_sealed
+
+    # Now provision and seal authority
+    _provision_full_production_authority(prod_bootstrap)
+    prod_bootstrap.finalize()
+
+    # Attempt attribute replacement after sealing MUST also raise AuthorityError
+    with pytest.raises(AuthorityError):
+        domain._provisioning_token = object()
+
+    with pytest.raises(AuthorityError):
+        domain._master_key = b"\x01" * 32
+
+    with pytest.raises(AuthorityError):
+        domain._validator_capabilities = {}
+
+    with pytest.raises(AuthorityError):
+        domain._producer_capabilities = {}
+
+    with pytest.raises(AuthorityError):
+        domain._registered_producers = {}
+
+    with pytest.raises(AuthorityError):
+        domain._finalized = False
+
+    with pytest.raises(AuthorityError):
+        del domain._finalized
+
+    with pytest.raises(AuthorityError):
+        prod_bootstrap._is_sealed = False
+
+    # Verify that original authority state remains valid and operational
+    assert domain._finalized is True
+    assert domain.is_production is True
+    assert prod_bootstrap._is_sealed is True
+
+
+# --- Capability / Producer Mismatch Attacks ---
+
+def test_capability_producer_identity_mismatch_rejected_at_registration() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+
+    # Mint JOURNAL capability bound to "Journal_Alpha"
+    prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "Journal_Alpha")
+
+    # Attempting to register producer instance with mismatched identity "Journal_Beta" MUST raise AuthorityError
+    class BetaJournal(DurableEventJournal):
+        producer_id = "Journal_Beta"
+
+    beta_journal = BetaJournal()
+    with pytest.raises(AuthorityError) as exc:
+        prod_bootstrap.register_producer(CapabilityRole.JOURNAL, beta_journal)
+    assert "does not match capability producer_id" in str(exc.value)
+
+
+def test_producer_registered_under_wrong_role_rejected() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    _provision_full_production_authority(prod_bootstrap)
+
+    journal = DurableEventJournal()
+
+    # Register journal under SNAPSHOT role
+    with pytest.raises(AuthorityError):
+        prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, journal)
+
+
+def test_module_introspection_reveals_no_reusable_sentinels() -> None:
+    import src.fractal_flow.execution.recovery as rec
+
+    module_vars = vars(rec)
+    module_dir = dir(rec)
+
+    for sentinel_name in (
+        "_ISSUANCE_KEY",
+        "_PRODUCTION_ROOT_TOKEN",
+        "_PRODUCTION_INIT_TOKEN",
+        "_BOOTSTRAP_ISSUANCE_TOKEN",
+    ):
+        assert sentinel_name not in module_vars
+        assert sentinel_name not in module_dir
+        assert not hasattr(rec, sentinel_name)

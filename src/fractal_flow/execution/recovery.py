@@ -96,9 +96,9 @@ def compute_evidence_digest(evidence_obj: Any) -> str:
 
 # --- Scoped Capability & Authority Bootstrap Machinery ---
 
-_ISSUANCE_KEY = object()
-_PRODUCTION_ROOT_TOKEN = object()
-_PRODUCTION_INIT_TOKEN = object()
+class _IssuanceGuard:
+    """Internal guard used to restrict instantiation of capability and production authority objects."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -108,10 +108,10 @@ class ProducerCapability:
     role: CapabilityRole
     producer_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _issuance_key: object = field(default=None, repr=False, compare=False)
+    _guard: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self._issuance_key is not _ISSUANCE_KEY:
+        if not isinstance(self._guard, _IssuanceGuard):
             raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
 
     def __copy__(self) -> None:
@@ -138,10 +138,10 @@ class ValidatorCapability:
     role: CapabilityRole
     validator_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _issuance_key: object = field(default=None, repr=False, compare=False)
+    _guard: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if self._issuance_key is not _ISSUANCE_KEY:
+        if not isinstance(self._guard, _IssuanceGuard):
             raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
 
     def __copy__(self) -> None:
@@ -181,26 +181,53 @@ class ValidatorCapability:
 
 
 class AuthorityDomain:
-    """Scoped authority domain holding master key material and producer/validator registries.
+    """Scoped authority domain holding master key material and producer/validator registries."""
 
-    Production status is granted exclusively when minted via TrustedRuntimeBootstrap with _PRODUCTION_ROOT_TOKEN.
-    """
+    _IMMUTABLE_ATTRIBUTES = {
+        "domain_id",
+        "_is_production",
+        "_provisioning_token",
+        "_master_key",
+        "_finalized",
+        "_minted_roles",
+        "_validator_capabilities",
+        "_producer_capabilities",
+        "_registered_producers",
+        "_issuance_guard",
+    }
 
     def __init__(
         self,
         domain_id: Optional[str] = None,
-        _production_root_token: Optional[object] = None,
+        _is_production: bool = False,
         _provisioning_token: Optional[object] = None,
     ) -> None:
-        self.domain_id: str = domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}"
-        self._is_production: bool = (_production_root_token is _PRODUCTION_ROOT_TOKEN)
-        self._provisioning_token: Optional[object] = _provisioning_token
-        self._master_key: bytes = uuid.uuid4().bytes
-        self._finalized: bool = False
-        self._minted_roles: Set[CapabilityRole] = set()
-        self._validator_capabilities: Dict[str, ValidatorCapability] = {}
-        self._producer_capabilities: Dict[CapabilityRole, ProducerCapability] = {}
-        self._registered_producers: Dict[CapabilityRole, Any] = {}
+        object.__setattr__(self, "domain_id", domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}")
+        object.__setattr__(self, "_is_production", _is_production)
+        object.__setattr__(self, "_provisioning_token", _provisioning_token)
+        object.__setattr__(self, "_master_key", uuid.uuid4().bytes)
+        object.__setattr__(self, "_finalized", False)
+        object.__setattr__(self, "_minted_roles", set())
+        object.__setattr__(self, "_validator_capabilities", {})
+        object.__setattr__(self, "_producer_capabilities", {})
+        object.__setattr__(self, "_registered_producers", {})
+        object.__setattr__(self, "_issuance_guard", _IssuanceGuard())
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_finalized", False) or name in self._IMMUTABLE_ATTRIBUTES:
+            raise AuthorityError(f"Modification of AuthorityDomain attribute '{name}' is forbidden.")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AuthorityError(f"Deletion of AuthorityDomain attribute '{name}' is forbidden.")
+
+    @classmethod
+    def _create_production_domain(cls, domain_id: str, provisioning_token: object) -> "AuthorityDomain":
+        return cls(
+            domain_id=domain_id,
+            _is_production=True,
+            _provisioning_token=provisioning_token,
+        )
 
     @property
     def is_production(self) -> bool:
@@ -226,6 +253,28 @@ class AuthorityDomain:
         info = f"{self.domain_id}|v2|{role.value}|{entity_id}".encode("utf-8")
         return hmac.new(self._master_key, info, hashlib.sha256).digest()
 
+    def _get_producer_instance_identity(self, producer_instance: Any) -> Optional[str]:
+        for attr in ("producer_id", "subsystem_id", "effective_config_id"):
+            val = getattr(producer_instance, attr, None)
+            if isinstance(val, str) and val:
+                return val
+            if callable(val):
+                try:
+                    res = val()
+                    if isinstance(res, str) and res:
+                        return res
+                except Exception:
+                    pass
+        cap = getattr(producer_instance, "capability", None)
+        if cap is not None:
+            cap_id = getattr(cap, "producer_id", None)
+            if isinstance(cap_id, str) and cap_id:
+                return cap_id
+        identity = getattr(producer_instance, "provider_identity", None)
+        if isinstance(identity, str) and identity:
+            return identity
+        return None
+
     def mint_producer_capability(
         self,
         role: CapabilityRole,
@@ -238,6 +287,15 @@ class AuthorityDomain:
             raise AuthorityError("Public/unauthorized capability minting on production AuthorityDomain is forbidden.")
         if role in self._minted_roles:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'.")
+
+        if role in self._registered_producers:
+            registered_inst = self._registered_producers[role]
+            reg_identity = self._get_producer_instance_identity(registered_inst)
+            if reg_identity is not None and reg_identity != producer_id:
+                raise AuthorityError(
+                    f"Capability producer_id '{producer_id}' does not match registered producer identity '{reg_identity}' for role '{role.value}'."
+                )
+
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, producer_id)
         cap = ProducerCapability(
@@ -245,7 +303,7 @@ class AuthorityDomain:
             role=role,
             producer_id=producer_id,
             _role_key=role_key,
-            _issuance_key=_ISSUANCE_KEY,
+            _guard=self._issuance_guard,
         )
         self._producer_capabilities[role] = cap
         return cap
@@ -269,7 +327,7 @@ class AuthorityDomain:
             role=role,
             validator_id=validator_id,
             _role_key=role_key,
-            _issuance_key=_ISSUANCE_KEY,
+            _guard=self._issuance_guard,
         )
         self._validator_capabilities[validator_id] = cap
         return cap
@@ -285,10 +343,37 @@ class AuthorityDomain:
             raise AuthorityError("AuthorityDomain is finalized; cannot register new producer instances.")
         if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
             raise AuthorityError("Public/unauthorized producer registration on production AuthorityDomain is forbidden.")
+        if role in self._registered_producers:
+            raise AuthorityError(f"Producer for role '{role.value}' is already registered in domain '{self.domain_id}'. Duplicate or replacement registration is forbidden.")
+
+        if role in self._producer_capabilities:
+            cap = self._producer_capabilities[role]
+            inst_identity = self._get_producer_instance_identity(producer_instance)
+            if inst_identity is not None and inst_identity != cap.producer_id:
+                raise AuthorityError(
+                    f"Registered producer identity '{inst_identity}' does not match capability producer_id '{cap.producer_id}' for role '{role.value}'."
+                )
+
         self._registered_producers[role] = producer_instance
 
-    def is_registered_producer(self, role: CapabilityRole, producer_instance: Any) -> bool:
-        return self._registered_producers.get(role) is producer_instance
+    def is_registered_producer(
+        self,
+        role: CapabilityRole,
+        producer_instance: Any,
+        producer_id: Optional[str] = None,
+    ) -> bool:
+        reg_inst = self._registered_producers.get(role)
+        if reg_inst is not producer_instance:
+            return False
+        cap = self._producer_capabilities.get(role)
+        if cap is None:
+            return False
+        if producer_id is not None and cap.producer_id != producer_id:
+            return False
+        inst_identity = self._get_producer_instance_identity(producer_instance)
+        if inst_identity is not None and inst_identity != cap.producer_id:
+            return False
+        return True
 
     def get_validator_capability(
         self,
@@ -343,6 +428,7 @@ class AuthorityDomain:
                 CapabilityRole.SNAPSHOT,
                 CapabilityRole.RISK_LEDGER,
                 CapabilityRole.INTENT_REPOSITORY,
+                CapabilityRole.BROKER_QUERY,
                 CapabilityRole.EFFECTIVE_CONFIGURATION,
                 CapabilityRole.PROTECTIVE_MONITOR,
             }
@@ -363,13 +449,23 @@ class AuthorityDomain:
                     f"Missing registered producers: {[r.value for r in sorted(missing_registered, key=lambda x: x.value)]}."
                 )
 
-        self._finalized = True
-        self._master_key = b"\x00" * 32
-        self._provisioning_token = None
-        self._validator_capabilities = MappingProxyType(self._validator_capabilities)
-        self._producer_capabilities = MappingProxyType(self._producer_capabilities)
-        self._registered_producers = MappingProxyType(self._registered_producers)
-        self._minted_roles = frozenset(self._minted_roles)
+            for role in required_producer_roles:
+                cap = self._producer_capabilities[role]
+                reg_inst = self._registered_producers[role]
+                reg_identity = self._get_producer_instance_identity(reg_inst)
+                if reg_identity is not None and cap.producer_id != reg_identity:
+                    raise AuthorityError(
+                        f"Production authority graph binding violation for role '{role.value}': "
+                        f"capability producer_id '{cap.producer_id}' != registered producer identity '{reg_identity}'."
+                    )
+
+        object.__setattr__(self, "_finalized", True)
+        object.__setattr__(self, "_master_key", b"\x00" * 32)
+        object.__setattr__(self, "_provisioning_token", None)
+        object.__setattr__(self, "_validator_capabilities", MappingProxyType(dict(self._validator_capabilities)))
+        object.__setattr__(self, "_producer_capabilities", MappingProxyType(dict(self._producer_capabilities)))
+        object.__setattr__(self, "_registered_producers", MappingProxyType(dict(self._registered_producers)))
+        object.__setattr__(self, "_minted_roles", frozenset(self._minted_roles))
 
 
 class TrustedRuntimeBootstrap:
@@ -377,18 +473,25 @@ class TrustedRuntimeBootstrap:
 
     _instance: Optional["TrustedRuntimeBootstrap"] = None
     _lock = threading.Lock()
+    _IMMUTABLE_ATTRIBUTES = {"_domain", "_provisioning_token", "_is_sealed"}
 
-    def __init__(self, _issuance_token: Optional[object] = None) -> None:
-        if _issuance_token is not _PRODUCTION_INIT_TOKEN or type(self) is not TrustedRuntimeBootstrap:
+    def __init__(self, _is_internal_call: bool = False) -> None:
+        if not _is_internal_call or type(self) is not TrustedRuntimeBootstrap:
             raise AuthorityError("Direct instantiation of TrustedRuntimeBootstrap is forbidden. Use TrustedRuntimeBootstrap.bootstrap_production_runtime().")
         prod_id = f"FRACTAL_PROD_DOMAIN_{uuid.uuid4().hex[:12]}"
-        self._provisioning_token: Optional[object] = object()
-        self._is_sealed: bool = False
-        self._domain = AuthorityDomain(
-            domain_id=prod_id,
-            _production_root_token=_PRODUCTION_ROOT_TOKEN,
-            _provisioning_token=self._provisioning_token,
-        )
+        prov_token = object()
+        object.__setattr__(self, "_provisioning_token", prov_token)
+        object.__setattr__(self, "_is_sealed", False)
+        domain = AuthorityDomain._create_production_domain(domain_id=prod_id, provisioning_token=prov_token)
+        object.__setattr__(self, "_domain", domain)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_is_sealed", False) or name in self._IMMUTABLE_ATTRIBUTES:
+            raise AuthorityError(f"Modification of TrustedRuntimeBootstrap attribute '{name}' is forbidden.")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AuthorityError(f"Deletion of TrustedRuntimeBootstrap attribute '{name}' is forbidden.")
 
     def __copy__(self) -> None:
         return None
@@ -411,7 +514,7 @@ class TrustedRuntimeBootstrap:
             if reset and cls._instance is not None:
                 raise AuthorityError("Resetting or replacing an active production authority root is forbidden.")
             if cls._instance is None:
-                cls._instance = cls(_issuance_token=_PRODUCTION_INIT_TOKEN)
+                cls._instance = cls(_is_internal_call=True)
             return cls._instance
 
     @property
@@ -448,8 +551,8 @@ class TrustedRuntimeBootstrap:
             raise AuthorityError("AuthorityDomain is already finalized.")
         prov_tok = self._provisioning_token
         self._domain.finalize(_provisioning_token=prov_tok)
-        self._provisioning_token = None
-        self._is_sealed = True
+        object.__setattr__(self, "_provisioning_token", None)
+        object.__setattr__(self, "_is_sealed", True)
 
     def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> "RecoveryEngine":
         return RecoveryEngine(authority_domain=self._domain, initial_state=initial_state)
@@ -463,7 +566,7 @@ class AuthorityBootstrap(AuthorityDomain):
 
     def __init__(self, domain_id: Optional[str] = None) -> None:
         untrusted_id = domain_id or f"UNTRUSTED_BOOTSTRAP_{uuid.uuid4().hex[:12]}"
-        super().__init__(domain_id=untrusted_id, _production_root_token=None)
+        super().__init__(domain_id=untrusted_id, _is_production=False)
 
 
 class TrustedRuntimeAuthority:
@@ -475,7 +578,7 @@ class TrustedRuntimeAuthority:
 
     def __init__(self, domain_id: Optional[str] = None) -> None:
         untrusted_id = domain_id or f"STANDALONE_DOMAIN_{uuid.uuid4().hex[:12]}"
-        self._domain = AuthorityDomain(domain_id=untrusted_id, _production_root_token=None)
+        self._domain = AuthorityDomain(domain_id=untrusted_id, _is_production=False)
 
     @property
     def domain(self) -> AuthorityDomain:

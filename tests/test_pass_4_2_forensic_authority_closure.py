@@ -97,26 +97,29 @@ def _setup_test_capabilities(use_production: bool = False) -> tuple[Any, dict[st
     c_val_cap = bootstrap.get_validator_capability("ConfigurationValidator") or bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
     p_val_cap = bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
+    config = compute_effective_config(BaseConfig(), "EURUSD")
+    protective = ProtectiveMonitoringSubsystem()
+
     j_prod_cap = bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
     s_prod_cap = bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
     r_prod_cap = bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
     i_prod_cap = bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
     b_prod_cap = bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
-    c_prod_cap = bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
-    p_prod_cap = bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
+    c_prod_cap = bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
+    p_prod_cap = bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
     if use_production:
         journal = DurableEventJournal()
         snap_engine = SnapshotEngine()
         risk_ledger = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
         intent_repo = DurableExecutionIntentRepository()
-        config = compute_effective_config(BaseConfig(), "EURUSD")
-        protective = ProtectiveMonitoringSubsystem()
+        adapter = AuthoritativeBrokerAdapter(capability=b_prod_cap, authority=BrokerQueryQuality.FOUND)
 
         bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
         bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
         bootstrap.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
         bootstrap.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
+        bootstrap.register_producer(CapabilityRole.BROKER_QUERY, adapter)
         bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
         bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
