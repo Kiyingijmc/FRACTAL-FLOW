@@ -176,3 +176,18 @@ class DurableExecutionIntentRepository:
         with self._lock:
             intent_id = self._idempotency_map.get(idempotency_key)
             return self._intents.get(intent_id) if intent_id else None
+
+    def produce_observation(self, session_id: str, capability: Any) -> Any:
+        """Produces a sealed observation proving authoritative intent repository provenance."""
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.INTENT_REPOSITORY:
+            raise RecoveryEvidenceError("DurableExecutionIntentRepository observation requires a valid INTENT_REPOSITORY ProducerCapability.")
+
+        import time
+        with self._lock:
+            payload = {
+                "db_path": str(self.db_path) if self.db_path else "",
+                "intents_count": len(self._intents),
+                "idempotency_keys_count": len(self._idempotency_map),
+            }
+            return SealedObservation.create(capability, session_id, int(time.time()), payload)

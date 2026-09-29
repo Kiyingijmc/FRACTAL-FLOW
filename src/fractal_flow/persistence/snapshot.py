@@ -17,6 +17,14 @@ class SnapshotCorruptionException(Exception):
     pass
 
 
+_INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset({
+    "_last_version",
+    "_last_seq",
+    "_snapshot_valid",
+    "_snapshot_fallback_used",
+})
+
+
 @dataclass(frozen=True)
 class AggregateSnapshot:
     aggregate_type: str
@@ -34,7 +42,7 @@ class AggregateSnapshot:
         """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
         canonical_payload = {
             k: v for k, v in payload.items()
-            if not k.startswith("_")
+            if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS
         }
         return hashlib.sha256(json.dumps(canonical_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -147,8 +155,8 @@ class SnapshotEngine:
             return snap
 
     def canonicalize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Strips replay diagnostics and metadata starting with '_' from business state."""
-        return {k: v for k, v in state.items() if not k.startswith("_")}
+        """Strips replay diagnostics and metadata from business state."""
+        return {k: v for k, v in state.items() if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS}
 
     def replay_to_sequence(
         self,
@@ -379,3 +387,18 @@ class SnapshotEngine:
         state["_snapshot_valid"] = snapshot_valid
         state["_snapshot_fallback_used"] = snapshot_fallback_used
         return state
+
+    def produce_observation(self, session_id: str, capability: Any) -> Any:
+        """Produces a sealed observation proving authoritative snapshot engine provenance."""
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.SNAPSHOT:
+            raise RecoveryEvidenceError("SnapshotEngine observation requires a valid SNAPSHOT ProducerCapability.")
+
+        import time
+        with self._lock:
+            payload = {
+                "snapshot_valid": self._snapshot_valid,
+                "snapshot_fallback_used": self._snapshot_fallback_used,
+                "snapshot_dir": str(self.snapshot_dir) if self.snapshot_dir else "",
+            }
+            return SealedObservation.create(capability, session_id, int(time.time()), payload)
