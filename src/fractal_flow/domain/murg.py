@@ -1,9 +1,8 @@
 """User Market Universe, Session Context, Account Resource Context, and Resource Governor for FRACTAL FLOW MURG."""
 
 from dataclasses import dataclass, field
-from enum import Enum, unique
-from typing import Dict, List, Optional, Set
 from decimal import Decimal
+from enum import Enum, unique
 
 from src.fractal_flow.domain.reason_codes import ReasonCode
 
@@ -60,9 +59,9 @@ class InstrumentDescriptor:
     identity: InstrumentIdentity
     trade_mode: SymbolTradeMode
     execution_mode: str
-    supported_order_types: List[str]
-    supported_fill_policies: List[str]
-    supported_time_in_force: List[str]
+    supported_order_types: list[str]
+    supported_fill_policies: list[str]
+    supported_time_in_force: list[str]
     tick_size: float
     point_size: float
     pip_size: float
@@ -84,8 +83,8 @@ class EligibilityEngine:
     @staticmethod
     def evaluate_eligibility(
         descriptor: InstrumentDescriptor,
-    ) -> tuple[bool, List[ReasonCode]]:
-        reasons: List[ReasonCode] = []
+    ) -> tuple[bool, list[ReasonCode]]:
+        reasons: list[ReasonCode] = []
 
         if (
             descriptor.trade_mode == SymbolTradeMode.DISABLED
@@ -118,24 +117,24 @@ class InstrumentCatalog:
     """Authoritative repository for discovered broker instrument descriptors."""
 
     def __init__(self) -> None:
-        self._descriptors: Dict[str, InstrumentDescriptor] = {}
-        self._broker_symbol_map: Dict[str, str] = {}
+        self._descriptors: dict[str, InstrumentDescriptor] = {}
+        self._broker_symbol_map: dict[str, str] = {}
 
     def register_instrument(self, descriptor: InstrumentDescriptor) -> None:
         canonical_id = descriptor.identity.canonical_id
         self._descriptors[canonical_id] = descriptor
         self._broker_symbol_map[descriptor.identity.broker_symbol] = canonical_id
 
-    def get_descriptor(self, canonical_id: str) -> Optional[InstrumentDescriptor]:
+    def get_descriptor(self, canonical_id: str) -> InstrumentDescriptor | None:
         return self._descriptors.get(canonical_id)
 
     def get_by_broker_symbol(
         self, broker_symbol: str
-    ) -> Optional[InstrumentDescriptor]:
+    ) -> InstrumentDescriptor | None:
         canonical_id = self._broker_symbol_map.get(broker_symbol)
         return self._descriptors.get(canonical_id) if canonical_id else None
 
-    def list_all_canonical_ids(self) -> List[str]:
+    def list_all_canonical_ids(self) -> list[str]:
         return list(self._descriptors.keys())
 
 
@@ -143,8 +142,8 @@ class InstrumentCatalog:
 class UserMarketUniverse:
     mode: UniverseMode = UniverseMode.SMART
     profile: ResourceProfile = ResourceProfile.BALANCED
-    pinned_canonical_ids: Set[str] = field(default_factory=set)
-    manual_canonical_ids: Set[str] = field(default_factory=set)
+    pinned_canonical_ids: set[str] = field(default_factory=set)
+    manual_canonical_ids: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -189,7 +188,7 @@ class MarketActivationLease:
 class MarketActivationDecision:
     canonical_id: str
     activation_state: str  # ACTIVE, WARMING, QUEUED, DORMANT, BLOCKED
-    reason_codes: List[ReasonCode]
+    reason_codes: list[ReasonCode]
     priority_score: float
     entry_analysis_enabled: bool
     position_monitoring_enabled: bool
@@ -228,10 +227,10 @@ class ResourceGovernor:
         self.deactivation_threshold = deactivation_threshold
         self.minimum_dwell_ns = minimum_dwell_ns
 
-        self.active_markets: Set[str] = set()
-        self.warming_markets: Set[str] = set()
-        self.queued_markets: List[str] = []
-        self.leases: Dict[str, MarketActivationLease] = {}
+        self.active_markets: set[str] = set()
+        self.warming_markets: set[str] = set()
+        self.queued_markets: list[str] = []
+        self.leases: dict[str, MarketActivationLease] = {}
 
     def evaluate_universe_activation(
         self,
@@ -239,11 +238,11 @@ class ResourceGovernor:
         universe: UserMarketUniverse,
         account_context: AccountResourceContext,
         session_context: MarketSessionContext,
-        has_open_position: Dict[str, bool],
-        has_pending_order: Dict[str, bool],
+        has_open_position: dict[str, bool],
+        has_pending_order: dict[str, bool],
         current_time_ns: int = 0,
-    ) -> Dict[str, MarketActivationDecision]:
-        decisions: Dict[str, MarketActivationDecision] = {}
+    ) -> dict[str, MarketActivationDecision]:
+        decisions: dict[str, MarketActivationDecision] = {}
 
         # Adjust capacity using account capacity multiplier
         effective_active_cap = max(
@@ -328,7 +327,7 @@ class ResourceGovernor:
                     else self.activation_threshold
                 )
 
-                reasons: List[ReasonCode] = []
+                reasons: list[ReasonCode] = []
                 if (
                     score >= threshold
                     and len(self.active_markets) < effective_active_cap

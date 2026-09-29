@@ -1,12 +1,12 @@
 """Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and conservative crash-tail recovery policy."""
 
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Optional, Any
-import json
 import hashlib
+import json
 import os
 import threading
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 
@@ -14,13 +14,11 @@ from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 class JournalCorruptionException(Exception):
     """Raised when journal record integrity, checksum, event ID uniqueness, or sequence is corrupted."""
 
-    pass
 
 
 class JournalDurabilityException(Exception):
     """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
 
-    pass
 
 
 @dataclass(frozen=True)
@@ -43,14 +41,14 @@ class DurableEventJournal:
 
     def __init__(
         self,
-        journal_file_path: Optional[str] = None,
+        journal_file_path: str | None = None,
         truncate_corrupted_tail: bool = False,
     ) -> None:
         self.journal_file_path = Path(journal_file_path) if journal_file_path else None
         self.truncate_corrupted_tail = truncate_corrupted_tail
-        self._records: List[JournalRecord] = []
-        self._aggregate_sequences: Dict[str, int] = {}
-        self._event_ids: Dict[str, int] = {}  # event_id -> global_sequence mapping
+        self._records: list[JournalRecord] = []
+        self._aggregate_sequences: dict[str, int] = {}
+        self._event_ids: dict[str, int] = {}  # event_id -> global_sequence mapping
         self._global_sequence: int = 0
         self._faulted: bool = False
         self._lock = threading.Lock()
@@ -97,7 +95,7 @@ class DurableEventJournal:
 
     def get_events_for_aggregate(
         self, aggregate_type: str, aggregate_id: str
-    ) -> List[Event]:
+    ) -> list[Event]:
         with self._lock:
             return [
                 r.event
@@ -106,7 +104,7 @@ class DurableEventJournal:
                 and r.event.aggregate_id == aggregate_id
             ]
 
-    def get_all_records(self) -> List[JournalRecord]:
+    def get_all_records(self) -> list[JournalRecord]:
         with self._lock:
             return list(self._records)
 
@@ -236,9 +234,9 @@ class DurableEventJournal:
     def _load_from_file(self) -> None:
         assert self.journal_file_path is not None
 
-        temp_records: List[JournalRecord] = []
-        temp_aggregate_sequences: Dict[str, int] = {}
-        temp_event_ids: Dict[str, int] = {}
+        temp_records: list[JournalRecord] = []
+        temp_aggregate_sequences: dict[str, int] = {}
+        temp_event_ids: dict[str, int] = {}
         temp_global_sequence: int = 0
 
         lines_with_pos = []
@@ -367,9 +365,9 @@ class DurableEventJournal:
         """Produces a sealed observation proving authoritative journal provenance."""
         from src.fractal_flow.execution.recovery import (
             CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
             ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
         )
 
         if (

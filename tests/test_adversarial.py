@@ -1,23 +1,24 @@
 """Comprehensive Adversarial Regression Test Suite covering state-machine closure, execution uncertainty, lineage integrity, and news lockdown boundaries."""
 
 import pytest
-from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
+
 from src.fractal_flow.domain.envelope import (
     InvalidStateTransitionException,
     StateRegistry,
 )
+from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
 from src.fractal_flow.domain.models import (
-    TradeDecision,
+    Direction,
     ExecutionIntent,
     OrderSide,
-    Direction,
+    TradeDecision,
 )
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
 from src.fractal_flow.simulation.simulator import (
     DeterministicBrokerSimulator,
-    SimulationConfig,
     ExecutionScenario,
+    SimulationConfig,
 )
 
 

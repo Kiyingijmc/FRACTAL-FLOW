@@ -4,34 +4,35 @@ Verifies closure of the Authority Graph, Issuance Boundary, and Adversarial Inte
 across all 20 required attack matrix scenarios (A through T).
 """
 
-import pytest
 import copy
 import pickle
 import threading
 from typing import Any
 
-from src.fractal_flow.execution.recovery import (
-    RecoveryEvidenceError,
-    AuthorityError,
-    JournalRecoveryValidator,
-    ProtectiveMonitoringSubsystem,
-    AuthorityBootstrap,
-    AuthorityDomain,
-    TrustedRuntimeBootstrap,
-    CapabilityRole,
-    ProducerCapability,
-    ValidatorCapability,
-    ProducerBinding,
-)
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.execution.reconciliation import (
     AuthoritativeBrokerAdapter,
     BrokerQueryQuality,
 )
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.execution.recovery import (
+    AuthorityBootstrap,
+    AuthorityDomain,
+    AuthorityError,
+    CapabilityRole,
+    JournalRecoveryValidator,
+    ProducerBinding,
+    ProducerCapability,
+    ProtectiveMonitoringSubsystem,
+    RecoveryEvidenceError,
+    TrustedRuntimeBootstrap,
+    ValidatorCapability,
+)
+from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 from src.fractal_flow.persistence.journal import DurableEventJournal
 from src.fractal_flow.persistence.snapshot import SnapshotEngine
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 
 
 @pytest.fixture(autouse=True)

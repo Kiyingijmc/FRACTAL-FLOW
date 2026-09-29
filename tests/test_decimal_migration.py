@@ -7,8 +7,8 @@ from src.fractal_flow.config.config import (
     NewsOverlay,
     compute_effective_config,
 )
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
+from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 
 
 def test_decimal_exactness_no_floating_point_artifacts() -> None:

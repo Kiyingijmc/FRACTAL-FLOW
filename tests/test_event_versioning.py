@@ -1,8 +1,10 @@
 """Tests for Event Versioning, Schema Parity, Temporal Checks, and Event Store Concurrency."""
 
 from pathlib import Path
-import yaml
+
 import pytest
+import yaml
+
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 from src.fractal_flow.persistence.interfaces import InMemoryEventStore
 

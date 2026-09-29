@@ -4,48 +4,49 @@ Adversarial test suite proving that ordinary runtime/application code cannot acq
 import, retain, or invoke a production provisioning authority merely through public Python APIs or module state.
 """
 
-import pytest
 import copy
 import pickle
 import threading
 from types import MappingProxyType
 
-from src.fractal_flow.execution.recovery import (
-    RecoveryState,
-    RecoveryEvidenceError,
-    AuthorityError,
-    RecoveryEvidenceAssembler,
-    JournalRecoveryValidator,
-    SnapshotRecoveryValidator,
-    RiskLedgerRecoveryValidator,
-    IntentRecoveryValidator,
-    BrokerReconciliationValidator,
-    ConfigurationValidator,
-    ProtectiveMonitoringValidator,
-    ProtectiveMonitoringSubsystem,
-    SnapshotRecoveryEvidence,
-    RiskLedgerRecoveryEvidence,
-    IntentRecoveryEvidence,
-    BrokerReconciliationEvidence,
-    ConfigurationEvidence,
-    ProtectiveMonitoringEvidence,
-    AuthorityBootstrap,
-    AuthorityDomain,
-    TrustedRuntimeBootstrap,
-    CapabilityRole,
-    ValidatorCapability,
-    ProducerCapability,
-)
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
     AuthoritativeBrokerAdapter,
     BrokerQueryQuality,
+    ReconciliationEngine,
 )
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.execution.recovery import (
+    AuthorityBootstrap,
+    AuthorityDomain,
+    AuthorityError,
+    BrokerReconciliationEvidence,
+    BrokerReconciliationValidator,
+    CapabilityRole,
+    ConfigurationEvidence,
+    ConfigurationValidator,
+    IntentRecoveryEvidence,
+    IntentRecoveryValidator,
+    JournalRecoveryValidator,
+    ProducerCapability,
+    ProtectiveMonitoringEvidence,
+    ProtectiveMonitoringSubsystem,
+    ProtectiveMonitoringValidator,
+    RecoveryEvidenceAssembler,
+    RecoveryEvidenceError,
+    RecoveryState,
+    RiskLedgerRecoveryEvidence,
+    RiskLedgerRecoveryValidator,
+    SnapshotRecoveryEvidence,
+    SnapshotRecoveryValidator,
+    TrustedRuntimeBootstrap,
+    ValidatorCapability,
+)
+from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 from src.fractal_flow.persistence.journal import DurableEventJournal
 from src.fractal_flow.persistence.snapshot import SnapshotEngine
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 
 
 @pytest.fixture(autouse=True)

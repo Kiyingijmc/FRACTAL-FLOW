@@ -1,12 +1,13 @@
 """Semantic specification parity tests ensuring spec/*.yaml and Python runtime registries are 100% identically mapped bidirectionally."""
 
 from pathlib import Path
+
 import yaml
 
-from src.fractal_flow.domain.reason_codes import ReasonCode
+from src.fractal_flow.domain.entry import EntryModel, OrderType
 from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY
 from src.fractal_flow.domain.lineage import LEGAL_LINEAGE_EDGES
-from src.fractal_flow.domain.entry import EntryModel, OrderType
+from src.fractal_flow.domain.reason_codes import ReasonCode
 
 
 def test_reason_codes_exact_parity() -> None:

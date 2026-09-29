@@ -1,7 +1,6 @@
 """EntryAuthorizationEvidence, MURG Telemetry, and Entry Model Research Telemetry for FRACTAL FLOW Pass 4F."""
 
 from dataclasses import dataclass
-from typing import Optional
 from decimal import Decimal
 
 
@@ -42,9 +41,9 @@ class EntryModelResearchTelemetry:
     order_type: str
     reference_price: Decimal
     entry_price: Decimal
-    trigger_price: Optional[Decimal]
-    limit_price: Optional[Decimal]
-    stop_limit_price: Optional[Decimal]
+    trigger_price: Decimal | None
+    limit_price: Decimal | None
+    stop_limit_price: Decimal | None
     planned_risk: Decimal
     allocated_risk: Decimal
     time_to_trigger_ns: int
@@ -56,4 +55,4 @@ class EntryModelResearchTelemetry:
     mae_pips: Decimal = Decimal("0.0")
     realized_r: Decimal = Decimal("0.0")
     fallback_used: bool = False
-    fallback_reason: Optional[str] = None
+    fallback_reason: str | None = None

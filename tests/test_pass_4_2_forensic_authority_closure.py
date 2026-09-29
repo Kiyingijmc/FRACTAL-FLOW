@@ -5,73 +5,74 @@ manipulate broker query authority, bypass orphan tracking, corrupt snapshot equi
 transplant tokens across modified evidence, or pass invalid deal chains to authorize strategic execution.
 """
 
-import pytest
 import copy
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
-from dataclasses import replace
 
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.event import Event
 from src.fractal_flow.domain.models import (
-    ExecutionIntent,
-    Position,
     BrokerDeal,
-    OrderSide,
     DealEntryRole,
-)
-from src.fractal_flow.execution.execution_state import ExecutionState
-from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
-    ReconciliationReport,
-    ReconciliationMismatchType,
-    BrokerQueryResult,
-    BrokerQueryQuality,
-    AuthoritativeBrokerAdapter,
-    OrphanRecord,
-    OrphanStatus,
-)
-from src.fractal_flow.execution.recovery import (
-    RecoveryEngine,
-    RecoveryState,
-    RecoveryEvidence,
-    RecoveryEvidenceError,
-    RecoveryEvidenceAssembler,
-    JournalRecoveryValidator,
-    SnapshotRecoveryValidator,
-    RiskLedgerRecoveryValidator,
-    IntentRecoveryValidator,
-    BrokerReconciliationValidator,
-    ConfigurationValidator,
-    ProtectiveMonitoringValidator,
-    ProtectiveMonitoringSubsystem,
-    EvidenceProvenance,
-    JournalRecoveryEvidence,
-    SnapshotRecoveryEvidence,
-    RiskLedgerRecoveryEvidence,
-    IntentRecoveryEvidence,
-    BrokerReconciliationEvidence,
-    ConfigurationEvidence,
-    ProtectiveMonitoringEvidence,
-    compute_evidence_digest,
-    AuthorityBootstrap,
-    TrustedRuntimeBootstrap,
-    CapabilityRole,
-    SealedObservation,
-    ValidatorCapability,
-    ProducerCapability,
+    ExecutionIntent,
+    OrderSide,
+    Position,
 )
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
-from src.fractal_flow.persistence.journal import DurableEventJournal
-from src.fractal_flow.persistence.snapshot import (
-    SnapshotEngine,
-    AggregateSnapshot,
-    SnapshotCorruptionException,
+from src.fractal_flow.execution.execution_state import ExecutionState
+from src.fractal_flow.execution.reconciliation import (
+    AuthoritativeBrokerAdapter,
+    BrokerQueryQuality,
+    BrokerQueryResult,
+    OrphanRecord,
+    OrphanStatus,
+    ReconciliationEngine,
+    ReconciliationMismatchType,
+    ReconciliationReport,
+)
+from src.fractal_flow.execution.recovery import (
+    AuthorityBootstrap,
+    BrokerReconciliationEvidence,
+    BrokerReconciliationValidator,
+    CapabilityRole,
+    ConfigurationEvidence,
+    ConfigurationValidator,
+    EvidenceProvenance,
+    IntentRecoveryEvidence,
+    IntentRecoveryValidator,
+    JournalRecoveryEvidence,
+    JournalRecoveryValidator,
+    ProducerCapability,
+    ProtectiveMonitoringEvidence,
+    ProtectiveMonitoringSubsystem,
+    ProtectiveMonitoringValidator,
+    RecoveryEngine,
+    RecoveryEvidence,
+    RecoveryEvidenceAssembler,
+    RecoveryEvidenceError,
+    RecoveryState,
+    RiskLedgerRecoveryEvidence,
+    RiskLedgerRecoveryValidator,
+    SealedObservation,
+    SnapshotRecoveryEvidence,
+    SnapshotRecoveryValidator,
+    TrustedRuntimeBootstrap,
+    ValidatorCapability,
+    compute_evidence_digest,
 )
 from src.fractal_flow.persistence.interfaces import (
     DurableExecutionIntentRepository,
     IdempotencyConflictException,
 )
-from src.fractal_flow.domain.event import Event
+from src.fractal_flow.persistence.journal import DurableEventJournal
+from src.fractal_flow.persistence.snapshot import (
+    AggregateSnapshot,
+    SnapshotCorruptionException,
+    SnapshotEngine,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -393,7 +394,7 @@ def test_sealed_observation_signature_verification() -> None:
 def test_compute_evidence_digest_strict_type_canonicalization() -> None:
     # Decimal canonicalization
     d1 = {"risk": Decimal("100.00")}
-    d2 = {"risk": Decimal("100")}
+    d2 = {"risk": Decimal(100)}
     assert compute_evidence_digest(d1) == compute_evidence_digest(d2)
 
     # Fail closed on NaN or infinity

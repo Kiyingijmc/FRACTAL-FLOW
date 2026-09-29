@@ -5,49 +5,50 @@ inject un-trusted capabilities into RecoveryEngine, pass is_production=True to p
 subclass authority objects, forge capabilities via copy/pickle, or use unregistered producers/broker datasets to obtain strategic execution authorization.
 """
 
-import pytest
 import copy
 import pickle
 import time
 
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
-    BrokerQueryResult,
-    BrokerQueryQuality,
     AuthoritativeBrokerAdapter,
+    BrokerQueryQuality,
+    BrokerQueryResult,
+    ReconciliationEngine,
 )
 from src.fractal_flow.execution.recovery import (
-    RecoveryEngine,
-    RecoveryState,
-    RecoveryEvidence,
-    RecoveryEvidenceError,
-    AuthorityError,
-    RecoveryEvidenceAssembler,
-    JournalRecoveryValidator,
-    SnapshotRecoveryValidator,
-    RiskLedgerRecoveryValidator,
-    IntentRecoveryValidator,
-    BrokerReconciliationValidator,
-    ConfigurationValidator,
-    ProtectiveMonitoringValidator,
-    ProtectiveMonitoringSubsystem,
-    SnapshotRecoveryEvidence,
-    RiskLedgerRecoveryEvidence,
-    IntentRecoveryEvidence,
-    BrokerReconciliationEvidence,
-    ConfigurationEvidence,
-    ProtectiveMonitoringEvidence,
     AuthorityBootstrap,
     AuthorityDomain,
-    TrustedRuntimeBootstrap,
-    TrustedRuntimeAuthority,
+    AuthorityError,
+    BrokerReconciliationEvidence,
+    BrokerReconciliationValidator,
     CapabilityRole,
+    ConfigurationEvidence,
+    ConfigurationValidator,
+    IntentRecoveryEvidence,
+    IntentRecoveryValidator,
+    JournalRecoveryValidator,
+    ProtectiveMonitoringEvidence,
+    ProtectiveMonitoringSubsystem,
+    ProtectiveMonitoringValidator,
+    RecoveryEngine,
+    RecoveryEvidence,
+    RecoveryEvidenceAssembler,
+    RecoveryEvidenceError,
+    RecoveryState,
+    RiskLedgerRecoveryEvidence,
+    RiskLedgerRecoveryValidator,
+    SnapshotRecoveryEvidence,
+    SnapshotRecoveryValidator,
+    TrustedRuntimeAuthority,
+    TrustedRuntimeBootstrap,
 )
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 from src.fractal_flow.persistence.journal import DurableEventJournal
 from src.fractal_flow.persistence.snapshot import SnapshotEngine
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 
 
 @pytest.fixture(autouse=True)

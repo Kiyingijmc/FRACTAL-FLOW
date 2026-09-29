@@ -1,15 +1,17 @@
 """Tests for Hardened Simulator, Idempotency, Unknown Execution, Partial Fills, and Restart Recovery."""
 
 from decimal import Decimal
+
 import pytest
+
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
 from src.fractal_flow.simulation.simulator import (
     DeterministicBrokerSimulator,
-    SimulationConfig,
     ExecutionScenario,
     IdempotencyConflictException,
+    SimulationConfig,
 )
 
 

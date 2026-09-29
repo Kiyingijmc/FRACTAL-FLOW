@@ -6,8 +6,6 @@ and simulation modules are declared using exact Decimal types rather than float.
 
 import ast
 from pathlib import Path
-from typing import List
-
 
 FINANCIAL_FIELD_KEYWORDS = {
     "price",
@@ -70,7 +68,7 @@ def test_ast_decimal_guard_no_forbidden_floats() -> None:
         src_dir / "domain" / "entry.py",
     ]
 
-    forbidden_float_declarations: List[str] = []
+    forbidden_float_declarations: list[str] = []
 
     for py_file in files_to_check:
         tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))

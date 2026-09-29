@@ -1,17 +1,17 @@
 """Hardened Deterministic Broker Simulator modeling realistic execution scenarios, conditional execution, and authoritative broker state."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union, overload
 from decimal import Decimal
 from enum import Enum, unique
+from typing import Any, overload
 
+from src.fractal_flow.domain.entry import EntryPlan, OrderType
 from src.fractal_flow.domain.models import (
-    ExecutionIntent,
-    BrokerOrder,
     BrokerDeal,
+    BrokerOrder,
+    ExecutionIntent,
     Position,
 )
-from src.fractal_flow.domain.entry import EntryPlan, OrderType
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
 
@@ -21,10 +21,10 @@ def _to_decimal(val: None) -> None: ...
 
 
 @overload
-def _to_decimal(val: Union[Decimal, float, int, str]) -> Decimal: ...
+def _to_decimal(val: Decimal | float | str) -> Decimal: ...
 
 
-def _to_decimal(val: Union[Decimal, float, int, str, None]) -> Optional[Decimal]:
+def _to_decimal(val: Decimal | float | str | None) -> Decimal | None:
     if val is None:
         return None
     if isinstance(val, Decimal):
@@ -35,7 +35,6 @@ def _to_decimal(val: Union[Decimal, float, int, str, None]) -> Optional[Decimal]
 class IdempotencyConflictException(Exception):
     """Raised when an intent with an existing idempotency_key has materially different parameters."""
 
-    pass
 
 
 @unique
@@ -65,41 +64,41 @@ class DeterministicBrokerSimulator:
 
     def __init__(
         self,
-        clock: Optional[SimulationClock] = None,
-        config: Optional[SimulationConfig] = None,
+        clock: SimulationClock | None = None,
+        config: SimulationConfig | None = None,
     ) -> None:
         self.clock = clock or SimulationClock()
         self.config = config or SimulationConfig()
 
         # Authoritative Broker-Side State
-        self.broker_orders: Dict[str, BrokerOrder] = {}
-        self.broker_deals: Dict[str, BrokerDeal] = {}
-        self.broker_positions: Dict[str, Position] = {}
-        self.broker_intent_statuses: Dict[str, ExecutionState] = {}
-        self.pending_entry_plans: Dict[str, EntryPlan] = {}
+        self.broker_orders: dict[str, BrokerOrder] = {}
+        self.broker_deals: dict[str, BrokerDeal] = {}
+        self.broker_positions: dict[str, Position] = {}
+        self.broker_intent_statuses: dict[str, ExecutionState] = {}
+        self.pending_entry_plans: dict[str, EntryPlan] = {}
 
         # Client-Observed State & Idempotency Store
-        self.client_intent_statuses: Dict[str, ExecutionState] = {}
-        self.idempotency_records: Dict[str, ExecutionIntent] = {}
+        self.client_intent_statuses: dict[str, ExecutionState] = {}
+        self.idempotency_records: dict[str, ExecutionIntent] = {}
 
         self._order_counter = 1000
         self._deal_counter = 5000
         self._pos_counter = 9000
 
     @property
-    def orders(self) -> Dict[str, BrokerOrder]:
+    def orders(self) -> dict[str, BrokerOrder]:
         return self.broker_orders
 
     @property
-    def deals(self) -> Dict[str, BrokerDeal]:
+    def deals(self) -> dict[str, BrokerDeal]:
         return self.broker_deals
 
     @property
-    def positions(self) -> Dict[str, Position]:
+    def positions(self) -> dict[str, Position]:
         return self.broker_positions
 
     @property
-    def intent_statuses(self) -> Dict[str, ExecutionState]:
+    def intent_statuses(self) -> dict[str, ExecutionState]:
         return self.client_intent_statuses
 
     def _side_str(self, side_obj: Any) -> str:
@@ -114,7 +113,7 @@ class DeterministicBrokerSimulator:
         self.pending_entry_plans[plan.entry_plan_id] = plan
         return plan.state
 
-    def process_price_tick(self, current_price: Union[Decimal, float]) -> List[str]:
+    def process_price_tick(self, current_price: Decimal | float) -> list[str]:
         """Evaluates armed conditional entry plans against incoming market price tick."""
         curr_price_dec = _to_decimal(current_price)
         executed_plans = []
@@ -145,9 +144,7 @@ class DeterministicBrokerSimulator:
                     if (
                         plan.order_type == OrderType.BUY_LIMIT
                         and curr_price_dec <= limit_price_dec
-                    ):
-                        triggered = True
-                    elif (
+                    ) or (
                         plan.order_type == OrderType.SELL_LIMIT
                         and curr_price_dec >= limit_price_dec
                     ):
@@ -158,9 +155,7 @@ class DeterministicBrokerSimulator:
                     if (
                         plan.order_type == OrderType.BUY_STOP
                         and curr_price_dec >= trigger_price_dec
-                    ):
-                        triggered = True
-                    elif (
+                    ) or (
                         plan.order_type == OrderType.SELL_STOP
                         and curr_price_dec <= trigger_price_dec
                     ):
@@ -422,7 +417,7 @@ class DeterministicBrokerSimulator:
         self.client_intent_statuses[intent.intent_id] = ExecutionState.EXEC_FILLED
         return ExecutionState.EXEC_FILLED
 
-    def modify_stop_loss(self, position_id: str, new_sl: Union[Decimal, float]) -> bool:
+    def modify_stop_loss(self, position_id: str, new_sl: Decimal | float) -> bool:
         """Modifies position stop loss with protective ratchet checks."""
         pos = self.broker_positions.get(position_id)
         if not pos:
@@ -449,8 +444,8 @@ class DeterministicBrokerSimulator:
     def close_position(
         self,
         position_id: str,
-        exit_price: Optional[Union[Decimal, float]] = None,
-        close_volume: Optional[Union[Decimal, float]] = None,
+        exit_price: Decimal | float | None = None,
+        close_volume: Decimal | float | None = None,
     ) -> bool:
         """Closes an active position with partial closing support and instrument-native PnL calculation."""
         pos = self.broker_positions.get(position_id)
@@ -464,11 +459,11 @@ class DeterministicBrokerSimulator:
         vol_to_close_dec = (
             _to_decimal(close_volume)
             if close_volume is not None
-            else (rem_vol_dec if rem_vol_dec > Decimal("0") else filled_vol_dec)
+            else (rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec)
         )
 
         max_allowed_close = (
-            rem_vol_dec if rem_vol_dec > Decimal("0") else filled_vol_dec
+            rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec
         )
         if vol_to_close_dec > max_allowed_close:
             raise ValueError(
@@ -528,7 +523,7 @@ class DeterministicBrokerSimulator:
                 if pos.intent_id == intent_id:
                     status = (
                         ExecutionState.EXEC_PARTIAL
-                        if _to_decimal(pos.remaining_volume) > Decimal("0")
+                        if _to_decimal(pos.remaining_volume) > Decimal(0)
                         else ExecutionState.EXEC_FILLED
                     )
                     self.client_intent_statuses[intent_id] = status

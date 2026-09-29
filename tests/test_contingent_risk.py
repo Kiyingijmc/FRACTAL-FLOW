@@ -1,14 +1,14 @@
 """Tests for Pass 4C Contingent Risk, Hybrid Entries, and Opportunity Budget Allocation."""
 
 from src.fractal_flow.domain.entry import (
+    ContingentExposure,
     EntryModel,
-    OrderType,
-    FillPolicy,
-    TimeInForce,
     EntryPlan,
+    FillPolicy,
     HybridEntryPlan,
     OpportunityRiskBudget,
-    ContingentExposure,
+    OrderType,
+    TimeInForce,
 )
 from src.fractal_flow.domain.models import OrderSide
 

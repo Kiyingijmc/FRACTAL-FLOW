@@ -6,56 +6,57 @@ snapshot business field canonicalization, orphan deep immutability, REVERSAL dea
 and recovery gate independent verification.
 """
 
-import pytest
 import copy
 from dataclasses import replace
 
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.event import Event
 from src.fractal_flow.domain.models import (
-    ExecutionIntent,
-    Position,
     BrokerDeal,
-    OrderSide,
     DealEntryRole,
+    ExecutionIntent,
+    OrderSide,
+    Position,
 )
+from src.fractal_flow.domain.risk_ledger import LedgerOperation, OpportunityRiskLedger
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.execution.reconciliation import (
+    AuthoritativeBrokerAdapter,
+    BrokerQueryQuality,
+    BrokerQueryResult,
+    OrphanRecord,
     ReconciliationEngine,
     ReconciliationMismatchType,
-    BrokerQueryResult,
-    BrokerQueryQuality,
-    AuthoritativeBrokerAdapter,
-    OrphanRecord,
 )
 from src.fractal_flow.execution.recovery import (
-    RecoveryEngine,
-    RecoveryState,
-    RecoveryEvidence,
-    RecoveryEvidenceError,
-    RecoveryEvidenceAssembler,
-    JournalRecoveryValidator,
-    SnapshotRecoveryValidator,
-    RiskLedgerRecoveryValidator,
-    IntentRecoveryValidator,
-    BrokerReconciliationValidator,
-    ConfigurationValidator,
-    ProtectiveMonitoringValidator,
-    ProtectiveMonitoringSubsystem,
-    _RecoveryAuthorityBundle,
     AuthorityBootstrap,
+    BrokerReconciliationValidator,
     CapabilityRole,
-    SealedObservation,
-    ValidatorCapability,
+    ConfigurationValidator,
+    IntentRecoveryValidator,
+    JournalRecoveryValidator,
     ProducerCapability,
-)
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
-from src.fractal_flow.persistence.journal import DurableEventJournal
-from src.fractal_flow.persistence.snapshot import (
-    SnapshotEngine,
-    SnapshotCorruptionException,
+    ProtectiveMonitoringSubsystem,
+    ProtectiveMonitoringValidator,
+    RecoveryEngine,
+    RecoveryEvidence,
+    RecoveryEvidenceAssembler,
+    RecoveryEvidenceError,
+    RecoveryState,
+    RiskLedgerRecoveryValidator,
+    SealedObservation,
+    SnapshotRecoveryValidator,
+    ValidatorCapability,
+    _RecoveryAuthorityBundle,
 )
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
-from src.fractal_flow.domain.event import Event
+from src.fractal_flow.persistence.journal import DurableEventJournal
+from src.fractal_flow.persistence.snapshot import (
+    SnapshotCorruptionException,
+    SnapshotEngine,
+)
 
 
 def _bootstrap_all() -> tuple[

@@ -1,10 +1,10 @@
 """Tests for Pass 4B Conditional Execution and Simulator Lifecycle."""
 
 from src.fractal_flow.domain.entry import (
-    EntryPlan,
     EntryModel,
-    OrderType,
+    EntryPlan,
     FillPolicy,
+    OrderType,
     TimeInForce,
 )
 from src.fractal_flow.domain.models import OrderSide

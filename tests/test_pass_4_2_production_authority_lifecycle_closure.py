@@ -5,44 +5,45 @@ Adversarial test suite proving that ordinary callers cannot use publicly reachab
 or mutate production authority configuration before or after finalization.
 """
 
-import pytest
 import copy
 import pickle
 
-from src.fractal_flow.execution.recovery import (
-    RecoveryState,
-    RecoveryEvidenceError,
-    AuthorityError,
-    RecoveryEvidenceAssembler,
-    JournalRecoveryValidator,
-    SnapshotRecoveryValidator,
-    RiskLedgerRecoveryValidator,
-    IntentRecoveryValidator,
-    BrokerReconciliationValidator,
-    ConfigurationValidator,
-    ProtectiveMonitoringValidator,
-    ProtectiveMonitoringSubsystem,
-    SnapshotRecoveryEvidence,
-    RiskLedgerRecoveryEvidence,
-    IntentRecoveryEvidence,
-    BrokerReconciliationEvidence,
-    ConfigurationEvidence,
-    ProtectiveMonitoringEvidence,
-    AuthorityBootstrap,
-    AuthorityDomain,
-    TrustedRuntimeBootstrap,
-    CapabilityRole,
-)
+import pytest
+
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
     AuthoritativeBrokerAdapter,
     BrokerQueryQuality,
+    ReconciliationEngine,
 )
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.execution.recovery import (
+    AuthorityBootstrap,
+    AuthorityDomain,
+    AuthorityError,
+    BrokerReconciliationEvidence,
+    BrokerReconciliationValidator,
+    CapabilityRole,
+    ConfigurationEvidence,
+    ConfigurationValidator,
+    IntentRecoveryEvidence,
+    IntentRecoveryValidator,
+    JournalRecoveryValidator,
+    ProtectiveMonitoringEvidence,
+    ProtectiveMonitoringSubsystem,
+    ProtectiveMonitoringValidator,
+    RecoveryEvidenceAssembler,
+    RecoveryEvidenceError,
+    RecoveryState,
+    RiskLedgerRecoveryEvidence,
+    RiskLedgerRecoveryValidator,
+    SnapshotRecoveryEvidence,
+    SnapshotRecoveryValidator,
+    TrustedRuntimeBootstrap,
+)
+from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 from src.fractal_flow.persistence.journal import DurableEventJournal
 from src.fractal_flow.persistence.snapshot import SnapshotEngine
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 
 
 @pytest.fixture(autouse=True)

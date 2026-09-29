@@ -1,22 +1,23 @@
 """Authoritative Reconciliation Engine comparing local intents against broker truth, preserving UNKNOWN semantics when evidence is non-authoritative."""
 
+import hashlib
+import hmac
+import json
 import time
 import uuid
-import hmac
-import hashlib
-import json
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from enum import Enum, unique
-from typing import Dict, List, Optional, Any, Mapping, Tuple, Iterator
-from types import MappingProxyType
 from decimal import Decimal
+from enum import Enum, unique
+from types import MappingProxyType
+from typing import Any
 
 from src.fractal_flow.domain.models import (
+    BrokerDeal,
+    BrokerOrder,
+    DealEntryRole,
     ExecutionIntent,
     Position,
-    BrokerOrder,
-    BrokerDeal,
-    DealEntryRole,
 )
 from src.fractal_flow.execution.execution_state import ExecutionState
 
@@ -152,8 +153,8 @@ class BrokerQueryResult:
     account_id: str = ""
     session_id: str = ""
     observation_digest: str = ""
-    details: Dict[str, Any] = field(default_factory=dict)
-    _observation: Optional[Any] = field(default=None, repr=False, compare=False)
+    details: dict[str, Any] = field(default_factory=dict)
+    _observation: Any | None = field(default=None, repr=False, compare=False)
     _issuance_key: object = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -185,9 +186,9 @@ class BrokerQueryResult:
     ) -> "BrokerQueryResult":
         from src.fractal_flow.execution.recovery import (
             CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
             ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
         )
 
         if (
@@ -259,9 +260,9 @@ class AuthoritativeBrokerAdapter:
         self,
         capability: Any,
         account_id: str = "ACT_PRIMARY",
-        orders: Optional[Dict[str, BrokerOrder]] = None,
-        positions: Optional[Dict[str, Position]] = None,
-        deals: Optional[Dict[str, BrokerDeal]] = None,
+        orders: dict[str, BrokerOrder] | None = None,
+        positions: dict[str, Position] | None = None,
+        deals: dict[str, BrokerDeal] | None = None,
         authority: BrokerQueryQuality = BrokerQueryQuality.FOUND,
         max_age_seconds: int = 300,
         provider_identity: str = "AuthoritativeBrokerAdapter",
@@ -331,14 +332,14 @@ class BrokerQueryProvider:
 
     def __init__(
         self,
-        orders: Optional[Dict[str, BrokerOrder]] = None,
-        positions: Optional[Dict[str, Position]] = None,
-        deals: Optional[Dict[str, BrokerDeal]] = None,
+        orders: dict[str, BrokerOrder] | None = None,
+        positions: dict[str, Position] | None = None,
+        deals: dict[str, BrokerDeal] | None = None,
         authority: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
         max_age_seconds: int = 300,
         query_timestamp: int = 0,
         provider_identity: str = "BrokerQueryProvider",
-        capability: Optional[Any] = None,
+        capability: Any | None = None,
     ) -> None:
         self._orders = orders or {}
         self._positions = positions or {}
@@ -427,9 +428,7 @@ class _ReconciliationAuthorityStamp:
             raise ValueError(
                 "Unauthorized reconciliation authority stamp issuance attempt rejected."
             )
-        msg = f"{authority_domain_id}|{engine_id}|{session_id}|{broker_obs_digest}|{generated_at}|{report_digest}".encode(
-            "utf-8"
-        )
+        msg = f"{authority_domain_id}|{engine_id}|{session_id}|{broker_obs_digest}|{generated_at}|{report_digest}".encode()
         sig = hmac.new(_RECON_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
         return cls(
             authority_domain_id=authority_domain_id,
@@ -443,9 +442,7 @@ class _ReconciliationAuthorityStamp:
     def verify(self, report_digest: str, expected_session_id: str = "") -> bool:
         if expected_session_id and self.session_id != expected_session_id:
             return False
-        msg = f"{self.authority_domain_id}|{self.engine_id}|{self.session_id}|{self.broker_observation_digest}|{self.generated_at}|{report_digest}".encode(
-            "utf-8"
-        )
+        msg = f"{self.authority_domain_id}|{self.engine_id}|{self.session_id}|{self.broker_observation_digest}|{self.generated_at}|{report_digest}".encode()
         expected_sig = hmac.new(_RECON_MODULE_SECRET, msg, hashlib.sha256).hexdigest()
         return hmac.compare_digest(self.signature, expected_sig)
 
@@ -455,14 +452,14 @@ class ReconciliationResult:
     intent_id: str
     mismatch_type: ReconciliationMismatchType
     resolved_execution_state: ExecutionState
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class ReconciliationReport:
     """Typed, immutable reconciliation report deriving all counts and metrics internally."""
 
-    results: Tuple[ReconciliationResult, ...]
+    results: tuple[ReconciliationResult, ...]
     unknown_count: int
     orphaned_count: int
     authoritative: bool
@@ -476,8 +473,8 @@ class ReconciliationReport:
     generated_at: int
     broker_observation_digest: str = ""
     session_id: str = ""
-    orphan_records: Tuple[OrphanRecord, ...] = field(default_factory=tuple)
-    _authority_stamp: Optional[_ReconciliationAuthorityStamp] = field(
+    orphan_records: tuple[OrphanRecord, ...] = field(default_factory=tuple)
+    _authority_stamp: _ReconciliationAuthorityStamp | None = field(
         default=None, repr=False, compare=False
     )
 
@@ -562,9 +559,9 @@ class ReconciliationEngine:
         local_intent: ExecutionIntent,
         broker_orders: Mapping[str, BrokerOrder],
         broker_positions: Mapping[str, Position],
-        broker_deals: Optional[Mapping[str, BrokerDeal]] = None,
+        broker_deals: Mapping[str, BrokerDeal] | None = None,
         query_quality: BrokerQueryQuality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
-        query_result: Optional[BrokerQueryResult] = None,
+        query_result: BrokerQueryResult | None = None,
     ) -> ReconciliationResult:
         if query_result:
             broker_orders = query_result.broker_orders
@@ -798,12 +795,12 @@ class ReconciliationEngine:
     @classmethod
     def reconcile_broker_wide(
         cls,
-        local_intents: Dict[str, ExecutionIntent],
-        broker_orders: Optional[Mapping[str, BrokerOrder]] = None,
-        broker_positions: Optional[Mapping[str, Position]] = None,
-        broker_deals: Optional[Mapping[str, BrokerDeal]] = None,
-        authoritative_rejections: Optional[set] = None,
-        query_result: Optional[BrokerQueryResult] = None,
+        local_intents: dict[str, ExecutionIntent],
+        broker_orders: Mapping[str, BrokerOrder] | None = None,
+        broker_positions: Mapping[str, Position] | None = None,
+        broker_deals: Mapping[str, BrokerDeal] | None = None,
+        authoritative_rejections: set | None = None,
+        query_result: BrokerQueryResult | None = None,
         session_id: str = "",
     ) -> ReconciliationReport:
         """Performs full broker-wide multi-directional reconciliation discovering local-only, matched, and orphaned broker objects.
@@ -832,8 +829,8 @@ class ReconciliationEngine:
             broker_positions = broker_positions or {}
             broker_deals = broker_deals or {}
 
-        results_list: List[ReconciliationResult] = []
-        orphan_records: List[OrphanRecord] = []
+        results_list: list[ReconciliationResult] = []
+        orphan_records: list[OrphanRecord] = []
 
         # Reconcile local intents against broker truth
         for intent in local_intents.values():

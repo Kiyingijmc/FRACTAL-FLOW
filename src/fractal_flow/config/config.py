@@ -1,10 +1,10 @@
 """Versioned Immutable Configuration Schema with Canonical Deterministic Hashing."""
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Optional, Union, overload
-from decimal import Decimal
 import hashlib
 import json
+from dataclasses import asdict, dataclass, field
+from decimal import Decimal
+from typing import Any, overload
 
 
 @overload
@@ -12,10 +12,10 @@ def _to_decimal(val: None) -> None: ...
 
 
 @overload
-def _to_decimal(val: Union[Decimal, float, int, str]) -> Decimal: ...
+def _to_decimal(val: Decimal | float | str) -> Decimal: ...
 
 
-def _to_decimal(val: Union[Decimal, float, int, str, None]) -> Optional[Decimal]:
+def _to_decimal(val: Decimal | float | str | None) -> Decimal | None:
     if val is None:
         return None
     if isinstance(val, Decimal):
@@ -60,7 +60,7 @@ class BaseConfig:
 @dataclass(frozen=True)
 class SymbolOverlay:
     symbol: str
-    max_spread_pips: Optional[Decimal] = None
+    max_spread_pips: Decimal | None = None
     overlay_version: int = 1
 
     def __post_init__(self) -> None:
@@ -108,9 +108,9 @@ class EffectiveConfiguration:
         """Produces a sealed observation proving authoritative configuration provenance."""
         from src.fractal_flow.execution.recovery import (
             CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
             ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
         )
 
         if (
@@ -142,8 +142,8 @@ class EffectiveConfiguration:
 def compute_effective_config(
     base: BaseConfig,
     symbol: str,
-    symbol_overlay: Optional[SymbolOverlay] = None,
-    news_overlay: Optional[NewsOverlay] = None,
+    symbol_overlay: SymbolOverlay | None = None,
+    news_overlay: NewsOverlay | None = None,
 ) -> EffectiveConfiguration:
     """Computes immutable EffectiveConfiguration with canonical deterministic SHA256 hashing covering all fields."""
     base_spread = _to_decimal(base.max_spread_pips)

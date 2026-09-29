@@ -2,11 +2,11 @@
 
 from src.fractal_flow.domain.murg import (
     AssetClass,
-    SymbolTradeMode,
-    InstrumentIdentity,
-    InstrumentDescriptor,
-    InstrumentCatalog,
     EligibilityEngine,
+    InstrumentCatalog,
+    InstrumentDescriptor,
+    InstrumentIdentity,
+    SymbolTradeMode,
 )
 from src.fractal_flow.domain.reason_codes import ReasonCode
 

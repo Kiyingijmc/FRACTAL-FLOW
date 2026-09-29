@@ -1,12 +1,13 @@
 """SnapshotEngine providing aggregate snapshot persistence, boundary/provenance validation, atomic disk writes, and deterministic journal replay."""
 
-from dataclasses import dataclass, asdict
-from typing import Dict, Any, Optional, Callable
-import json
 import hashlib
+import json
 import os
 import threading
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from src.fractal_flow.domain.event import Event
 from src.fractal_flow.persistence.journal import DurableEventJournal
@@ -15,7 +16,6 @@ from src.fractal_flow.persistence.journal import DurableEventJournal
 class SnapshotCorruptionException(Exception):
     """Raised when aggregate snapshot integrity, checksum, boundary, or schema verification fails."""
 
-    pass
 
 
 _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset(
@@ -34,14 +34,14 @@ class AggregateSnapshot:
     aggregate_id: str
     aggregate_version: int
     last_sequence_number: int
-    state_payload: Dict[str, Any]
+    state_payload: dict[str, Any]
     checksum: str
     state_hash: str = ""
     schema_version: str = "1.0"
     created_at: int = 0
 
     @staticmethod
-    def compute_state_hash(payload: Dict[str, Any]) -> str:
+    def compute_state_hash(payload: dict[str, Any]) -> str:
         """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
         canonical_payload = {
             k: v
@@ -58,7 +58,7 @@ class AggregateSnapshot:
         aggregate_id: str,
         aggregate_version: int,
         last_seq: int,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         schema_version: str = "1.0",
         created_at: int = 0,
         state_hash: str = "",
@@ -82,13 +82,13 @@ class AggregateSnapshot:
 class SnapshotEngine:
     """Provides crash-safe aggregate snapshotting with boundary/provenance validation, atomic disk persistence, and deterministic replay."""
 
-    def __init__(self, snapshot_dir: Optional[str] = None) -> None:
+    def __init__(self, snapshot_dir: str | None = None) -> None:
         self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else None
         if self.snapshot_dir:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
-        self._snapshots: Dict[str, AggregateSnapshot] = {}
-        self._reducers: Dict[
-            str, Callable[[Dict[str, Any], Event], Dict[str, Any]]
+        self._snapshots: dict[str, AggregateSnapshot] = {}
+        self._reducers: dict[
+            str, Callable[[dict[str, Any], Event], dict[str, Any]]
         ] = {}
         self._lock = threading.Lock()
         self._snapshot_valid: bool = True
@@ -97,7 +97,7 @@ class SnapshotEngine:
     def register_reducer(
         self,
         event_type: str,
-        reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]],
+        reducer_func: Callable[[dict[str, Any], Event], dict[str, Any]],
     ) -> None:
         """Registers an explicit semantic event reducer for state transitions during replay."""
         with self._lock:
@@ -109,7 +109,7 @@ class SnapshotEngine:
         aggregate_id: str,
         version: int,
         last_seq: int,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         schema_version: str = "1.0",
         created_at: int = 0,
     ) -> AggregateSnapshot:
@@ -147,7 +147,7 @@ class SnapshotEngine:
 
     def load_snapshot(
         self, aggregate_type: str, aggregate_id: str
-    ) -> Optional[AggregateSnapshot]:
+    ) -> AggregateSnapshot | None:
         key = f"{aggregate_type}:{aggregate_id}"
         with self._lock:
             snap = self._snapshots.get(key)
@@ -181,7 +181,7 @@ class SnapshotEngine:
                 )
             return snap
 
-    def canonicalize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def canonicalize_state(self, state: dict[str, Any]) -> dict[str, Any]:
         """Strips replay diagnostics and metadata from business state."""
         return {
             k: v
@@ -195,8 +195,8 @@ class SnapshotEngine:
         aggregate_type: str,
         aggregate_id: str,
         target_sequence: int,
-        initial_state: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        initial_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Replays journal from genesis up to target_sequence strictly using registered reducers."""
         state = dict(initial_state or {})
         all_records = journal.get_all_records()
@@ -224,7 +224,7 @@ class SnapshotEngine:
         journal: DurableEventJournal,
         aggregate_type: str,
         aggregate_id: str,
-        initial_state: Optional[Dict[str, Any]] = None,
+        initial_state: dict[str, Any] | None = None,
     ) -> None:
         """Verifies independent replay equivalence between snapshot state payload and journal replay from genesis."""
         replayed = self.replay_to_sequence(
@@ -360,7 +360,7 @@ class SnapshotEngine:
 
     def _load_snapshot_from_disk(
         self, aggregate_type: str, aggregate_id: str
-    ) -> Optional[AggregateSnapshot]:
+    ) -> AggregateSnapshot | None:
         file_path = self._get_snapshot_file_path(aggregate_type, aggregate_id)
         if not file_path.exists():
             return None
@@ -394,8 +394,8 @@ class SnapshotEngine:
         journal: DurableEventJournal,
         aggregate_type: str,
         aggregate_id: str,
-        initial_state: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        initial_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Replays events deterministically starting after latest snapshot sequence using semantic reducers.
 
         Tracks snapshot validity explicitly. Falls back gracefully to full genesis replay if snapshot is corrupt.
@@ -456,9 +456,9 @@ class SnapshotEngine:
         """Produces a sealed observation proving authoritative snapshot engine provenance."""
         from src.fractal_flow.execution.recovery import (
             CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
             ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
         )
 
         if (

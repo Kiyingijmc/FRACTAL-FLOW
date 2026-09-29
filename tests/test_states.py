@@ -1,9 +1,10 @@
 """Tests for State Envelopes, Fail-Closed Transition Validation, and Reason Codes."""
 
 import pytest
+
 from src.fractal_flow.domain.envelope import (
-    StateEnvelope,
     InvalidStateTransitionException,
+    StateEnvelope,
 )
 
 

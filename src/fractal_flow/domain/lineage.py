@@ -1,20 +1,19 @@
 """Canonical Lineage Chain and Governance Model."""
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Set
 from pathlib import Path
+
 import yaml
 
 
 class LineageInvalidException(Exception):
     """Raised when lineage validation or parent checks fail."""
 
-    pass
 
 
 def load_spec_lineage_edges(
     yaml_path: str = "spec/lineage.yaml",
-) -> Dict[str, Set[str]]:
+) -> dict[str, set[str]]:
     path = Path(yaml_path)
     if path.exists():
         with open(path) as f:
@@ -29,7 +28,7 @@ def load_spec_lineage_edges(
 
 
 # Dynamic loading of legal lineage edges directly from canonical spec/lineage.yaml
-LEGAL_LINEAGE_EDGES: Dict[str, Set[str]] = load_spec_lineage_edges()
+LEGAL_LINEAGE_EDGES: dict[str, set[str]] = load_spec_lineage_edges()
 
 
 @dataclass
@@ -42,7 +41,7 @@ class Lineage:
     parent_is_valid: bool = True
 
     def validate_child_action(
-        self, authoritative_parent_version: Optional[int] = None
+        self, authoritative_parent_version: int | None = None
     ) -> None:
         """Validates child node execution using strict version identity and parent checks."""
         if not self.root_id or not self.parent_id:

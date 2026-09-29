@@ -1,9 +1,9 @@
 """Foundational Domain Models for FRACTAL FLOW with Enums and Full Provenance Snapshots."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
 from decimal import Decimal
 from enum import Enum, unique
+from typing import Any
 
 
 @unique
@@ -134,7 +134,7 @@ class OpportunityObject:
     confidence: float  # Confidence score
     state: str
     entry_allowed: bool
-    parent_opportunity_id: Optional[str] = None
+    parent_opportunity_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -159,7 +159,7 @@ class RiskAssessment:
 class PortfolioAssessment:
     opportunity_id: str
     result: str
-    currency_exposure_lots: Dict[str, Decimal]
+    currency_exposure_lots: dict[str, Decimal]
 
 
 @dataclass
@@ -182,14 +182,14 @@ class TradeDecision:
     portfolio_state: str
     entry_price: Decimal
     structural_sl: Decimal
-    tp_plan: Dict[str, Any]
+    tp_plan: dict[str, Any]
     ttl_ns: int
     requested_risk: Decimal
     approved_risk: Decimal
     position_size_lots: Decimal
     arbitration_result: str
     effective_config_id: str
-    broker_constraint_snapshot: Dict[str, Any]
+    broker_constraint_snapshot: dict[str, Any]
     quote_timestamp: int
     spread_pips: Decimal
     configuration_version: int = 1
@@ -219,23 +219,23 @@ class ExecutionIntent:
     requested_volume: Decimal
     entry_price: Decimal
     sl: Decimal
-    tp_plan: Dict[str, Any]
+    tp_plan: dict[str, Any]
     effective_config_id: str
     lineage_version: int
-    broker_constraint_snapshot: Dict[str, Any]
+    broker_constraint_snapshot: dict[str, Any]
     quote_timestamp: int
     spread_pips: Decimal
     status: str
     created_at: int
     updated_at: int
-    entry_plan_id: Optional[str] = None
-    entry_model: Optional[str] = None
-    order_type: Optional[str] = None
-    fill_policy: Optional[str] = None
-    time_in_force: Optional[str] = None
-    trigger_price: Optional[Decimal] = None
-    limit_price: Optional[Decimal] = None
-    stop_limit_price: Optional[Decimal] = None
+    entry_plan_id: str | None = None
+    entry_model: str | None = None
+    order_type: str | None = None
+    fill_policy: str | None = None
+    time_in_force: str | None = None
+    trigger_price: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_limit_price: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -278,7 +278,7 @@ class Position:
     lifecycle_state: str
     health_state: str
     opened_at: int
-    deals: List[BrokerDeal] = field(default_factory=list)
+    deals: list[BrokerDeal] = field(default_factory=list)
     realized_pnl: Decimal = Decimal("0.0")
     unrealized_pnl: Decimal = Decimal("0.0")
     reconciliation_status: str = "RECON_NORMAL"
@@ -315,4 +315,4 @@ class JournalEvent:
     timestamp: int
     event_type: str
     entity_id: str
-    details: Dict[str, Any]
+    details: dict[str, Any]

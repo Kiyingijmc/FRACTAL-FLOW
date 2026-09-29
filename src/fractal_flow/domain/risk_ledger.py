@@ -1,15 +1,14 @@
 """Opportunity Risk Ledger for FRACTAL FLOW with atomic operations and exact Decimal accounting."""
 
 from dataclasses import dataclass
-from enum import Enum, unique
-from typing import List, Dict, Any
 from decimal import Decimal
+from enum import Enum, unique
+from typing import Any
 
 
 class AccountingInvariantException(Exception):
     """Raised when risk ledger aggregate balances or entry history corrupts accounting invariants."""
 
-    pass
 
 
 @unique
@@ -56,8 +55,8 @@ class OpportunityRiskLedger:
         self.allocated_volume = Decimal("0.0")
         self.consumed_volume = Decimal("0.0")
 
-        self.entries: List[RiskLedgerEntry] = []
-        self._entries_by_id: Dict[str, RiskLedgerEntry] = {}
+        self.entries: list[RiskLedgerEntry] = []
+        self._entries_by_id: dict[str, RiskLedgerEntry] = {}
 
     @property
     def remaining_risk(self) -> float:
@@ -176,7 +175,7 @@ class OpportunityRiskLedger:
         self._entries_by_id[entry_id] = entry
         return entry
 
-    def replay_entries(self, entries: List[RiskLedgerEntry]) -> None:
+    def replay_entries(self, entries: list[RiskLedgerEntry]) -> None:
         """Reconstructs ledger state deterministically by replaying recorded entries."""
         for entry in entries:
             self.record_operation(
@@ -193,9 +192,9 @@ class OpportunityRiskLedger:
         """Produces a sealed observation proving authoritative risk ledger provenance."""
         from src.fractal_flow.execution.recovery import (
             CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
             ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
         )
 
         if (

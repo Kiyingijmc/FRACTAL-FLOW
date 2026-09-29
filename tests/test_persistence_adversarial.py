@@ -1,58 +1,58 @@
 """Adversarial Persistence, Journal Corruption, Global Sequence Integrity, Event-ID Uniqueness, and Tail Recovery Test Suite."""
 
-import pytest
 import os
 import tempfile
 import threading
-from typing import Optional
+
+import pytest
 
 from src.fractal_flow.domain.event import Event
-from src.fractal_flow.persistence.journal import (
-    DurableEventJournal,
-    JournalCorruptionException,
-    JournalDurabilityException,
+from src.fractal_flow.domain.models import (
+    BrokerDeal,
+    DealEntryRole,
+    ExecutionIntent,
+    OrderSide,
+    Position,
+)
+from src.fractal_flow.domain.risk_ledger import (
+    AccountingInvariantException,
+    LedgerOperation,
+    OpportunityRiskLedger,
+)
+from src.fractal_flow.execution.execution_state import ExecutionState
+from src.fractal_flow.execution.reconciliation import (
+    BrokerQueryQuality,
+    ReconciliationEngine,
+    ReconciliationMismatchType,
+)
+from src.fractal_flow.execution.recovery import (
+    RecoveryEngine,
+    RecoveryEvidence,
+    RecoveryEvidenceError,
+    RecoveryState,
 )
 from src.fractal_flow.persistence.interfaces import (
     DurableExecutionIntentRepository,
     IdempotencyConflictException,
 )
-from src.fractal_flow.domain.models import (
-    ExecutionIntent,
-    OrderSide,
-    Position,
-    BrokerDeal,
-    DealEntryRole,
+from src.fractal_flow.persistence.journal import (
+    DurableEventJournal,
+    JournalCorruptionException,
+    JournalDurabilityException,
 )
-from src.fractal_flow.domain.risk_ledger import (
-    OpportunityRiskLedger,
-    LedgerOperation,
-    AccountingInvariantException,
-)
-from src.fractal_flow.execution.recovery import (
-    RecoveryEngine,
-    RecoveryState,
-    RecoveryEvidence,
-    RecoveryEvidenceError,
-)
-from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
-    ReconciliationMismatchType,
-    BrokerQueryQuality,
-)
-from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.persistence.snapshot import (
-    SnapshotEngine,
     SnapshotCorruptionException,
+    SnapshotEngine,
 )
 
 
 def make_test_event(
     seq: int,
-    event_id: Optional[str] = None,
+    event_id: str | None = None,
     aggregate_type: str = "Opportunity",
     aggregate_id: str = "agg_1",
-    aggregate_version: Optional[int] = None,
-    payload: Optional[dict] = None,
+    aggregate_version: int | None = None,
+    payload: dict | None = None,
 ) -> Event:
     return Event(
         event_id=event_id or f"evt_{seq}",
@@ -1193,8 +1193,8 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     assert rec_res_unauth.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
     # 4. Authoritative query with legitimate BROKER_QUERY capability succeeds in asserting EXEC_REJECTED
-    from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
     from src.fractal_flow.execution.reconciliation import AuthoritativeBrokerAdapter
+    from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
 
     bootstrap = AuthorityBootstrap()
     b_cap = bootstrap.mint_producer_capability(
