@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from decimal import Decimal
 
 
@@ -158,3 +158,24 @@ class OpportunityRiskLedger:
                 causation_id=entry.causation_id,
                 timestamp=entry.timestamp,
             )
+
+    def produce_observation(self, session_id: str, capability: Any) -> Any:
+        """Produces a sealed observation proving authoritative risk ledger provenance."""
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.RISK_LEDGER:
+            raise RecoveryEvidenceError("OpportunityRiskLedger observation requires a valid RISK_LEDGER ProducerCapability.")
+
+        import time
+        faulted = getattr(self, "_faulted", False)
+        payload = {
+            "budget_id": self.budget_id,
+            "opportunity_id": self.opportunity_id,
+            "entries_count": len(self.entries),
+            "total_risk": str(self.total_risk),
+            "remaining_risk": str(self.remaining_risk),
+            "allocated_risk": str(self.allocated_risk),
+            "reserved_risk": str(self.reserved_risk),
+            "consumed_risk": str(self.consumed_risk),
+            "faulted": faulted,
+        }
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)

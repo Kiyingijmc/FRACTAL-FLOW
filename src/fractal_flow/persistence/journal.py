@@ -303,3 +303,18 @@ class DurableEventJournal:
         self._aggregate_sequences = temp_aggregate_sequences
         self._event_ids = temp_event_ids
         self._global_sequence = temp_global_sequence
+
+    def produce_observation(self, session_id: str, capability: Any) -> Any:
+        """Produces a sealed observation proving authoritative journal provenance."""
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.JOURNAL:
+            raise RecoveryEvidenceError("Journal observation requires a valid JOURNAL ProducerCapability.")
+
+        import time
+        with self._lock:
+            payload = {
+                "faulted": self._faulted,
+                "global_sequence": self._global_sequence,
+                "journal_path": str(self.journal_file_path) if self.journal_file_path else "",
+            }
+            return SealedObservation.create(capability, session_id, int(time.time()), payload)
