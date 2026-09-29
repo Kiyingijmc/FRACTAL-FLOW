@@ -107,7 +107,6 @@ _DOMAIN_PROTECTED_ATTRS = (
     "_producer_capabilities",
     "_registered_producers",
     "_producer_bindings",
-    "_issuance_key",
 )
 
 _BOOTSTRAP_PROTECTED_ATTRS = (
@@ -117,6 +116,29 @@ _BOOTSTRAP_PROTECTED_ATTRS = (
 )
 
 
+def _verify_capability_issuance_frame(expected_code_name: str) -> None:
+    """Verifies that capability instantiation originates directly from an un-finalized AuthorityDomain method frame."""
+    import sys
+    f = sys._getframe(0)
+    found_valid_frame = False
+    while f is not None:
+        caller_self = f.f_locals.get("self")
+        if (
+            isinstance(caller_self, AuthorityDomain)
+            and f.f_code.co_name == expected_code_name
+            and not getattr(caller_self, "_finalized", True)
+        ):
+            found_valid_frame = True
+            break
+        f = f.f_back
+
+    if not found_valid_frame:
+        if expected_code_name == "mint_producer_capability":
+            raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
+        else:
+            raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
+
+
 @dataclass(frozen=True)
 class ProducerCapability:
     """Scoped capability holding only role-derived signing key for an authoritative producer bound to an authority domain."""
@@ -124,17 +146,9 @@ class ProducerCapability:
     role: CapabilityRole
     producer_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _guard: Any = field(default=None, repr=False, compare=False)
-    _key: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if (
-            not hasattr(self._guard, "__self__")
-            or not isinstance(getattr(self._guard, "__self__", None), AuthorityDomain)
-            or getattr(self._guard, "__name__", None) != "_verify_issuance_key"
-            or self._guard(self._key) is not True
-        ):
-            raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
+        _verify_capability_issuance_frame("mint_producer_capability")
 
     def __copy__(self) -> None:
         return None
@@ -160,17 +174,9 @@ class ValidatorCapability:
     role: CapabilityRole
     validator_id: str
     _role_key: bytes = field(repr=False, compare=False)
-    _guard: Any = field(default=None, repr=False, compare=False)
-    _key: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        if (
-            not hasattr(self._guard, "__self__")
-            or not isinstance(getattr(self._guard, "__self__", None), AuthorityDomain)
-            or getattr(self._guard, "__name__", None) != "_verify_issuance_key"
-            or self._guard(self._key) is not True
-        ):
-            raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
+        _verify_capability_issuance_frame("mint_validator_capability")
 
     def __copy__(self) -> None:
         return None
@@ -227,7 +233,6 @@ class AuthorityDomain:
         _is_production: bool = False,
         _provisioning_token: Optional[object] = None,
     ) -> None:
-        issuance_key = object()
         object.__setattr__(self, "domain_id", domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}")
         object.__setattr__(self, "_is_production", _is_production)
         object.__setattr__(self, "_provisioning_token", _provisioning_token)
@@ -238,10 +243,6 @@ class AuthorityDomain:
         object.__setattr__(self, "_producer_capabilities", {})
         object.__setattr__(self, "_registered_producers", {})
         object.__setattr__(self, "_producer_bindings", {})
-        object.__setattr__(self, "_issuance_key", issuance_key)
-
-    def _verify_issuance_key(self, key: object) -> bool:
-        return (not getattr(self, "_finalized", False)) and (getattr(self, "_issuance_key", None) is key)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_finalized", False) or name in _DOMAIN_PROTECTED_ATTRS:
@@ -284,7 +285,9 @@ class AuthorityDomain:
         return hmac.new(self._master_key, info, hashlib.sha256).digest()
 
     def _get_producer_instance_identity(self, producer_instance: Any) -> Optional[str]:
-        for attr in ("producer_id", "subsystem_id", "effective_config_id"):
+        """Resolves the canonical identity of a producer instance deterministically using explicit producer identity attributes."""
+        # Check canonical producer identity properties/attributes explicitly
+        for attr in ("producer_id", "subsystem_id", "effective_config_id", "provider_identity"):
             val = getattr(producer_instance, attr, None)
             if isinstance(val, str) and val:
                 return val
@@ -295,14 +298,6 @@ class AuthorityDomain:
                         return res
                 except Exception:
                     pass
-        cap = getattr(producer_instance, "capability", None)
-        if cap is not None:
-            cap_id = getattr(cap, "producer_id", None)
-            if isinstance(cap_id, str) and cap_id:
-                return cap_id
-        identity = getattr(producer_instance, "provider_identity", None)
-        if isinstance(identity, str) and identity:
-            return identity
         return None
 
     def mint_producer_capability(
@@ -333,8 +328,6 @@ class AuthorityDomain:
             role=role,
             producer_id=producer_id,
             _role_key=role_key,
-            _guard=self._verify_issuance_key,
-            _key=self._issuance_key,
         )
         self._producer_capabilities[role] = cap
 
@@ -375,8 +368,6 @@ class AuthorityDomain:
             role=role,
             validator_id=validator_id,
             _role_key=role_key,
-            _guard=self._verify_issuance_key,
-            _key=self._issuance_key,
         )
         self._validator_capabilities[validator_id] = cap
         return cap
@@ -524,10 +515,51 @@ class AuthorityDomain:
                         f"capability producer_id '{cap.producer_id}' != registered producer identity '{reg_identity}'."
                     )
 
+        # Graph consistency validation for all producer capabilities
+        for role, cap in list(self._producer_capabilities.items()):
+            if cap.authority_domain_id != self.domain_id:
+                raise AuthorityError(f"Cross-domain capability substitution detected for role '{role.value}'.")
+            if cap.role != role:
+                raise AuthorityError(f"Role mismatch in producer capability for role '{role.value}'.")
+            if self._is_production or role in self._registered_producers:
+                if role not in self._registered_producers:
+                    raise AuthorityError(f"Orphan producer capability without registered producer for role '{role.value}'.")
+                if role not in self._producer_bindings:
+                    raise AuthorityError(f"Orphan producer capability without ProducerBinding for role '{role.value}'.")
+
+        # Graph consistency validation for all registered producers
+        for role, inst in list(self._registered_producers.items()):
+            if role not in self._producer_capabilities:
+                raise AuthorityError(f"Registered producer for role '{role.value}' without capability.")
+            if role not in self._producer_bindings:
+                raise AuthorityError(f"Registered producer for role '{role.value}' without ProducerBinding.")
+
+        # Graph consistency validation for all producer bindings
+        for role, binding in list(self._producer_bindings.items()):
+            if binding.authority_domain_id != self.domain_id:
+                raise AuthorityError(f"Cross-domain binding substitution detected for role '{role.value}'.")
+            if binding.role != role:
+                raise AuthorityError(f"Role mismatch in ProducerBinding for role '{role.value}'.")
+            if role not in self._producer_capabilities or binding.capability is not self._producer_capabilities[role]:
+                raise AuthorityError(f"ProducerBinding capability mismatch for role '{role.value}'.")
+            if role not in self._registered_producers or binding.producer_instance is not self._registered_producers[role]:
+                raise AuthorityError(f"ProducerBinding producer instance mismatch for role '{role.value}'.")
+            if binding.producer_id != binding.capability.producer_id:
+                raise AuthorityError(f"ProducerBinding producer_id mismatch for role '{role.value}'.")
+            reg_identity = self._get_producer_instance_identity(binding.producer_instance)
+            if reg_identity is not None and reg_identity != binding.producer_id:
+                raise AuthorityError(f"ProducerBinding identity mismatch for role '{role.value}'.")
+
+        # Graph consistency validation for all validator capabilities
+        for val_id, val_cap in list(self._validator_capabilities.items()):
+            if val_cap.authority_domain_id != self.domain_id:
+                raise AuthorityError(f"Cross-domain validator capability substitution detected for '{val_id}'.")
+            if val_cap.validator_id != val_id:
+                raise AuthorityError(f"Validator ID mismatch in ValidatorCapability for '{val_id}'.")
+
         object.__setattr__(self, "_finalized", True)
         object.__setattr__(self, "_master_key", b"\x00" * 32)
         object.__setattr__(self, "_provisioning_token", None)
-        object.__setattr__(self, "_issuance_key", None)
         object.__setattr__(self, "_validator_capabilities", MappingProxyType(dict(self._validator_capabilities)))
         object.__setattr__(self, "_producer_capabilities", MappingProxyType(dict(self._producer_capabilities)))
         object.__setattr__(self, "_registered_producers", MappingProxyType(dict(self._registered_producers)))
