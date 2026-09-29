@@ -1048,9 +1048,30 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     )
     assert rec_res2.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
-    # 3. Query Provider returning NOT_FOUND_AUTHORITATIVE
-    auth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
-    query_res_auth = auth_provider.query_broker_state()
+    # 3. Un-capability-backed Query Provider attempting NOT_FOUND_AUTHORITATIVE fails closed to EXEC_UNKNOWN
+    unauth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
+    query_res_unauth = unauth_provider.query_broker_state()
+
+    rec_res_unauth = ReconciliationEngine.reconcile_intent(
+        local_intent=intent,
+        broker_orders={},
+        broker_positions={},
+        query_result=query_res_unauth,
+    )
+    assert rec_res_unauth.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
+
+    # 4. Authoritative query with legitimate BROKER_QUERY capability succeeds in asserting EXEC_REJECTED
+    from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
+    from src.fractal_flow.execution.reconciliation import AuthoritativeBrokerAdapter
+    bootstrap = AuthorityBootstrap()
+    b_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "TestBrokerAdapter")
+    bootstrap.finalize()
+
+    auth_adapter = AuthoritativeBrokerAdapter(
+        capability=b_cap,
+        authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE,
+    )
+    query_res_auth = auth_adapter.query_broker_state(session_id="sess_test")
 
     rec_res3 = ReconciliationEngine.reconcile_intent(
         local_intent=intent,
