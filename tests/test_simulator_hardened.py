@@ -15,9 +15,7 @@ from src.fractal_flow.simulation.simulator import (
 )
 
 
-def make_intent(
-    intent_id: str, idempotency_key: str, volume: float = 0.1, price: float = 1.0850
-) -> ExecutionIntent:
+def make_intent(intent_id: str, idempotency_key: str, volume: float = 0.1, price: float = 1.0850) -> ExecutionIntent:
     return ExecutionIntent(
         intent_id=intent_id,
         decision_id="dec_1",
@@ -72,9 +70,7 @@ def test_partial_fill_semantics() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
         clock=clock,
-        config=SimulationConfig(
-            scenario=ExecutionScenario.PARTIAL_FILL, partial_fill_ratio=Decimal("0.3")
-        ),
+        config=SimulationConfig(scenario=ExecutionScenario.PARTIAL_FILL, partial_fill_ratio=Decimal("0.3")),
     )
     intent = make_intent("intent_pf", "key_pf", volume=1.0)
     status = sim.submit_intent(intent)

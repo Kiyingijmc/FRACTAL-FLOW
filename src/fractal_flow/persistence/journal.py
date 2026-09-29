@@ -15,10 +15,8 @@ class JournalCorruptionException(Exception):
     """Raised when journal record integrity, checksum, event ID uniqueness, or sequence is corrupted."""
 
 
-
 class JournalDurabilityException(Exception):
     """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
-
 
 
 @dataclass(frozen=True)
@@ -30,9 +28,7 @@ class JournalRecord:
     @staticmethod
     def compute_checksum(sequence_number: int, event: Event) -> str:
         evt_dict = asdict(event)
-        raw_payload = json.dumps(
-            {"seq": sequence_number, "event": evt_dict}, sort_keys=True
-        )
+        raw_payload = json.dumps({"seq": sequence_number, "event": evt_dict}, sort_keys=True)
         return hashlib.sha256(raw_payload.encode("utf-8")).hexdigest()
 
 
@@ -59,9 +55,7 @@ class DurableEventJournal:
     def append(self, event: Event) -> JournalRecord:
         with self._lock:
             if self._faulted:
-                raise JournalDurabilityException(
-                    "Journal is in a faulted/unrecoverable state. Appends prohibited."
-                )
+                raise JournalDurabilityException("Journal is in a faulted/unrecoverable state. Appends prohibited.")
 
             if event.event_id in self._event_ids:
                 raise JournalCorruptionException(
@@ -79,9 +73,7 @@ class DurableEventJournal:
 
             next_global_seq = self._global_sequence + 1
             checksum = JournalRecord.compute_checksum(next_global_seq, event)
-            record = JournalRecord(
-                sequence_number=next_global_seq, event=event, checksum=checksum
-            )
+            record = JournalRecord(sequence_number=next_global_seq, event=event, checksum=checksum)
 
             if self.journal_file_path:
                 self._append_to_file_atomically(record)
@@ -93,15 +85,12 @@ class DurableEventJournal:
             self._global_sequence = next_global_seq
             return record
 
-    def get_events_for_aggregate(
-        self, aggregate_type: str, aggregate_id: str
-    ) -> list[Event]:
+    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> list[Event]:
         with self._lock:
             return [
                 r.event
                 for r in self._records
-                if r.event.aggregate_type == aggregate_type
-                and r.event.aggregate_id == aggregate_id
+                if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             ]
 
     def get_all_records(self) -> list[JournalRecord]:
@@ -270,29 +259,17 @@ class DurableEventJournal:
                     or "event" not in data
                     or "checksum" not in data
                 ):
-                    raise json.JSONDecodeError(
-                        "Missing required record schema fields", line_str, 0
-                    )
+                    raise json.JSONDecodeError("Missing required record schema fields", line_str, 0)
 
                 seq_num = data["sequence_number"]
-                if (
-                    not isinstance(seq_num, int)
-                    or isinstance(seq_num, bool)
-                    or seq_num <= 0
-                ):
-                    raise JournalCorruptionException(
-                        f"Invalid sequence number type or value at line {idx}: {seq_num}"
-                    )
+                if not isinstance(seq_num, int) or isinstance(seq_num, bool) or seq_num <= 0:
+                    raise JournalCorruptionException(f"Invalid sequence number type or value at line {idx}: {seq_num}")
 
                 evt_data = data["event"]
                 recorded_checksum = data["checksum"]
 
-                if not isinstance(evt_data, dict) or not isinstance(
-                    recorded_checksum, str
-                ):
-                    raise JournalCorruptionException(
-                        f"Invalid event payload or checksum format at line {idx}"
-                    )
+                if not isinstance(evt_data, dict) or not isinstance(recorded_checksum, str):
+                    raise JournalCorruptionException(f"Invalid event payload or checksum format at line {idx}")
 
                 # 3. Global sequence continuity check
                 if seq_num != temp_global_sequence + 1:
@@ -311,9 +288,7 @@ class DurableEventJournal:
                 # 5. Checksum validation
                 computed_checksum = JournalRecord.compute_checksum(seq_num, evt)
                 if recorded_checksum != computed_checksum:
-                    raise JournalCorruptionException(
-                        f"Journal corruption at line {idx}: checksum mismatch."
-                    )
+                    raise JournalCorruptionException(f"Journal corruption at line {idx}: checksum mismatch.")
 
                 # 6. Aggregate version continuity check
                 key = f"{evt.aggregate_type}:{evt.aggregate_id}"
@@ -323,9 +298,7 @@ class DurableEventJournal:
                         f"Journal aggregate sequence gap at line {idx} for '{key}': {evt.aggregate_version} != {curr_seq + 1}"
                     )
 
-                record = JournalRecord(
-                    sequence_number=seq_num, event=evt, checksum=recorded_checksum
-                )
+                record = JournalRecord(sequence_number=seq_num, event=evt, checksum=recorded_checksum)
                 temp_records.append(record)
                 temp_event_ids[evt.event_id] = seq_num
                 temp_aggregate_sequences[key] = evt.aggregate_version
@@ -334,11 +307,7 @@ class DurableEventJournal:
 
             except Exception as e:
                 # Distinguish demonstrably incomplete EOF JSON syntax tail vs completed invalid records or middle corruption
-                if (
-                    is_last_line
-                    and self.truncate_corrupted_tail
-                    and self._is_incomplete_json_tail(line_str, e)
-                ):
+                if is_last_line and self.truncate_corrupted_tail and self._is_incomplete_json_tail(line_str, e):
                     try:
                         with open(self.journal_file_path, "a+b") as tf:
                             tf.seek(last_valid_byte_offset)
@@ -370,13 +339,8 @@ class DurableEventJournal:
             SealedObservation,
         )
 
-        if (
-            not isinstance(capability, ProducerCapability)
-            or capability.role != CapabilityRole.JOURNAL
-        ):
-            raise RecoveryEvidenceError(
-                "Journal observation requires a valid JOURNAL ProducerCapability."
-            )
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.JOURNAL:
+            raise RecoveryEvidenceError("Journal observation requires a valid JOURNAL ProducerCapability.")
 
         import time
 
@@ -384,10 +348,6 @@ class DurableEventJournal:
             payload = {
                 "faulted": self._faulted,
                 "global_sequence": self._global_sequence,
-                "journal_path": str(self.journal_file_path)
-                if self.journal_file_path
-                else "",
+                "journal_path": str(self.journal_file_path) if self.journal_file_path else "",
             }
-            return SealedObservation.create(
-                capability, session_id, int(time.time()), payload
-            )
+            return SealedObservation.create(capability, session_id, int(time.time()), payload)

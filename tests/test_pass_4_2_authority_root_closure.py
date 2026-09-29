@@ -83,18 +83,14 @@ def test_public_bootstrap_cannot_create_production_authority() -> None:
     journal = DurableEventJournal()
     j_obs = journal.produce_observation(
         session_id,
-        caller_bootstrap.mint_producer_capability(
-            CapabilityRole.JOURNAL, "JournalSubsystem"
-        ),
+        caller_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
     )
     j_ev = JournalRecoveryValidator.validate(
         journal,
         session_id,
         caller_j_cap,
         observation=j_obs,
-        producer_capability=caller_bootstrap.get_producer_capability(
-            CapabilityRole.JOURNAL
-        ),
+        producer_capability=caller_bootstrap.get_producer_capability(CapabilityRole.JOURNAL),
     )
 
     with pytest.raises(RecoveryEvidenceError):
@@ -128,9 +124,7 @@ def test_standalone_trusted_runtime_authority_cannot_create_production_root() ->
 def test_direct_instantiation_of_trusted_runtime_bootstrap_forbidden() -> None:
     with pytest.raises(AuthorityError) as exc:
         TrustedRuntimeBootstrap()
-    assert "Direct instantiation of TrustedRuntimeBootstrap is forbidden" in str(
-        exc.value
-    )
+    assert "Direct instantiation of TrustedRuntimeBootstrap is forbidden" in str(exc.value)
 
 
 def test_subclass_authority_domain_cannot_claim_production_trust() -> None:
@@ -173,18 +167,14 @@ def test_domain_id_spoofing_rejected() -> None:
     journal = DurableEventJournal()
     j_obs = journal.produce_observation(
         prod_engine.session_id,
-        spoofed_domain.mint_producer_capability(
-            CapabilityRole.JOURNAL, "JournalSubsystem"
-        ),
+        spoofed_domain.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
     )
     j_ev = JournalRecoveryValidator.validate(
         journal,
         prod_engine.session_id,
         spoofed_cap,
         observation=j_obs,
-        producer_capability=spoofed_domain.get_producer_capability(
-            CapabilityRole.JOURNAL
-        ),
+        producer_capability=spoofed_domain.get_producer_capability(CapabilityRole.JOURNAL),
     )
 
     # Even though domain_id string matches, signature verification fails because master keys differ
@@ -225,9 +215,7 @@ def test_trusted_runtime_bootstrap_copy_and_pickle_rejected() -> None:
 
     with pytest.raises(AuthorityError) as exc:
         pickle.dumps(prod_bootstrap)
-    assert "Serialization/pickling of TrustedRuntimeBootstrap is prohibited" in str(
-        exc.value
-    )
+    assert "Serialization/pickling of TrustedRuntimeBootstrap is prohibited" in str(exc.value)
 
 
 def test_trusted_runtime_bootstrap_reset_attempt_rejected() -> None:
@@ -237,10 +225,7 @@ def test_trusted_runtime_bootstrap_reset_attempt_rejected() -> None:
     # Attempting reset=True MUST be rejected with AuthorityError
     with pytest.raises(AuthorityError) as exc:
         TrustedRuntimeBootstrap.bootstrap_production_runtime(reset=True)
-    assert (
-        "Resetting or replacing an active production authority root is forbidden"
-        in str(exc.value)
-    )
+    assert "Resetting or replacing an active production authority root is forbidden" in str(exc.value)
 
     # Re-querying without reset returns the original unchanged root
     same_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -289,27 +274,15 @@ def test_alternate_authority_universe_complete_attack_rejected() -> None:
         CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"
     )
 
-    att_j_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
-    att_s_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
-    )
-    att_r_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.RISK_LEDGER, "RiskSubsystem"
-    )
-    att_i_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"
-    )
-    att_b_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.BROKER_QUERY, "BrokerSubsystem"
-    )
+    att_j_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    att_s_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    att_r_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem")
+    att_i_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    att_b_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerSubsystem")
     att_c_prod = attacker_bootstrap.mint_producer_capability(
         CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id
     )
-    att_p_prod = attacker_bootstrap.mint_producer_capability(
-        CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id
-    )
+    att_p_prod = attacker_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
     attacker_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
     attacker_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
@@ -318,13 +291,9 @@ def test_alternate_authority_universe_complete_attack_rejected() -> None:
     attacker_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
     attacker_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
-    adapter = AuthoritativeBrokerAdapter(
-        capability=att_b_prod, authority=BrokerQueryQuality.FOUND
-    )
+    adapter = AuthoritativeBrokerAdapter(capability=att_b_prod, authority=BrokerQueryQuality.FOUND)
     query_res = adapter.query_broker_state(session_id)
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=session_id
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=session_id)
 
     j_obs = journal.produce_observation(session_id, att_j_prod)
     s_obs = snap_engine.produce_observation(session_id, att_s_prod)
@@ -438,9 +407,7 @@ def test_unregistered_producer_subsystems_rejected() -> None:
     j_val = prod_bootstrap.mint_validator_capability(
         CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
     )
-    j_prod = prod_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
+    j_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
 
     # Live journal created BUT NOT registered in domain
     unregistered_journal = DurableEventJournal()
@@ -455,10 +422,7 @@ def test_unregistered_producer_subsystems_rejected() -> None:
         authority_domain=domain,  # Domain checks registration!
     )
     assert ev.valid is False
-    assert (
-        "Unregistered Journal instance in AuthorityDomain"
-        in ev.provenance.failure_reason
-    )
+    assert "Unregistered Journal instance in AuthorityDomain" in ev.provenance.failure_reason
 
 
 # --- 5. Legitimate Production Path Continuation ---
@@ -476,9 +440,7 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     # Mint or retrieve capabilities on production domain via trusted bootstrap
     j_val = prod_bootstrap.get_validator_capability(
         "JournalRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
-    )
+    ) or prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
     s_val = prod_bootstrap.get_validator_capability(
         "SnapshotRecoveryValidator"
     ) or prod_bootstrap.mint_validator_capability(
@@ -491,9 +453,7 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     )
     i_val = prod_bootstrap.get_validator_capability(
         "IntentRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"
-    )
+    ) or prod_bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
     b_val = prod_bootstrap.get_validator_capability(
         "BrokerReconciliationValidator"
     ) or prod_bootstrap.mint_validator_capability(
@@ -501,9 +461,7 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     )
     c_val = prod_bootstrap.get_validator_capability(
         "ConfigurationValidator"
-    ) or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"
-    )
+    ) or prod_bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
     p_val = prod_bootstrap.get_validator_capability(
         "ProtectiveMonitoringValidator"
     ) or prod_bootstrap.mint_validator_capability(
@@ -517,45 +475,29 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     config = compute_effective_config(BaseConfig(), "EURUSD")
     protective = ProtectiveMonitoringSubsystem()
 
-    j_prod = prod_bootstrap.get_producer_capability(
-        CapabilityRole.JOURNAL
-    ) or prod_bootstrap.mint_producer_capability(
+    j_prod = prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.JOURNAL, "JournalSubsystem"
     )
-    s_prod = prod_bootstrap.get_producer_capability(
-        CapabilityRole.SNAPSHOT
-    ) or prod_bootstrap.mint_producer_capability(
+    s_prod = prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
     )
     r_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.RISK_LEDGER
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem"
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
     i_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.INTENT_REPOSITORY
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
     b_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.BROKER_QUERY
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
     c_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.EFFECTIVE_CONFIGURATION
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
     p_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.PROTECTIVE_MONITOR
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
-    adapter = AuthoritativeBrokerAdapter(
-        capability=b_prod, authority=BrokerQueryQuality.FOUND
-    )
+    adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
 
     # Register producers via trusted bootstrap
     prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
@@ -568,13 +510,9 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
 
     prod_bootstrap.finalize()
 
-    adapter = AuthoritativeBrokerAdapter(
-        capability=b_prod, authority=BrokerQueryQuality.FOUND
-    )
+    adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
     query_res = adapter.query_broker_state(session_id)
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=session_id
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=session_id)
 
     j_obs = journal.produce_observation(session_id, j_prod)
     s_obs = snap_engine.produce_observation(session_id, s_prod)
@@ -666,9 +604,7 @@ def test_caller_supplied_found_broker_result_is_non_authoritative() -> None:
     )
     assert res.authoritative is False
 
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=res, session_id="sess_1"
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=res, session_id="sess_1")
     assert report.authoritative is False
 
     val_cap = AuthorityBootstrap().mint_validator_capability(
@@ -685,18 +621,12 @@ def test_stamp_cross_domain_rejected() -> None:
 
     b_prod_a = prod_bootstrap.get_producer_capability(
         CapabilityRole.BROKER_QUERY
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.BROKER_QUERY, "BrokerAdapter"
-    )
-    adapter_a = AuthoritativeBrokerAdapter(
-        capability=b_prod_a, authority=BrokerQueryQuality.FOUND
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapter")
+    adapter_a = AuthoritativeBrokerAdapter(capability=b_prod_a, authority=BrokerQueryQuality.FOUND)
     res_a = adapter_a.query_broker_state("sess_1")
 
     # Reconciliation report produced under domain_a authority
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=res_a, session_id="sess_1"
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=res_a, session_id="sess_1")
     assert report.authoritative is True
 
     # Validator capability from domain_b attempts to validate report stamped by domain_a
@@ -771,13 +701,9 @@ def test_multiple_malicious_subclasses_cannot_create_production_root() -> None:
 
 def test_subclass_cannot_create_alternate_production_engine() -> None:
     class EvilBootstrapEngine(TrustedRuntimeBootstrap):
-        def create_recovery_engine(
-            self, initial_state: RecoveryState = RecoveryState.NORMAL
-        ) -> RecoveryEngine:
+        def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> RecoveryEngine:
             fake_domain = AuthorityDomain("EVIL_BOOTSTRAP_DOMAIN")
-            return RecoveryEngine(
-                authority_domain=fake_domain, initial_state=initial_state
-            )
+            return RecoveryEngine(authority_domain=fake_domain, initial_state=initial_state)
 
     with pytest.raises(AuthorityError):
         EvilBootstrapEngine.bootstrap_production_runtime()

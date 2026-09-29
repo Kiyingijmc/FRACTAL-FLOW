@@ -47,9 +47,7 @@ class BaseConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "max_spread_pips", _to_decimal(self.max_spread_pips))
-        object.__setattr__(
-            self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct)
-        )
+        object.__setattr__(self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct))
         object.__setattr__(
             self,
             "max_currency_exposure_lots",
@@ -65,9 +63,7 @@ class SymbolOverlay:
 
     def __post_init__(self) -> None:
         if self.max_spread_pips is not None:
-            object.__setattr__(
-                self, "max_spread_pips", _to_decimal(self.max_spread_pips)
-            )
+            object.__setattr__(self, "max_spread_pips", _to_decimal(self.max_spread_pips))
 
 
 @dataclass(frozen=True)
@@ -94,9 +90,7 @@ class EffectiveConfiguration:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "max_spread_pips", _to_decimal(self.max_spread_pips))
-        object.__setattr__(
-            self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct)
-        )
+        object.__setattr__(self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct))
         object.__setattr__(self, "risk_multiplier", _to_decimal(self.risk_multiplier))
         object.__setattr__(
             self,
@@ -113,10 +107,7 @@ class EffectiveConfiguration:
             SealedObservation,
         )
 
-        if (
-            not isinstance(capability, ProducerCapability)
-            or capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION
-        ):
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION:
             raise RecoveryEvidenceError(
                 "EffectiveConfiguration observation requires a valid EFFECTIVE_CONFIGURATION ProducerCapability."
             )
@@ -134,9 +125,7 @@ class EffectiveConfiguration:
             "ttl_default_ns": self.ttl_default_ns,
             "max_currency_exposure_lots": str(self.max_currency_exposure_lots),
         }
-        return SealedObservation.create(
-            capability, session_id, int(time.time()), payload
-        )
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)
 
 
 def compute_effective_config(
@@ -155,9 +144,7 @@ def compute_effective_config(
         max_spread = _to_decimal(symbol_overlay.max_spread_pips)
 
     news_active = news_overlay.news_lockdown_active if news_overlay else False
-    risk_mult = (
-        _to_decimal(news_overlay.risk_multiplier) if news_overlay else Decimal("1.0")
-    )
+    risk_mult = _to_decimal(news_overlay.risk_multiplier) if news_overlay else Decimal("1.0")
 
     effective_risk_per_trade = base_risk * risk_mult
 

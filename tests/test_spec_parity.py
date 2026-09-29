@@ -16,16 +16,11 @@ def test_reason_codes_exact_parity() -> None:
     with open(yaml_path) as f:
         spec_data = yaml.safe_load(f)
 
-    spec_codes = set(
-        spec_data.get("reason_codes", spec_data)
-        if isinstance(spec_data, dict)
-        else spec_data
-    )
+    spec_codes = set(spec_data.get("reason_codes", spec_data) if isinstance(spec_data, dict) else spec_data)
     python_codes = set(c.value for c in ReasonCode)
 
     assert spec_codes == python_codes, (
-        f"ReasonCode mismatch! Spec extra: {spec_codes - python_codes}, "
-        f"Python extra: {python_codes - spec_codes}"
+        f"ReasonCode mismatch! Spec extra: {spec_codes - python_codes}, Python extra: {python_codes - spec_codes}"
     )
 
 
@@ -35,16 +30,11 @@ def test_entry_models_exact_parity() -> None:
     with open(yaml_path) as f:
         spec_data = yaml.safe_load(f)
 
-    spec_models = set(
-        spec_data.get("entry_models", spec_data)
-        if isinstance(spec_data, dict)
-        else spec_data
-    )
+    spec_models = set(spec_data.get("entry_models", spec_data) if isinstance(spec_data, dict) else spec_data)
     python_models = set(m.value for m in EntryModel)
 
     assert spec_models == python_models, (
-        f"EntryModel mismatch! Spec extra: {spec_models - python_models}, "
-        f"Python extra: {python_models - spec_models}"
+        f"EntryModel mismatch! Spec extra: {spec_models - python_models}, Python extra: {python_models - spec_models}"
     )
 
 
@@ -54,16 +44,11 @@ def test_order_types_exact_parity() -> None:
     with open(yaml_path) as f:
         spec_data = yaml.safe_load(f)
 
-    spec_types = set(
-        spec_data.get("order_types", spec_data)
-        if isinstance(spec_data, dict)
-        else spec_data
-    )
+    spec_types = set(spec_data.get("order_types", spec_data) if isinstance(spec_data, dict) else spec_data)
     python_types = set(ot.value for ot in OrderType)
 
     assert spec_types == python_types, (
-        f"OrderType mismatch! Spec extra: {spec_types - python_types}, "
-        f"Python extra: {python_types - spec_types}"
+        f"OrderType mismatch! Spec extra: {spec_types - python_types}, Python extra: {python_types - spec_types}"
     )
 
 
@@ -76,9 +61,7 @@ def test_states_bidirectional_parity() -> None:
 
     # 1. Spec -> Runtime check
     for machine_name, states_list in spec_states.items():
-        assert GLOBAL_STATE_REGISTRY.is_known_machine(machine_name), (
-            f"Machine {machine_name} missing in runtime"
-        )
+        assert GLOBAL_STATE_REGISTRY.is_known_machine(machine_name), f"Machine {machine_name} missing in runtime"
         for st in states_list:
             assert GLOBAL_STATE_REGISTRY.is_valid_state(machine_name, st), (
                 f"State {st} missing in machine {machine_name}"
@@ -123,9 +106,7 @@ def test_lineage_graph_bidirectional_parity() -> None:
 
     spec_parents = set(spec_edges.keys())
     runtime_parents = set(LEGAL_LINEAGE_EDGES.keys())
-    assert spec_parents == runtime_parents, (
-        f"Lineage graph parent mismatch! {spec_parents ^ runtime_parents}"
-    )
+    assert spec_parents == runtime_parents, f"Lineage graph parent mismatch! {spec_parents ^ runtime_parents}"
 
     for parent_tier, children_list in spec_edges.items():
         assert set(children_list) == LEGAL_LINEAGE_EDGES[parent_tier], (

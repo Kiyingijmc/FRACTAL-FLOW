@@ -36,7 +36,6 @@ class IdempotencyConflictException(Exception):
     """Raised when an intent with an existing idempotency_key has materially different parameters."""
 
 
-
 @unique
 class ExecutionScenario(str, Enum):
     NORMAL = "NORMAL"
@@ -54,9 +53,7 @@ class SimulationConfig:
     partial_fill_ratio: Decimal = field(default_factory=lambda: Decimal("0.5"))
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "partial_fill_ratio", _to_decimal(self.partial_fill_ratio)
-        )
+        object.__setattr__(self, "partial_fill_ratio", _to_decimal(self.partial_fill_ratio))
 
 
 class DeterministicBrokerSimulator:
@@ -141,23 +138,15 @@ class DeterministicBrokerSimulator:
 
             elif plan.order_type in (OrderType.BUY_LIMIT, OrderType.SELL_LIMIT):
                 if limit_price_dec is not None:
-                    if (
-                        plan.order_type == OrderType.BUY_LIMIT
-                        and curr_price_dec <= limit_price_dec
-                    ) or (
-                        plan.order_type == OrderType.SELL_LIMIT
-                        and curr_price_dec >= limit_price_dec
+                    if (plan.order_type == OrderType.BUY_LIMIT and curr_price_dec <= limit_price_dec) or (
+                        plan.order_type == OrderType.SELL_LIMIT and curr_price_dec >= limit_price_dec
                     ):
                         triggered = True
 
             elif plan.order_type in (OrderType.BUY_STOP, OrderType.SELL_STOP):
                 if trigger_price_dec is not None:
-                    if (
-                        plan.order_type == OrderType.BUY_STOP
-                        and curr_price_dec >= trigger_price_dec
-                    ) or (
-                        plan.order_type == OrderType.SELL_STOP
-                        and curr_price_dec <= trigger_price_dec
+                    if (plan.order_type == OrderType.BUY_STOP and curr_price_dec >= trigger_price_dec) or (
+                        plan.order_type == OrderType.SELL_STOP and curr_price_dec <= trigger_price_dec
                     ):
                         triggered = True
 
@@ -167,25 +156,14 @@ class DeterministicBrokerSimulator:
             ):
                 if plan.state == "ENTRY_ARMED" and trigger_price_dec is not None:
                     # Check stop trigger
-                    if (
-                        plan.order_type == OrderType.BUY_STOP_LIMIT
-                        and curr_price_dec >= trigger_price_dec
-                    ) or (
-                        plan.order_type == OrderType.SELL_STOP_LIMIT
-                        and curr_price_dec <= trigger_price_dec
+                    if (plan.order_type == OrderType.BUY_STOP_LIMIT and curr_price_dec >= trigger_price_dec) or (
+                        plan.order_type == OrderType.SELL_STOP_LIMIT and curr_price_dec <= trigger_price_dec
                     ):
                         plan.state = "STOP_TRIGGERED"
-                if (
-                    plan.state in ("STOP_TRIGGERED", "LIMIT_ACTIVATED")
-                    and limit_price_dec is not None
-                ):
+                if plan.state in ("STOP_TRIGGERED", "LIMIT_ACTIVATED") and limit_price_dec is not None:
                     # Check limit fill activation
-                    if (
-                        plan.order_type == OrderType.BUY_STOP_LIMIT
-                        and curr_price_dec <= limit_price_dec
-                    ) or (
-                        plan.order_type == OrderType.SELL_STOP_LIMIT
-                        and curr_price_dec >= limit_price_dec
+                    if (plan.order_type == OrderType.BUY_STOP_LIMIT and curr_price_dec <= limit_price_dec) or (
+                        plan.order_type == OrderType.SELL_STOP_LIMIT and curr_price_dec >= limit_price_dec
                     ):
                         plan.state = "LIMIT_ACTIVATED"
                         triggered = True
@@ -261,9 +239,7 @@ class DeterministicBrokerSimulator:
                 raise IdempotencyConflictException(
                     f"Idempotency Conflict: Key '{intent.idempotency_key}' already used with different parameters."
                 )
-            return self.client_intent_statuses.get(
-                existing.intent_id, ExecutionState.EXEC_SUBMITTED
-            )
+            return self.client_intent_statuses.get(existing.intent_id, ExecutionState.EXEC_SUBMITTED)
 
         self.idempotency_records[intent.idempotency_key] = intent
 
@@ -353,9 +329,7 @@ class DeterministicBrokerSimulator:
             self.broker_intent_statuses[intent.intent_id] = ExecutionState.EXEC_PARTIAL
 
             if scenario == ExecutionScenario.UNKNOWN_AFTER_PARTIAL_FILL:
-                self.client_intent_statuses[intent.intent_id] = (
-                    ExecutionState.EXEC_UNKNOWN
-                )
+                self.client_intent_statuses[intent.intent_id] = ExecutionState.EXEC_UNKNOWN
                 return ExecutionState.EXEC_UNKNOWN
 
             self.client_intent_statuses[intent.intent_id] = ExecutionState.EXEC_PARTIAL
@@ -426,9 +400,7 @@ class DeterministicBrokerSimulator:
         new_sl_dec = _to_decimal(new_sl)
 
         if pos.lifecycle_state == "POS_CLOSED":
-            raise ValueError(
-                f"Cannot modify stop loss on closed position {position_id}"
-            )
+            raise ValueError(f"Cannot modify stop loss on closed position {position_id}")
 
         if pos.side in ("BUY", "LONG") and new_sl_dec < _to_decimal(pos.current_sl):
             raise ValueError(
@@ -462,17 +434,13 @@ class DeterministicBrokerSimulator:
             else (rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec)
         )
 
-        max_allowed_close = (
-            rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec
-        )
+        max_allowed_close = rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec
         if vol_to_close_dec > max_allowed_close:
             raise ValueError(
                 f"Cannot close volume {vol_to_close_dec} exceeding active position volume {filled_vol_dec}"
             )
 
-        close_price_dec = (
-            _to_decimal(exit_price) if exit_price is not None else entry_price_dec
-        )
+        close_price_dec = _to_decimal(exit_price) if exit_price is not None else entry_price_dec
 
         contract_size = Decimal("100000.0")
         if pos.intent_id in self.idempotency_records:
@@ -481,9 +449,7 @@ class DeterministicBrokerSimulator:
                 contract_size = Decimal(str(snap["contract_size"]))
 
         price_diff = (
-            close_price_dec - entry_price_dec
-            if pos.side in ("BUY", "LONG")
-            else entry_price_dec - close_price_dec
+            close_price_dec - entry_price_dec if pos.side in ("BUY", "LONG") else entry_price_dec - close_price_dec
         )
         pnl = (price_diff * vol_to_close_dec * contract_size).quantize(Decimal("0.01"))
 
@@ -515,9 +481,7 @@ class DeterministicBrokerSimulator:
 
     def reconcile_intent(self, intent_id: str) -> ExecutionState:
         """Queries authoritative broker state to reconcile client-observed UNKNOWN state."""
-        broker_status = self.broker_intent_statuses.get(
-            intent_id, ExecutionState.EXEC_UNKNOWN
-        )
+        broker_status = self.broker_intent_statuses.get(intent_id, ExecutionState.EXEC_UNKNOWN)
         if broker_status == ExecutionState.EXEC_UNKNOWN:
             for pos in self.broker_positions.values():
                 if pos.intent_id == intent_id:

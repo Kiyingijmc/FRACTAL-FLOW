@@ -72,6 +72,4 @@ class BrokerConstraints:
         t_dec = Decimal(str(self.tick_size))
         remainder = p_dec % t_dec
         if remainder != Decimal(0):
-            raise ValueError(
-                f"Price {price} does not align with tick_size {self.tick_size} for {self.symbol}"
-            )
+            raise ValueError(f"Price {price} does not align with tick_size {self.tick_size} for {self.symbol}")

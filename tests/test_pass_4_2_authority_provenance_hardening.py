@@ -59,9 +59,7 @@ from src.fractal_flow.persistence.snapshot import (
 )
 
 
-def _bootstrap_all() -> tuple[
-    AuthorityBootstrap, dict[str, ValidatorCapability], dict[str, ProducerCapability]
-]:
+def _bootstrap_all() -> tuple[AuthorityBootstrap, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
     bootstrap = AuthorityBootstrap()
     val_caps = {
         "JournalRecoveryValidator": bootstrap.mint_validator_capability(
@@ -89,27 +87,13 @@ def _bootstrap_all() -> tuple[
         ),
     }
     prod_caps = {
-        "Journal": bootstrap.mint_producer_capability(
-            CapabilityRole.JOURNAL, "JournalSubsystem"
-        ),
-        "Snapshot": bootstrap.mint_producer_capability(
-            CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
-        ),
-        "RiskLedger": bootstrap.mint_producer_capability(
-            CapabilityRole.RISK_LEDGER, "RiskSubsystem"
-        ),
-        "IntentRepo": bootstrap.mint_producer_capability(
-            CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"
-        ),
-        "BrokerQuery": bootstrap.mint_producer_capability(
-            CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"
-        ),
-        "Config": bootstrap.mint_producer_capability(
-            CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem"
-        ),
-        "Protective": bootstrap.mint_producer_capability(
-            CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem"
-        ),
+        "Journal": bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
+        "Snapshot": bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem"),
+        "RiskLedger": bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem"),
+        "IntentRepo": bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"),
+        "BrokerQuery": bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"),
+        "Config": bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem"),
+        "Protective": bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem"),
     }
     bootstrap.finalize()
     return bootstrap, val_caps, prod_caps
@@ -176,9 +160,7 @@ def test_fake_duck_typed_journal_rejected() -> None:
     _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_j"
 
-    fake_journal = type(
-        "FakeJournal", (), {"_faulted": False, "_global_sequence": 100}
-    )()
+    fake_journal = type("FakeJournal", (), {"_faulted": False, "_global_sequence": 100})()
     obs = SealedObservation.create(
         prod_caps["Journal"],
         session_id,
@@ -226,9 +208,7 @@ def test_fake_risk_ledger_rejected() -> None:
     _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_r"
 
-    fake_risk = type(
-        "FakeRisk", (), {"entries": [], "remaining_risk": 500.0, "_faulted": False}
-    )()
+    fake_risk = type("FakeRisk", (), {"entries": [], "remaining_risk": 500.0, "_faulted": False})()
     obs = SealedObservation.create(
         prod_caps["RiskLedger"],
         session_id,
@@ -425,9 +405,7 @@ def test_tampered_broker_observation_positions_rejected() -> None:
     forged_obs = replace(obs, frozen_payload=tampered_payload)
 
     with pytest.raises(RecoveryEvidenceError) as exc:
-        BrokerQueryResult.from_observation(
-            forged_obs, prod_caps["BrokerQuery"], session_id
-        )
+        BrokerQueryResult.from_observation(forged_obs, prod_caps["BrokerQuery"], session_id)
     assert "SealedObservation verification failed" in str(exc.value)
 
 
@@ -457,9 +435,7 @@ def test_underscore_prefixed_business_field_mutation_fails_snapshot_equivalence(
 
     # Forged snapshot mutating _business_state
     forged_payload = {"_business_state": "FORGED_BUSINESS_VAL"}
-    snap = snap_engine.save_snapshot(
-        "Opportunity", "A", version=1, last_seq=1, payload=forged_payload
-    )
+    snap = snap_engine.save_snapshot("Opportunity", "A", version=1, last_seq=1, payload=forged_payload)
 
     # Equivalence verification MUST catch _business_state mutation!
     with pytest.raises(SnapshotCorruptionException) as exc:
@@ -494,9 +470,7 @@ def test_legitimate_replay_diagnostic_field_excluded_from_snapshot_equivalence(
         "_last_version": 1,
         "_snapshot_valid": True,
     }
-    snap = snap_engine.save_snapshot(
-        "Opportunity", "A", version=1, last_seq=1, payload=snap_payload
-    )
+    snap = snap_engine.save_snapshot("Opportunity", "A", version=1, last_seq=1, payload=snap_payload)
 
     # Replay equivalence must succeed despite diagnostic fields
     snap_engine.verify_snapshot_equivalence(snap, journal, "Opportunity", "A")
@@ -614,16 +588,12 @@ def test_reversal_deal_accounting_exhaustive_matrix() -> None:
         DealEntryRole.REVERSAL,
     )  # 1.0 close + 1.0 open opposite
 
-    res1 = ReconciliationEngine.reconcile_intent(
-        intent, {}, {"POS_REV1": pos_flip}, {"D1": deal_open, "D2": deal_rev}
-    )
+    res1 = ReconciliationEngine.reconcile_intent(intent, {}, {"POS_REV1": pos_flip}, {"D1": deal_open, "D2": deal_rev})
     assert res1.mismatch_type == ReconciliationMismatchType.MATCH
     assert res1.resolved_execution_state == ExecutionState.EXEC_FILLED
 
     # 2. REVERSAL without OPEN -> Rejected to EXEC_UNKNOWN
-    res2 = ReconciliationEngine.reconcile_intent(
-        intent, {}, {"POS_REV1": pos_flip}, {"D2": deal_rev}
-    )
+    res2 = ReconciliationEngine.reconcile_intent(intent, {}, {"POS_REV1": pos_flip}, {"D2": deal_rev})
     assert res2.mismatch_type == ReconciliationMismatchType.DEAL_CONTRADICTION
     assert res2.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
@@ -676,13 +646,9 @@ def test_recovery_gate_independently_verifies_authority_chain() -> None:
     )
 
     # Legitimate evidence for other components
-    adapter = AuthoritativeBrokerAdapter(
-        capability=prod_caps["BrokerQuery"], authority=BrokerQueryQuality.FOUND
-    )
+    adapter = AuthoritativeBrokerAdapter(capability=prod_caps["BrokerQuery"], authority=BrokerQueryQuality.FOUND)
     query_res = adapter.query_broker_state(session_id)
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=session_id
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=session_id)
 
     snap_engine = SnapshotEngine()
     risk_ledger = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
@@ -717,9 +683,7 @@ def test_recovery_gate_independently_verifies_authority_chain() -> None:
         observation=i_obs,
         producer_capability=prod_caps["IntentRepo"],
     )
-    b_ev = BrokerReconciliationValidator.reconcile(
-        report, session_id, val_caps["BrokerReconciliationValidator"]
-    )
+    b_ev = BrokerReconciliationValidator.reconcile(report, session_id, val_caps["BrokerReconciliationValidator"])
     c_ev = ConfigurationValidator.validate(
         config,
         session_id,
@@ -759,9 +723,7 @@ def test_recovery_gate_independently_verifies_authority_chain() -> None:
         broker_evidence=b_ev,
         config_evidence=c_ev,
         protective_evidence=p_ev,
-        _authority_bundle=_RecoveryAuthorityBundle(
-            journal_token=forged_j_ev._authority_token, session_id=session_id
-        ),
+        _authority_bundle=_RecoveryAuthorityBundle(journal_token=forged_j_ev._authority_token, session_id=session_id),
     )
     with pytest.raises(RecoveryEvidenceError):
         engine.complete_recovery_with_evidence(unauth_bundle)

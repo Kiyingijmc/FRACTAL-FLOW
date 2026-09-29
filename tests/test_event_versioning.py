@@ -42,8 +42,7 @@ def test_event_schema_parity_with_yaml() -> None:
     python_fields = set(evt.__dataclass_fields__.keys())
 
     assert yaml_schema == python_fields, (
-        f"Event schema mismatch! YAML extra: {yaml_schema - python_fields}, "
-        f"Python extra: {python_fields - yaml_schema}"
+        f"Event schema mismatch! YAML extra: {yaml_schema - python_fields}, Python extra: {python_fields - yaml_schema}"
     )
 
 

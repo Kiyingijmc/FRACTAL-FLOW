@@ -18,9 +18,7 @@ def make_catalog() -> InstrumentCatalog:
     for symbol in ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD", "NAS100"]:
         identity = InstrumentIdentity(
             canonical_id=symbol,
-            asset_class=AssetClass.FX_MAJOR
-            if symbol in ("EURUSD", "GBPUSD", "USDJPY")
-            else AssetClass.INDICES,
+            asset_class=AssetClass.FX_MAJOR if symbol in ("EURUSD", "GBPUSD", "USDJPY") else AssetClass.INDICES,
             base_asset=symbol[:3],
             quote_asset=symbol[3:],
             broker="TEST_BROKER",
@@ -87,9 +85,7 @@ def test_murg_011_012_hard_active_symbol_limit() -> None:
 
     # Active cap = 3
     governor = ResourceGovernor(max_active_symbols=3)
-    decisions = governor.evaluate_universe_activation(
-        catalog, universe, account, session, {}, {}
-    )
+    decisions = governor.evaluate_universe_activation(catalog, universe, account, session, {}, {})
 
     active_count = sum(1 for d in decisions.values() if d.activation_state == "ACTIVE")
     assert active_count == 3
@@ -134,9 +130,7 @@ def test_murg_025_026_dormant_market_protection_invariant() -> None:
     has_pos = {"EURUSD": True}
     has_pend = {"EURUSD": True}
 
-    decisions = governor.evaluate_universe_activation(
-        catalog, universe, account, session, has_pos, has_pend
-    )
+    decisions = governor.evaluate_universe_activation(catalog, universe, account, session, has_pos, has_pend)
     decision = decisions["EURUSD"]
 
     assert decision.activation_state == "DORMANT"

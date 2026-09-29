@@ -86,10 +86,7 @@ class EligibilityEngine:
     ) -> tuple[bool, list[ReasonCode]]:
         reasons: list[ReasonCode] = []
 
-        if (
-            descriptor.trade_mode == SymbolTradeMode.DISABLED
-            or not descriptor.is_tradable
-        ):
+        if descriptor.trade_mode == SymbolTradeMode.DISABLED or not descriptor.is_tradable:
             reasons.append(ReasonCode.MARKET_INELIGIBLE)
             reasons.append(ReasonCode.MARKET_BROKER_UNSUPPORTED)
 
@@ -128,9 +125,7 @@ class InstrumentCatalog:
     def get_descriptor(self, canonical_id: str) -> InstrumentDescriptor | None:
         return self._descriptors.get(canonical_id)
 
-    def get_by_broker_symbol(
-        self, broker_symbol: str
-    ) -> InstrumentDescriptor | None:
+    def get_by_broker_symbol(self, broker_symbol: str) -> InstrumentDescriptor | None:
         canonical_id = self._broker_symbol_map.get(broker_symbol)
         return self._descriptors.get(canonical_id) if canonical_id else None
 
@@ -204,9 +199,7 @@ class MarketProcessingCost:
     @property
     def total_cost(self) -> float:
         return float(
-            Decimal(str(self.base_cost))
-            + Decimal(str(self.active_timeframes_cost))
-            + Decimal(str(self.indicator_cost))
+            Decimal(str(self.base_cost)) + Decimal(str(self.active_timeframes_cost)) + Decimal(str(self.indicator_cost))
         )
 
 
@@ -245,9 +238,7 @@ class ResourceGovernor:
         decisions: dict[str, MarketActivationDecision] = {}
 
         # Adjust capacity using account capacity multiplier
-        effective_active_cap = max(
-            1, int(self.max_active_symbols * account_context.capacity_multiplier)
-        )
+        effective_active_cap = max(1, int(self.max_active_symbols * account_context.capacity_multiplier))
 
         candidate_ids = catalog.list_all_canonical_ids()
 
@@ -265,12 +256,8 @@ class ResourceGovernor:
                     reason_codes=el_reasons,
                     priority_score=0.0,
                     entry_analysis_enabled=False,
-                    position_monitoring_enabled=has_open_position.get(
-                        canonical_id, False
-                    ),
-                    pending_order_monitoring_enabled=has_pending_order.get(
-                        canonical_id, False
-                    ),
+                    position_monitoring_enabled=has_open_position.get(canonical_id, False),
+                    pending_order_monitoring_enabled=has_pending_order.get(canonical_id, False),
                 )
                 continue
 
@@ -283,23 +270,14 @@ class ResourceGovernor:
                     priority_score=0.0,
                     entry_analysis_enabled=False,
                     # INVARIANT: Position and pending-order monitoring are NEVER disabled!
-                    position_monitoring_enabled=has_open_position.get(
-                        canonical_id, False
-                    )
-                    or True,
-                    pending_order_monitoring_enabled=has_pending_order.get(
-                        canonical_id, False
-                    )
-                    or True,
+                    position_monitoring_enabled=has_open_position.get(canonical_id, False) or True,
+                    pending_order_monitoring_enabled=has_pending_order.get(canonical_id, False) or True,
                 )
                 continue
 
             # Priority Scoring with Universe Mode Awareness
             score = 50.0
-            if (
-                universe.mode == UniverseMode.MANUAL
-                and canonical_id not in universe.manual_canonical_ids
-            ):
+            if universe.mode == UniverseMode.MANUAL and canonical_id not in universe.manual_canonical_ids:
                 score = 0.0
             else:
                 if canonical_id in universe.pinned_canonical_ids:
@@ -311,27 +289,16 @@ class ResourceGovernor:
             is_currently_active = canonical_id in self.active_markets
             lease = self.leases.get(canonical_id)
 
-            if (
-                is_currently_active
-                and lease
-                and current_time_ns < lease.minimum_dwell_until_ns
-            ):
+            if is_currently_active and lease and current_time_ns < lease.minimum_dwell_until_ns:
                 # Protected by active lease dwell time
                 state = "ACTIVE"
                 entry_analysis = True
                 reasons = [ReasonCode.MARKET_ACTIVE, ReasonCode.MARKET_PINNED]
             else:
-                threshold = (
-                    self.deactivation_threshold
-                    if is_currently_active
-                    else self.activation_threshold
-                )
+                threshold = self.deactivation_threshold if is_currently_active else self.activation_threshold
 
                 reasons: list[ReasonCode] = []
-                if (
-                    score >= threshold
-                    and len(self.active_markets) < effective_active_cap
-                ):
+                if score >= threshold and len(self.active_markets) < effective_active_cap:
                     self.active_markets.add(canonical_id)
                     self.leases[canonical_id] = MarketActivationLease(
                         canonical_id=canonical_id,
@@ -360,12 +327,8 @@ class ResourceGovernor:
                 priority_score=score,
                 entry_analysis_enabled=entry_analysis,
                 # CRITICAL INVARIANT: Monitoring obligations remain protected!
-                position_monitoring_enabled=has_open_position.get(canonical_id, False)
-                or True,
-                pending_order_monitoring_enabled=has_pending_order.get(
-                    canonical_id, False
-                )
-                or True,
+                position_monitoring_enabled=has_open_position.get(canonical_id, False) or True,
+                pending_order_monitoring_enabled=has_pending_order.get(canonical_id, False) or True,
             )
 
         return decisions

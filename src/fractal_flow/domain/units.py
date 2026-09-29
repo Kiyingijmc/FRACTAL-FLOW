@@ -11,9 +11,7 @@ class Price:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(
-                f"Price must be a finite positive number, got {self.value}"
-            )
+            raise ValueError(f"Price must be a finite positive number, got {self.value}")
 
 
 @dataclass(frozen=True)
@@ -31,9 +29,7 @@ class PriceDistance:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(
-                f"PriceDistance must be a finite non-negative number, got {self.value}"
-            )
+            raise ValueError(f"PriceDistance must be a finite non-negative number, got {self.value}")
 
 
 @dataclass(frozen=True)
@@ -52,9 +48,7 @@ class Volume:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(
-                f"Volume must be a finite positive number, got {self.value}"
-            )
+            raise ValueError(f"Volume must be a finite positive number, got {self.value}")
 
 
 @dataclass(frozen=True)
@@ -63,9 +57,7 @@ class PositiveCurrencyAmount:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(
-                f"PositiveCurrencyAmount cannot be negative or infinite, got {self.value}"
-            )
+            raise ValueError(f"PositiveCurrencyAmount cannot be negative or infinite, got {self.value}")
 
 
 @dataclass(frozen=True)
@@ -74,9 +66,7 @@ class SignedCurrencyAmount:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value):
-            raise ValueError(
-                f"SignedCurrencyAmount cannot be NaN or Infinity, got {self.value}"
-            )
+            raise ValueError(f"SignedCurrencyAmount cannot be NaN or Infinity, got {self.value}")
 
 
 @dataclass(frozen=True)
@@ -112,9 +102,7 @@ class BoundedRatio:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or not (0.0 <= self.value <= 1.0):
-            raise ValueError(
-                f"BoundedRatio must be between 0.0 and 1.0, got {self.value}"
-            )
+            raise ValueError(f"BoundedRatio must be between 0.0 and 1.0, got {self.value}")
 
 
 @dataclass(frozen=True)

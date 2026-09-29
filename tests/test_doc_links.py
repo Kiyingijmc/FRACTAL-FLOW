@@ -10,9 +10,7 @@ def test_markdown_local_links() -> None:
     md_files = list(repo_root.glob("**/*.md"))
 
     # Exclude virtual environments or build caches if any exist
-    md_files = [
-        f for f in md_files if ".venv" not in f.parts and ".pytest_cache" not in f.parts
-    ]
+    md_files = [f for f in md_files if ".venv" not in f.parts and ".pytest_cache" not in f.parts]
 
     # Pattern matches [text](link) where link is local (not http/https/mailto)
     link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -42,11 +40,8 @@ def test_markdown_local_links() -> None:
                 resolved_path = (md_file.parent / target_path_str).resolve()
 
             if not resolved_path.exists():
-                broken_links.append(
-                    (str(md_file.relative_to(repo_root)), target, str(resolved_path))
-                )
+                broken_links.append((str(md_file.relative_to(repo_root)), target, str(resolved_path)))
 
     assert not broken_links, "Found broken Markdown local links:\n" + "\n".join(
-        f"In {src}: link '{link}' resolves to missing '{resolved}'"
-        for src, link, resolved in broken_links
+        f"In {src}: link '{link}' resolves to missing '{resolved}'" for src, link, resolved in broken_links
     )

@@ -1,5 +1,6 @@
 """Tests for Pass 4C Contingent Risk, Hybrid Entries, and Opportunity Budget Allocation."""
 
+from decimal import Decimal
 from src.fractal_flow.domain.entry import (
     ContingentExposure,
     EntryModel,
@@ -16,29 +17,29 @@ from src.fractal_flow.domain.models import OrderSide
 def test_opportunity_risk_budget_remaining_calculations() -> None:
     budget = OpportunityRiskBudget(
         opportunity_id="opp_risk",
-        total_risk_currency=500.0,
-        total_allowed_volume=1.0,
-        allocated_risk=200.0,
-        allocated_volume=0.4,
+        total_risk_currency=Decimal("500.0"),
+        total_allowed_volume=Decimal("1.0"),
+        allocated_risk=Decimal("200.0"),
+        allocated_volume=Decimal("0.4"),
     )
-    assert budget.remaining_risk == 300.0
-    assert budget.remaining_volume == 0.6
+    assert budget.remaining_risk == Decimal("300.0")
+    assert budget.remaining_volume == Decimal("0.6")
 
 
 def test_contingent_exposure_worst_case_calculation() -> None:
     exp = ContingentExposure(
         symbol="EURUSD",
-        current_open_volume=0.5,
-        contingent_pending_volume=0.3,
+        current_open_volume=Decimal("0.5"),
+        contingent_pending_volume=Decimal("0.3"),
     )
-    assert exp.worst_case_contingent_volume == 0.8
+    assert exp.worst_case_contingent_volume == Decimal("0.8")
 
 
 def test_hybrid_entry_shared_risk_budget() -> None:
     budget = OpportunityRiskBudget(
         opportunity_id="opp_hybrid",
-        total_risk_currency=1000.0,
-        total_allowed_volume=2.0,
+        total_risk_currency=Decimal("1000.0"),
+        total_allowed_volume=Decimal("2.0"),
     )
 
     leg1 = EntryPlan(
@@ -56,18 +57,18 @@ def test_hybrid_entry_shared_risk_budget() -> None:
         entry_model=EntryModel.MARKET_CONFIRMATION,
         order_type=OrderType.MARKET_BUY,
         order_side=OrderSide.BUY,
-        reference_price=1.0850,
+        reference_price=Decimal("1.0850"),
         trigger_price=None,
         limit_price=None,
         stop_limit_price=None,
         entry_corridor_low=None,
         entry_corridor_high=None,
-        requested_volume=0.8,
-        approved_volume=0.8,
-        risk_budget=400.0,
-        allocated_risk=400.0,
-        remaining_opportunity_risk=600.0,
-        structural_sl=1.0820,
+        requested_volume=Decimal("0.8"),
+        approved_volume=Decimal("0.8"),
+        risk_budget=Decimal("400.0"),
+        allocated_risk=Decimal("400.0"),
+        remaining_opportunity_risk=Decimal("600.0"),
+        structural_sl=Decimal("1.0820"),
         tp_plan={},
         fill_policy=FillPolicy.IOC,
         time_in_force=TimeInForce.GTC,
@@ -97,18 +98,18 @@ def test_hybrid_entry_shared_risk_budget() -> None:
         entry_model=EntryModel.RETEST_LIMIT,
         order_type=OrderType.BUY_LIMIT,
         order_side=OrderSide.BUY,
-        reference_price=1.0850,
-        trigger_price=1.0830,
-        limit_price=1.0830,
+        reference_price=Decimal("1.0850"),
+        trigger_price=Decimal("1.0830"),
+        limit_price=Decimal("1.0830"),
         stop_limit_price=None,
         entry_corridor_low=None,
         entry_corridor_high=None,
-        requested_volume=1.2,
-        approved_volume=1.2,
-        risk_budget=600.0,
-        allocated_risk=600.0,
-        remaining_opportunity_risk=0.0,
-        structural_sl=1.0800,
+        requested_volume=Decimal("1.2"),
+        approved_volume=Decimal("1.2"),
+        risk_budget=Decimal("600.0"),
+        allocated_risk=Decimal("600.0"),
+        remaining_opportunity_risk=Decimal("0.0"),
+        structural_sl=Decimal("1.0800"),
         tp_plan={},
         fill_policy=FillPolicy.IOC,
         time_in_force=TimeInForce.GTC,

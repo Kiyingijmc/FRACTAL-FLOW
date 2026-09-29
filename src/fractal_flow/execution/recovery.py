@@ -19,10 +19,8 @@ class RecoveryEvidenceError(Exception):
     """Raised when recovery evidence construction, assembly, session binding, or verification fails."""
 
 
-
 class AuthorityError(RecoveryEvidenceError):
     """Raised when authority root, domain, or capability provenance verification fails."""
-
 
 
 @unique
@@ -142,9 +140,7 @@ class ProducerCapability:
         producer_id: str,
         role_key: bytes,
     ) -> "ProducerCapability":
-        if not isinstance(domain, AuthorityDomain) or getattr(
-            domain, "_finalized", True
-        ):
+        if not isinstance(domain, AuthorityDomain) or getattr(domain, "_finalized", True):
             raise RecoveryEvidenceError(
                 "Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain."
             )
@@ -162,18 +158,12 @@ class ProducerCapability:
         return None
 
     def __getstate__(self) -> Any:
-        raise AuthorityError(
-            "Serialization/pickling of authority capabilities is prohibited."
-        )
+        raise AuthorityError("Serialization/pickling of authority capabilities is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of authority capabilities is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of authority capabilities is prohibited.")
 
-    def sign_observation(
-        self, session_id: str, observed_at: int, payload_digest: str
-    ) -> str:
+    def sign_observation(self, session_id: str, observed_at: int, payload_digest: str) -> str:
         msg = f"FRACTAL_OBS|v2|{self.authority_domain_id}|{self.role.value}|{self.producer_id}|{session_id}|{observed_at}|{payload_digest}".encode()
         return hmac.new(self._role_key, msg, hashlib.sha256).hexdigest()
 
@@ -200,9 +190,7 @@ class ValidatorCapability:
         validator_id: str,
         role_key: bytes,
     ) -> "ValidatorCapability":
-        if not isinstance(domain, AuthorityDomain) or getattr(
-            domain, "_finalized", True
-        ):
+        if not isinstance(domain, AuthorityDomain) or getattr(domain, "_finalized", True):
             raise RecoveryEvidenceError(
                 "Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain."
             )
@@ -220,14 +208,10 @@ class ValidatorCapability:
         return None
 
     def __getstate__(self) -> Any:
-        raise AuthorityError(
-            "Serialization/pickling of authority capabilities is prohibited."
-        )
+        raise AuthorityError("Serialization/pickling of authority capabilities is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of authority capabilities is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of authority capabilities is prohibited.")
 
     def sign_token(self, session_id: str, evidence_digest: str) -> "_AuthorityToken":
         msg = f"FRACTAL_TOK|v2|{self.authority_domain_id}|{self.role.value}|{self.validator_id}|{session_id}|{evidence_digest}".encode()
@@ -278,9 +262,7 @@ class AuthorityDomain:
         _is_production: bool = False,
         _provisioning_token: object | None = None,
     ) -> None:
-        object.__setattr__(
-            self, "domain_id", domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}"
-        )
+        object.__setattr__(self, "domain_id", domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}")
         object.__setattr__(self, "_is_production", _is_production)
         object.__setattr__(self, "_provisioning_token", _provisioning_token)
         object.__setattr__(self, "_master_key", uuid.uuid4().bytes)
@@ -293,20 +275,14 @@ class AuthorityDomain:
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_finalized", False) or name in _DOMAIN_PROTECTED_ATTRS:
-            raise AuthorityError(
-                f"Modification of AuthorityDomain attribute '{name}' is forbidden."
-            )
+            raise AuthorityError(f"Modification of AuthorityDomain attribute '{name}' is forbidden.")
         object.__setattr__(self, name, value)
 
     def __delattr__(self, name: str) -> None:
-        raise AuthorityError(
-            f"Deletion of AuthorityDomain attribute '{name}' is forbidden."
-        )
+        raise AuthorityError(f"Deletion of AuthorityDomain attribute '{name}' is forbidden.")
 
     @classmethod
-    def _create_production_domain(
-        cls, domain_id: str, provisioning_token: object
-    ) -> "AuthorityDomain":
+    def _create_production_domain(cls, domain_id: str, provisioning_token: object) -> "AuthorityDomain":
         return cls(
             domain_id=domain_id,
             _is_production=True,
@@ -331,9 +307,7 @@ class AuthorityDomain:
         raise AuthorityError("Serialization/pickling of AuthorityDomain is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of AuthorityDomain is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of AuthorityDomain is prohibited.")
 
     def _derive_role_key(self, role: CapabilityRole, entity_id: str) -> bytes:
         info = f"{self.domain_id}|v2|{role.value}|{entity_id}".encode()
@@ -367,16 +341,9 @@ class AuthorityDomain:
         _provisioning_token: object | None = None,
     ) -> ProducerCapability:
         if self._finalized:
-            raise RecoveryEvidenceError(
-                "AuthorityDomain is finalized; cannot mint new producer capabilities."
-            )
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
-            raise AuthorityError(
-                "Public/unauthorized capability minting on production AuthorityDomain is forbidden."
-            )
+            raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new producer capabilities.")
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
+            raise AuthorityError("Public/unauthorized capability minting on production AuthorityDomain is forbidden.")
         if role in self._minted_roles:
             raise RecoveryEvidenceError(
                 f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'."
@@ -420,16 +387,9 @@ class AuthorityDomain:
         _provisioning_token: object | None = None,
     ) -> ValidatorCapability:
         if self._finalized:
-            raise RecoveryEvidenceError(
-                "AuthorityDomain is finalized; cannot mint new validator capabilities."
-            )
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
-            raise AuthorityError(
-                "Public/unauthorized capability minting on production AuthorityDomain is forbidden."
-            )
+            raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new validator capabilities.")
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
+            raise AuthorityError("Public/unauthorized capability minting on production AuthorityDomain is forbidden.")
         if role in self._minted_roles:
             raise RecoveryEvidenceError(
                 f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'."
@@ -448,13 +408,8 @@ class AuthorityDomain:
     ) -> None:
         """Registers a live producer instance with this authority domain."""
         if self._finalized:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot register new producer instances."
-            )
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
+            raise AuthorityError("AuthorityDomain is finalized; cannot register new producer instances.")
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
             raise AuthorityError(
                 "Public/unauthorized producer registration on production AuthorityDomain is forbidden."
             )
@@ -489,15 +444,11 @@ class AuthorityDomain:
             )
             self._producer_bindings[role] = binding
 
-    def is_canonical_producer_capability(
-        self, role: CapabilityRole, capability: Any
-    ) -> bool:
+    def is_canonical_producer_capability(self, role: CapabilityRole, capability: Any) -> bool:
         """Returns True if and only if capability is strictly identical (is) to the canonical capability registered for role."""
         return self._producer_capabilities.get(role) is capability
 
-    def is_canonical_validator_capability(
-        self, validator_id: str, capability: Any
-    ) -> bool:
+    def is_canonical_validator_capability(self, validator_id: str, capability: Any) -> bool:
         """Returns True if and only if capability is strictly identical (is) to the canonical capability registered for validator_id."""
         return self._validator_capabilities.get(validator_id) is capability
 
@@ -526,16 +477,9 @@ class AuthorityDomain:
         _provisioning_token: object | None = None,
     ) -> ValidatorCapability | None:
         if self._finalized and self._is_production:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot retrieve validator capabilities."
-            )
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
-            raise AuthorityError(
-                "Unrestricted public retrieval of production validator capabilities is forbidden."
-            )
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve validator capabilities.")
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
+            raise AuthorityError("Unrestricted public retrieval of production validator capabilities is forbidden.")
         return self._validator_capabilities.get(validator_id)
 
     def get_producer_capability(
@@ -544,27 +488,15 @@ class AuthorityDomain:
         _provisioning_token: object | None = None,
     ) -> ProducerCapability | None:
         if self._finalized and self._is_production:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot retrieve producer capabilities."
-            )
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
-            raise AuthorityError(
-                "Unrestricted public retrieval of production producer capabilities is forbidden."
-            )
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve producer capabilities.")
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
+            raise AuthorityError("Unrestricted public retrieval of production producer capabilities is forbidden.")
         return self._producer_capabilities.get(role)
 
     def finalize(self, _provisioning_token: object | None = None) -> None:
         """Locks domain minting and clears master key material."""
-        if self._is_production and (
-            _provisioning_token is None
-            or _provisioning_token is not self._provisioning_token
-        ):
-            raise AuthorityError(
-                "Public/unauthorized finalization on production AuthorityDomain is forbidden."
-            )
+        if self._is_production and (_provisioning_token is None or _provisioning_token is not self._provisioning_token):
+            raise AuthorityError("Public/unauthorized finalization on production AuthorityDomain is forbidden.")
         if self._finalized:
             raise AuthorityError("AuthorityDomain is already finalized.")
 
@@ -598,9 +530,7 @@ class AuthorityDomain:
             }
 
             minted_producers = set(self._producer_capabilities.keys())
-            minted_validators = {
-                cap.role for cap in self._validator_capabilities.values()
-            }
+            minted_validators = {cap.role for cap in self._validator_capabilities.values()}
             registered_producers = set(self._registered_producers.keys())
 
             missing_producers = required_producer_roles - minted_producers
@@ -628,80 +558,49 @@ class AuthorityDomain:
         # Graph consistency validation for all producer capabilities
         for role, cap in list(self._producer_capabilities.items()):
             if cap.authority_domain_id != self.domain_id:
-                raise AuthorityError(
-                    f"Cross-domain capability substitution detected for role '{role.value}'."
-                )
+                raise AuthorityError(f"Cross-domain capability substitution detected for role '{role.value}'.")
             if cap.role != role:
-                raise AuthorityError(
-                    f"Role mismatch in producer capability for role '{role.value}'."
-                )
+                raise AuthorityError(f"Role mismatch in producer capability for role '{role.value}'.")
             if self._is_production or role in self._registered_producers:
                 if role not in self._registered_producers:
                     raise AuthorityError(
                         f"Orphan producer capability without registered producer for role '{role.value}'."
                     )
                 if role not in self._producer_bindings:
-                    raise AuthorityError(
-                        f"Orphan producer capability without ProducerBinding for role '{role.value}'."
-                    )
+                    raise AuthorityError(f"Orphan producer capability without ProducerBinding for role '{role.value}'.")
 
         # Graph consistency validation for all registered producers
         for role, inst in list(self._registered_producers.items()):
             if role not in self._producer_capabilities:
-                raise AuthorityError(
-                    f"Registered producer for role '{role.value}' without capability."
-                )
+                raise AuthorityError(f"Registered producer for role '{role.value}' without capability.")
             if role not in self._producer_bindings:
-                raise AuthorityError(
-                    f"Registered producer for role '{role.value}' without ProducerBinding."
-                )
+                raise AuthorityError(f"Registered producer for role '{role.value}' without ProducerBinding.")
 
         # Graph consistency validation for all producer bindings
         for role, binding in list(self._producer_bindings.items()):
             if binding.authority_domain_id != self.domain_id:
-                raise AuthorityError(
-                    f"Cross-domain binding substitution detected for role '{role.value}'."
-                )
+                raise AuthorityError(f"Cross-domain binding substitution detected for role '{role.value}'.")
             if binding.role != role:
-                raise AuthorityError(
-                    f"Role mismatch in ProducerBinding for role '{role.value}'."
-                )
-            if (
-                role not in self._producer_capabilities
-                or binding.capability is not self._producer_capabilities[role]
-            ):
-                raise AuthorityError(
-                    f"ProducerBinding capability mismatch for role '{role.value}'."
-                )
+                raise AuthorityError(f"Role mismatch in ProducerBinding for role '{role.value}'.")
+            if role not in self._producer_capabilities or binding.capability is not self._producer_capabilities[role]:
+                raise AuthorityError(f"ProducerBinding capability mismatch for role '{role.value}'.")
             if (
                 role not in self._registered_producers
                 or binding.producer_instance is not self._registered_producers[role]
             ):
-                raise AuthorityError(
-                    f"ProducerBinding producer instance mismatch for role '{role.value}'."
-                )
+                raise AuthorityError(f"ProducerBinding producer instance mismatch for role '{role.value}'.")
             if binding.producer_id != binding.capability.producer_id:
-                raise AuthorityError(
-                    f"ProducerBinding producer_id mismatch for role '{role.value}'."
-                )
-            reg_identity = self._get_producer_instance_identity(
-                binding.producer_instance
-            )
+                raise AuthorityError(f"ProducerBinding producer_id mismatch for role '{role.value}'.")
+            reg_identity = self._get_producer_instance_identity(binding.producer_instance)
             if reg_identity is not None and reg_identity != binding.producer_id:
-                raise AuthorityError(
-                    f"ProducerBinding identity mismatch for role '{role.value}'."
-                )
+                raise AuthorityError(f"ProducerBinding identity mismatch for role '{role.value}'.")
 
         # Graph consistency validation for all validator capabilities
         for val_id, val_cap in list(self._validator_capabilities.items()):
             if val_cap.authority_domain_id != self.domain_id:
-                raise AuthorityError(
-                    f"Cross-domain validator capability substitution detected for '{val_id}'."
-                )
+                raise AuthorityError(f"Cross-domain validator capability substitution detected for '{val_id}'.")
             if val_cap.validator_id != val_id:
-                raise AuthorityError(
-                    f"Validator ID mismatch in ValidatorCapability for '{val_id}'."
-                )
+                raise AuthorityError(f"Validator ID mismatch in ValidatorCapability for '{val_id}'.")
 
         object.__setattr__(self, "_finalized", True)
         object.__setattr__(self, "_master_key", b"\x00" * 32)
@@ -721,9 +620,7 @@ class AuthorityDomain:
             "_registered_producers",
             MappingProxyType(dict(self._registered_producers)),
         )
-        object.__setattr__(
-            self, "_producer_bindings", MappingProxyType(dict(self._producer_bindings))
-        )
+        object.__setattr__(self, "_producer_bindings", MappingProxyType(dict(self._producer_bindings)))
         object.__setattr__(self, "_minted_roles", frozenset(self._minted_roles))
 
 
@@ -742,22 +639,16 @@ class TrustedRuntimeBootstrap:
         prov_token = object()
         object.__setattr__(self, "_provisioning_token", prov_token)
         object.__setattr__(self, "_is_sealed", False)
-        domain = AuthorityDomain._create_production_domain(
-            domain_id=prod_id, provisioning_token=prov_token
-        )
+        domain = AuthorityDomain._create_production_domain(domain_id=prod_id, provisioning_token=prov_token)
         object.__setattr__(self, "_domain", domain)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_is_sealed", False) or name in _BOOTSTRAP_PROTECTED_ATTRS:
-            raise AuthorityError(
-                f"Modification of TrustedRuntimeBootstrap attribute '{name}' is forbidden."
-            )
+            raise AuthorityError(f"Modification of TrustedRuntimeBootstrap attribute '{name}' is forbidden.")
         object.__setattr__(self, name, value)
 
     def __delattr__(self, name: str) -> None:
-        raise AuthorityError(
-            f"Deletion of TrustedRuntimeBootstrap attribute '{name}' is forbidden."
-        )
+        raise AuthorityError(f"Deletion of TrustedRuntimeBootstrap attribute '{name}' is forbidden.")
 
     def __copy__(self) -> None:
         return None
@@ -766,19 +657,13 @@ class TrustedRuntimeBootstrap:
         return None
 
     def __getstate__(self) -> Any:
-        raise AuthorityError(
-            "Serialization/pickling of TrustedRuntimeBootstrap is prohibited."
-        )
+        raise AuthorityError("Serialization/pickling of TrustedRuntimeBootstrap is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of TrustedRuntimeBootstrap is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of TrustedRuntimeBootstrap is prohibited.")
 
     @classmethod
-    def bootstrap_production_runtime(
-        cls, reset: bool = False
-    ) -> "TrustedRuntimeBootstrap":
+    def bootstrap_production_runtime(cls, reset: bool = False) -> "TrustedRuntimeBootstrap":
         """Bootstraps or returns the singular trusted production runtime authority root."""
         if cls is not TrustedRuntimeBootstrap:
             raise AuthorityError(
@@ -786,9 +671,7 @@ class TrustedRuntimeBootstrap:
             )
         with cls._lock:
             if reset and cls._instance is not None:
-                raise AuthorityError(
-                    "Resetting or replacing an active production authority root is forbidden."
-                )
+                raise AuthorityError("Resetting or replacing an active production authority root is forbidden.")
             if cls._instance is None:
                 cls._instance = cls(_is_internal_call=True)
             return cls._instance
@@ -797,58 +680,30 @@ class TrustedRuntimeBootstrap:
     def domain(self) -> AuthorityDomain:
         return self._domain
 
-    def mint_producer_capability(
-        self, role: CapabilityRole, producer_id: str
-    ) -> ProducerCapability:
+    def mint_producer_capability(self, role: CapabilityRole, producer_id: str) -> ProducerCapability:
         if self._is_sealed or self._provisioning_token is None:
-            raise RecoveryEvidenceError(
-                "AuthorityDomain is finalized; cannot mint new producer capabilities."
-            )
-        return self._domain.mint_producer_capability(
-            role, producer_id, _provisioning_token=self._provisioning_token
-        )
+            raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new producer capabilities.")
+        return self._domain.mint_producer_capability(role, producer_id, _provisioning_token=self._provisioning_token)
 
-    def mint_validator_capability(
-        self, role: CapabilityRole, validator_id: str
-    ) -> ValidatorCapability:
+    def mint_validator_capability(self, role: CapabilityRole, validator_id: str) -> ValidatorCapability:
         if self._is_sealed or self._provisioning_token is None:
-            raise RecoveryEvidenceError(
-                "AuthorityDomain is finalized; cannot mint new validator capabilities."
-            )
-        return self._domain.mint_validator_capability(
-            role, validator_id, _provisioning_token=self._provisioning_token
-        )
+            raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new validator capabilities.")
+        return self._domain.mint_validator_capability(role, validator_id, _provisioning_token=self._provisioning_token)
 
     def register_producer(self, role: CapabilityRole, producer_instance: Any) -> None:
         if self._is_sealed or self._provisioning_token is None:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot register new producer instances."
-            )
-        self._domain.register_producer(
-            role, producer_instance, _provisioning_token=self._provisioning_token
-        )
+            raise AuthorityError("AuthorityDomain is finalized; cannot register new producer instances.")
+        self._domain.register_producer(role, producer_instance, _provisioning_token=self._provisioning_token)
 
-    def get_producer_capability(
-        self, role: CapabilityRole
-    ) -> ProducerCapability | None:
+    def get_producer_capability(self, role: CapabilityRole) -> ProducerCapability | None:
         if self._is_sealed or self._provisioning_token is None:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot retrieve producer capabilities."
-            )
-        return self._domain.get_producer_capability(
-            role, _provisioning_token=self._provisioning_token
-        )
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve producer capabilities.")
+        return self._domain.get_producer_capability(role, _provisioning_token=self._provisioning_token)
 
-    def get_validator_capability(
-        self, validator_id: str
-    ) -> ValidatorCapability | None:
+    def get_validator_capability(self, validator_id: str) -> ValidatorCapability | None:
         if self._is_sealed or self._provisioning_token is None:
-            raise AuthorityError(
-                "AuthorityDomain is finalized; cannot retrieve validator capabilities."
-            )
-        return self._domain.get_validator_capability(
-            validator_id, _provisioning_token=self._provisioning_token
-        )
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve validator capabilities.")
+        return self._domain.get_validator_capability(validator_id, _provisioning_token=self._provisioning_token)
 
     def finalize(self) -> None:
         if self._is_sealed or self._provisioning_token is None:
@@ -858,12 +713,8 @@ class TrustedRuntimeBootstrap:
         object.__setattr__(self, "_provisioning_token", None)
         object.__setattr__(self, "_is_sealed", True)
 
-    def create_recovery_engine(
-        self, initial_state: RecoveryState = RecoveryState.NORMAL
-    ) -> "RecoveryEngine":
-        return RecoveryEngine(
-            authority_domain=self._domain, initial_state=initial_state
-        )
+    def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> "RecoveryEngine":
+        return RecoveryEngine(authority_domain=self._domain, initial_state=initial_state)
 
 
 class AuthorityBootstrap(AuthorityDomain):
@@ -892,12 +743,8 @@ class TrustedRuntimeAuthority:
     def domain(self) -> AuthorityDomain:
         return self._domain
 
-    def create_recovery_engine(
-        self, initial_state: RecoveryState = RecoveryState.NORMAL
-    ) -> "RecoveryEngine":
-        return RecoveryEngine(
-            authority_domain=self._domain, initial_state=initial_state
-        )
+    def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> "RecoveryEngine":
+        return RecoveryEngine(authority_domain=self._domain, initial_state=initial_state)
 
 
 # --- Sealed Observation Boundary ---
@@ -924,14 +771,10 @@ class SealedObservation:
         return None
 
     def __getstate__(self) -> Any:
-        raise AuthorityError(
-            "Serialization/pickling of SealedObservation is prohibited."
-        )
+        raise AuthorityError("Serialization/pickling of SealedObservation is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of SealedObservation is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of SealedObservation is prohibited.")
 
     @classmethod
     def create(
@@ -943,9 +786,7 @@ class SealedObservation:
     ) -> "SealedObservation":
         def _freeze(v: Any) -> Any:
             if isinstance(v, dict):
-                return MappingProxyType(
-                    {str(k): _freeze(val) for k, val in sorted(v.items())}
-                )
+                return MappingProxyType({str(k): _freeze(val) for k, val in sorted(v.items())})
             if isinstance(v, list):
                 return tuple(_freeze(x) for x in v)
             if isinstance(v, set):
@@ -1014,9 +855,7 @@ class _AuthorityToken:
         raise AuthorityError("Serialization/pickling of _AuthorityToken is prohibited.")
 
     def __setstate__(self, state: Any) -> None:
-        raise AuthorityError(
-            "Deserialization/unpickling of _AuthorityToken is prohibited."
-        )
+        raise AuthorityError("Deserialization/unpickling of _AuthorityToken is prohibited.")
 
 
 @dataclass(frozen=True)
@@ -1129,9 +968,7 @@ class JournalRecoveryEvidence:
     head_sequence: int = 0
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1141,9 +978,7 @@ class SnapshotRecoveryEvidence:
     fallback_used: bool = False
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1152,9 +987,7 @@ class RiskLedgerRecoveryEvidence:
     reconstructed_entries_count: int = 0
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1163,9 +996,7 @@ class IntentRecoveryEvidence:
     reconstructed_intents_count: int = 0
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1175,9 +1006,7 @@ class BrokerReconciliationEvidence:
     orphaned_count: int = 0
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1187,9 +1016,7 @@ class ConfigurationEvidence:
     identity_matched: bool = False
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -1198,39 +1025,21 @@ class ProtectiveMonitoringEvidence:
     active: bool = True
     provenance: EvidenceProvenance | None = None
     details: dict[str, Any] = field(default_factory=dict)
-    _authority_token: _AuthorityToken | None = field(
-        default=None, repr=False, compare=False
-    )
+    _authority_token: _AuthorityToken | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
 class RecoveryEvidence:
     """Verifiable composite evidence required to authorize system recovery completion."""
 
-    journal_evidence: JournalRecoveryEvidence = field(
-        default_factory=JournalRecoveryEvidence
-    )
-    snapshot_evidence: SnapshotRecoveryEvidence = field(
-        default_factory=SnapshotRecoveryEvidence
-    )
-    risk_evidence: RiskLedgerRecoveryEvidence = field(
-        default_factory=RiskLedgerRecoveryEvidence
-    )
-    intent_evidence: IntentRecoveryEvidence = field(
-        default_factory=IntentRecoveryEvidence
-    )
-    broker_evidence: BrokerReconciliationEvidence = field(
-        default_factory=BrokerReconciliationEvidence
-    )
-    config_evidence: ConfigurationEvidence = field(
-        default_factory=ConfigurationEvidence
-    )
-    protective_evidence: ProtectiveMonitoringEvidence = field(
-        default_factory=ProtectiveMonitoringEvidence
-    )
-    _authority_bundle: _RecoveryAuthorityBundle | None = field(
-        default=None, repr=False, compare=False
-    )
+    journal_evidence: JournalRecoveryEvidence = field(default_factory=JournalRecoveryEvidence)
+    snapshot_evidence: SnapshotRecoveryEvidence = field(default_factory=SnapshotRecoveryEvidence)
+    risk_evidence: RiskLedgerRecoveryEvidence = field(default_factory=RiskLedgerRecoveryEvidence)
+    intent_evidence: IntentRecoveryEvidence = field(default_factory=IntentRecoveryEvidence)
+    broker_evidence: BrokerReconciliationEvidence = field(default_factory=BrokerReconciliationEvidence)
+    config_evidence: ConfigurationEvidence = field(default_factory=ConfigurationEvidence)
+    protective_evidence: ProtectiveMonitoringEvidence = field(default_factory=ProtectiveMonitoringEvidence)
+    _authority_bundle: _RecoveryAuthorityBundle | None = field(default=None, repr=False, compare=False)
 
     # Legacy attributes maintained purely for backward compatibility/diagnostics.
     # DEPRECATED: These fields CANNOT authorize strategic execution.
@@ -1253,9 +1062,7 @@ class RecoveryEvidence:
         """Verifies that this composite evidence object encapsulates a valid, un-forged, active authority bundle matching current evidence payload."""
         if self._authority_bundle is None:
             return False
-        return self._authority_bundle.is_valid(
-            self, required_session, validator_capabilities
-        )
+        return self._authority_bundle.is_valid(self, required_session, validator_capabilities)
 
     def is_satisfactory(self, required_session: str | None = None) -> bool:
         """Returns True only if all required typed subsystem evidence components and valid provenances are satisfied."""
@@ -1263,28 +1070,23 @@ class RecoveryEvidence:
             self.journal_evidence.valid
             and self.journal_evidence.provenance is not None
             and self.journal_evidence.provenance.result == "SUCCESS"
-            and self.journal_evidence.provenance.source_component
-            == "JournalRecoveryValidator"
+            and self.journal_evidence.provenance.source_component == "JournalRecoveryValidator"
             and self.snapshot_evidence.valid
             and self.snapshot_evidence.provenance is not None
             and self.snapshot_evidence.provenance.result == "SUCCESS"
-            and self.snapshot_evidence.provenance.source_component
-            == "SnapshotRecoveryValidator"
+            and self.snapshot_evidence.provenance.source_component == "SnapshotRecoveryValidator"
             and self.risk_evidence.valid
             and self.risk_evidence.provenance is not None
             and self.risk_evidence.provenance.result == "SUCCESS"
-            and self.risk_evidence.provenance.source_component
-            == "RiskLedgerRecoveryValidator"
+            and self.risk_evidence.provenance.source_component == "RiskLedgerRecoveryValidator"
             and self.intent_evidence.valid
             and self.intent_evidence.provenance is not None
             and self.intent_evidence.provenance.result == "SUCCESS"
-            and self.intent_evidence.provenance.source_component
-            == "IntentRecoveryValidator"
+            and self.intent_evidence.provenance.source_component == "IntentRecoveryValidator"
             and self.broker_evidence.valid
             and self.broker_evidence.provenance is not None
             and self.broker_evidence.provenance.result == "SUCCESS"
-            and self.broker_evidence.provenance.source_component
-            == "BrokerReconciliationValidator"
+            and self.broker_evidence.provenance.source_component == "BrokerReconciliationValidator"
             and isinstance(self.broker_evidence.unresolved_unknown_count, int)
             and self.broker_evidence.unresolved_unknown_count == 0
             and isinstance(self.broker_evidence.orphaned_count, int)
@@ -1293,14 +1095,12 @@ class RecoveryEvidence:
             and self.config_evidence.identity_matched
             and self.config_evidence.provenance is not None
             and self.config_evidence.provenance.result == "SUCCESS"
-            and self.config_evidence.provenance.source_component
-            == "ConfigurationValidator"
+            and self.config_evidence.provenance.source_component == "ConfigurationValidator"
             and self.protective_evidence.valid
             and self.protective_evidence.active
             and self.protective_evidence.provenance is not None
             and self.protective_evidence.provenance.result == "SUCCESS"
-            and self.protective_evidence.provenance.source_component
-            == "ProtectiveMonitoringValidator"
+            and self.protective_evidence.provenance.source_component == "ProtectiveMonitoringValidator"
         )
 
         if not subsystem_satisfied:
@@ -1340,23 +1140,13 @@ class RecoveryEvidence:
             failure_reason="Caller self-attestation is forbidden in authorization pathways.",
         )
         return cls(
-            journal_evidence=JournalRecoveryEvidence(
-                valid=False, provenance=unauth_prov
-            ),
-            snapshot_evidence=SnapshotRecoveryEvidence(
-                valid=False, provenance=unauth_prov
-            ),
-            risk_evidence=RiskLedgerRecoveryEvidence(
-                valid=False, provenance=unauth_prov
-            ),
+            journal_evidence=JournalRecoveryEvidence(valid=False, provenance=unauth_prov),
+            snapshot_evidence=SnapshotRecoveryEvidence(valid=False, provenance=unauth_prov),
+            risk_evidence=RiskLedgerRecoveryEvidence(valid=False, provenance=unauth_prov),
             intent_evidence=IntentRecoveryEvidence(valid=False, provenance=unauth_prov),
-            broker_evidence=BrokerReconciliationEvidence(
-                valid=False, provenance=unauth_prov
-            ),
+            broker_evidence=BrokerReconciliationEvidence(valid=False, provenance=unauth_prov),
             config_evidence=ConfigurationEvidence(valid=False, provenance=unauth_prov),
-            protective_evidence=ProtectiveMonitoringEvidence(
-                valid=False, provenance=unauth_prov
-            ),
+            protective_evidence=ProtectiveMonitoringEvidence(valid=False, provenance=unauth_prov),
         )
 
 
@@ -1402,9 +1192,7 @@ class RecoveryEvidenceAssembler:
             _authority_bundle=bundle,
         )
 
-        if validator_capabilities is not None and not bundle.is_valid(
-            evidence, session_id, validator_capabilities
-        ):
+        if validator_capabilities is not None and not bundle.is_valid(evidence, session_id, validator_capabilities):
             raise RecoveryEvidenceError(
                 "Recovery evidence assembly failed: invalid, forged, or payload-mismatched subsystem authority token(s)"
             )
@@ -1431,13 +1219,8 @@ class ProtectiveMonitoringSubsystem:
     def is_active(self) -> bool:
         return self._active and not self._faulted
 
-    def produce_observation(
-        self, session_id: str, capability: ProducerCapability
-    ) -> SealedObservation:
-        if (
-            not isinstance(capability, ProducerCapability)
-            or capability.role != CapabilityRole.PROTECTIVE_MONITOR
-        ):
+    def produce_observation(self, session_id: str, capability: ProducerCapability) -> SealedObservation:
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.PROTECTIVE_MONITOR:
             raise RecoveryEvidenceError(
                 "ProtectiveMonitoringSubsystem observation requires a valid PROTECTIVE_MONITOR ProducerCapability."
             )
@@ -1446,9 +1229,7 @@ class ProtectiveMonitoringSubsystem:
             "active": self.is_active(),
             "faulted": self._faulted,
         }
-        return SealedObservation.create(
-            capability, session_id, int(time.time()), payload
-        )
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)
 
 
 class JournalRecoveryValidator:
@@ -1471,9 +1252,7 @@ class JournalRecoveryValidator:
             )
 
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.JOURNAL, journal
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.JOURNAL, journal):
                 prov = EvidenceProvenance(
                     source_component="JournalRecoveryValidator",
                     source_operation="validate",
@@ -1482,11 +1261,8 @@ class JournalRecoveryValidator:
                     failure_reason="Unregistered Journal instance in AuthorityDomain",
                 )
                 return JournalRecoveryEvidence(valid=False, provenance=prov)
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.JOURNAL, producer_capability
-                )
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.JOURNAL, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="JournalRecoveryValidator",
@@ -1496,9 +1272,7 @@ class JournalRecoveryValidator:
                     failure_reason="Non-canonical ProducerCapability for Journal in AuthorityDomain",
                 )
                 return JournalRecoveryEvidence(valid=False, provenance=prov)
-            if not authority_domain.is_canonical_validator_capability(
-                "JournalRecoveryValidator", capability
-            ):
+            if not authority_domain.is_canonical_validator_capability("JournalRecoveryValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="JournalRecoveryValidator",
                     source_operation="validate",
@@ -1572,10 +1346,7 @@ class JournalRecoveryValidator:
         seq = journal._global_sequence
 
         obs_payload = observation.frozen_payload
-        if (
-            obs_payload.get("faulted") != faulted
-            or obs_payload.get("global_sequence") != seq
-        ):
+        if obs_payload.get("faulted") != faulted or obs_payload.get("global_sequence") != seq:
             prov = EvidenceProvenance(
                 source_component="JournalRecoveryValidator",
                 source_operation="validate",
@@ -1595,9 +1366,7 @@ class JournalRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Journal in faulted state" if not valid else None,
         )
-        unsealed = JournalRecoveryEvidence(
-            valid=valid, head_sequence=seq, provenance=prov
-        )
+        unsealed = JournalRecoveryEvidence(valid=valid, head_sequence=seq, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
             token = capability.sign_token(session_id, digest)
@@ -1619,9 +1388,7 @@ class SnapshotRecoveryValidator:
         authority_domain: AuthorityDomain | None = None,
     ) -> SnapshotRecoveryEvidence:
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.SNAPSHOT, snapshot_engine
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.SNAPSHOT, snapshot_engine):
                 prov = EvidenceProvenance(
                     source_component="SnapshotRecoveryValidator",
                     source_operation="validate",
@@ -1630,11 +1397,8 @@ class SnapshotRecoveryValidator:
                     failure_reason="Unregistered SnapshotEngine instance in AuthorityDomain",
                 )
                 return SnapshotRecoveryEvidence(valid=False, provenance=prov)
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.SNAPSHOT, producer_capability
-                )
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.SNAPSHOT, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="SnapshotRecoveryValidator",
@@ -1644,9 +1408,7 @@ class SnapshotRecoveryValidator:
                     failure_reason="Non-canonical ProducerCapability for Snapshot in AuthorityDomain",
                 )
                 return SnapshotRecoveryEvidence(valid=False, provenance=prov)
-            if not authority_domain.is_canonical_validator_capability(
-                "SnapshotRecoveryValidator", capability
-            ):
+            if not authority_domain.is_canonical_validator_capability("SnapshotRecoveryValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="SnapshotRecoveryValidator",
                     source_operation="validate",
@@ -1718,10 +1480,7 @@ class SnapshotRecoveryValidator:
         fallback = getattr(snapshot_engine, "_snapshot_fallback_used", False)
         valid = getattr(snapshot_engine, "_snapshot_valid", True)
 
-        if (
-            obs_payload.get("snapshot_valid") != valid
-            or obs_payload.get("snapshot_fallback_used") != fallback
-        ):
+        if obs_payload.get("snapshot_valid") != valid or obs_payload.get("snapshot_fallback_used") != fallback:
             prov = EvidenceProvenance(
                 source_component="SnapshotRecoveryValidator",
                 source_operation="validate",
@@ -1752,9 +1511,7 @@ class SnapshotRecoveryValidator:
             result="SUCCESS" if valid else "FAILED",
             failure_reason="Snapshot invalid or corrupt" if not valid else None,
         )
-        unsealed = SnapshotRecoveryEvidence(
-            valid=valid, fallback_used=fallback, provenance=prov
-        )
+        unsealed = SnapshotRecoveryEvidence(valid=valid, fallback_used=fallback, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
             token = capability.sign_token(session_id, digest)
@@ -1773,9 +1530,7 @@ class RiskLedgerRecoveryValidator:
         authority_domain: AuthorityDomain | None = None,
     ) -> RiskLedgerRecoveryEvidence:
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.RISK_LEDGER, risk_ledger
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.RISK_LEDGER, risk_ledger):
                 prov = EvidenceProvenance(
                     source_component="RiskLedgerRecoveryValidator",
                     source_operation="reconstruct",
@@ -1784,11 +1539,8 @@ class RiskLedgerRecoveryValidator:
                     failure_reason="Unregistered RiskLedger instance in AuthorityDomain",
                 )
                 return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.RISK_LEDGER, producer_capability
-                )
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.RISK_LEDGER, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="RiskLedgerRecoveryValidator",
@@ -1798,9 +1550,7 @@ class RiskLedgerRecoveryValidator:
                     failure_reason="Non-canonical ProducerCapability for Risk Ledger in AuthorityDomain",
                 )
                 return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
-            if not authority_domain.is_canonical_validator_capability(
-                "RiskLedgerRecoveryValidator", capability
-            ):
+            if not authority_domain.is_canonical_validator_capability("RiskLedgerRecoveryValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="RiskLedgerRecoveryValidator",
                     source_operation="reconstruct",
@@ -1873,10 +1623,7 @@ class RiskLedgerRecoveryValidator:
         remaining = risk_ledger.remaining_risk
         faulted = getattr(risk_ledger, "_faulted", False)
 
-        if (
-            obs_payload.get("entries_count") != count
-            or obs_payload.get("faulted") != faulted
-        ):
+        if obs_payload.get("entries_count") != count or obs_payload.get("faulted") != faulted:
             prov = EvidenceProvenance(
                 source_component="RiskLedgerRecoveryValidator",
                 source_operation="reconstruct",
@@ -1892,13 +1639,9 @@ class RiskLedgerRecoveryValidator:
             source_operation="reconstruct",
             source_session=session_id,
             result="SUCCESS" if valid else "FAILED",
-            failure_reason=None
-            if valid
-            else "Risk ledger in faulted state or negative remaining risk",
+            failure_reason=None if valid else "Risk ledger in faulted state or negative remaining risk",
         )
-        unsealed = RiskLedgerRecoveryEvidence(
-            valid=valid, reconstructed_entries_count=count, provenance=prov
-        )
+        unsealed = RiskLedgerRecoveryEvidence(valid=valid, reconstructed_entries_count=count, provenance=prov)
         if valid:
             digest = compute_evidence_digest(unsealed)
             token = capability.sign_token(session_id, digest)
@@ -1917,9 +1660,7 @@ class IntentRecoveryValidator:
         authority_domain: AuthorityDomain | None = None,
     ) -> IntentRecoveryEvidence:
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.INTENT_REPOSITORY, intent_repo
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo):
                 prov = EvidenceProvenance(
                     source_component="IntentRecoveryValidator",
                     source_operation="reconstruct",
@@ -1928,11 +1669,8 @@ class IntentRecoveryValidator:
                     failure_reason="Unregistered IntentRepository instance in AuthorityDomain",
                 )
                 return IntentRecoveryEvidence(valid=False, provenance=prov)
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.INTENT_REPOSITORY, producer_capability
-                )
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.INTENT_REPOSITORY, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="IntentRecoveryValidator",
@@ -1942,9 +1680,7 @@ class IntentRecoveryValidator:
                     failure_reason="Non-canonical ProducerCapability for Intent Repository in AuthorityDomain",
                 )
                 return IntentRecoveryEvidence(valid=False, provenance=prov)
-            if not authority_domain.is_canonical_validator_capability(
-                "IntentRecoveryValidator", capability
-            ):
+            if not authority_domain.is_canonical_validator_capability("IntentRecoveryValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="IntentRecoveryValidator",
                     source_operation="reconstruct",
@@ -2033,9 +1769,7 @@ class IntentRecoveryValidator:
             source_session=session_id,
             result="SUCCESS",
         )
-        unsealed = IntentRecoveryEvidence(
-            valid=valid, reconstructed_intents_count=count, provenance=prov
-        )
+        unsealed = IntentRecoveryEvidence(valid=valid, reconstructed_intents_count=count, provenance=prov)
         digest = compute_evidence_digest(unsealed)
         token = capability.sign_token(session_id, digest)
         return dataclasses.replace(unsealed, _authority_token=token)
@@ -2059,13 +1793,10 @@ class BrokerReconciliationValidator:
 
         if (
             not isinstance(reconciliation_report, ReconciliationReport)
-            or not reconciliation_report.has_valid_authority_stamp(
-                expected_session_id=session_id
-            )
+            or not reconciliation_report.has_valid_authority_stamp(expected_session_id=session_id)
             or (
                 reconciliation_report._authority_stamp
-                and reconciliation_report._authority_stamp.authority_domain_id
-                != capability.authority_domain_id
+                and reconciliation_report._authority_stamp.authority_domain_id != capability.authority_domain_id
             )
         ):
             prov = EvidenceProvenance(
@@ -2085,10 +1816,7 @@ class BrokerReconciliationValidator:
         unknown = reconciliation_report.unknown_count
         orphaned = reconciliation_report.orphaned_count
         valid = (
-            reconciliation_report.authoritative
-            and reconciliation_report.complete
-            and unknown == 0
-            and orphaned == 0
+            reconciliation_report.authoritative and reconciliation_report.complete and unknown == 0 and orphaned == 0
         )
         prov = EvidenceProvenance(
             source_component="BrokerReconciliationValidator",
@@ -2126,9 +1854,7 @@ class ConfigurationValidator:
         authority_domain: AuthorityDomain | None = None,
     ) -> ConfigurationEvidence:
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.EFFECTIVE_CONFIGURATION, config_obj_or_id
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config_obj_or_id):
                 prov = EvidenceProvenance(
                     source_component="ConfigurationValidator",
                     source_operation="validate",
@@ -2137,11 +1863,8 @@ class ConfigurationValidator:
                     failure_reason="Unregistered Configuration instance in AuthorityDomain",
                 )
                 return ConfigurationEvidence(valid=False, provenance=prov)
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.EFFECTIVE_CONFIGURATION, producer_capability
-                )
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.EFFECTIVE_CONFIGURATION, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="ConfigurationValidator",
@@ -2151,9 +1874,7 @@ class ConfigurationValidator:
                     failure_reason="Non-canonical ProducerCapability for Configuration in AuthorityDomain",
                 )
                 return ConfigurationEvidence(valid=False, provenance=prov)
-            if not authority_domain.is_canonical_validator_capability(
-                "ConfigurationValidator", capability
-            ):
+            if not authority_domain.is_canonical_validator_capability("ConfigurationValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="ConfigurationValidator",
                     source_operation="validate",
@@ -2167,9 +1888,7 @@ class ConfigurationValidator:
             or capability.role != CapabilityRole.CONFIGURATION_VALIDATOR
             or capability.validator_id != "ConfigurationValidator"
         ):
-            raise RecoveryEvidenceError(
-                "ConfigurationValidator requires a valid CONFIGURATION_VALIDATOR capability."
-            )
+            raise RecoveryEvidenceError("ConfigurationValidator requires a valid CONFIGURATION_VALIDATOR capability.")
 
         if isinstance(config_obj_or_id, str):
             prov = EvidenceProvenance(
@@ -2244,9 +1963,7 @@ class ConfigurationValidator:
             )
             return ConfigurationEvidence(valid=False, provenance=prov)
 
-        identity_matched = (expected_config_id is None) or (
-            config_id == expected_config_id
-        )
+        identity_matched = (expected_config_id is None) or (config_id == expected_config_id)
         valid = bool(config_id) and identity_matched
 
         prov = EvidenceProvenance(
@@ -2255,9 +1972,7 @@ class ConfigurationValidator:
             source_session=session_id,
             source_identity=config_id,
             result="SUCCESS" if valid else "FAILED",
-            failure_reason=None
-            if valid
-            else "Configuration identity mismatch or empty config_id",
+            failure_reason=None if valid else "Configuration identity mismatch or empty config_id",
         )
         unsealed = ConfigurationEvidence(
             valid=valid,
@@ -2283,9 +1998,7 @@ class ProtectiveMonitoringValidator:
         authority_domain: AuthorityDomain | None = None,
     ) -> ProtectiveMonitoringEvidence:
         if authority_domain:
-            if not authority_domain.is_registered_producer(
-                CapabilityRole.PROTECTIVE_MONITOR, protective_subsystem
-            ):
+            if not authority_domain.is_registered_producer(CapabilityRole.PROTECTIVE_MONITOR, protective_subsystem):
                 prov = EvidenceProvenance(
                     source_component="ProtectiveMonitoringValidator",
                     source_operation="validate",
@@ -2293,14 +2006,9 @@ class ProtectiveMonitoringValidator:
                     result="FAILED",
                     failure_reason="Unregistered ProtectiveMonitoringSubsystem instance in AuthorityDomain",
                 )
-                return ProtectiveMonitoringEvidence(
-                    valid=False, active=False, provenance=prov
-                )
-            if (
-                producer_capability
-                and not authority_domain.is_canonical_producer_capability(
-                    CapabilityRole.PROTECTIVE_MONITOR, producer_capability
-                )
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(
+                CapabilityRole.PROTECTIVE_MONITOR, producer_capability
             ):
                 prov = EvidenceProvenance(
                     source_component="ProtectiveMonitoringValidator",
@@ -2309,12 +2017,8 @@ class ProtectiveMonitoringValidator:
                     result="FAILED",
                     failure_reason="Non-canonical ProducerCapability for Protective Monitoring in AuthorityDomain",
                 )
-                return ProtectiveMonitoringEvidence(
-                    valid=False, active=False, provenance=prov
-                )
-            if not authority_domain.is_canonical_validator_capability(
-                "ProtectiveMonitoringValidator", capability
-            ):
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("ProtectiveMonitoringValidator", capability):
                 prov = EvidenceProvenance(
                     source_component="ProtectiveMonitoringValidator",
                     source_operation="validate",
@@ -2322,9 +2026,7 @@ class ProtectiveMonitoringValidator:
                     result="FAILED",
                     failure_reason="Non-canonical ValidatorCapability for ProtectiveMonitoringValidator in AuthorityDomain",
                 )
-                return ProtectiveMonitoringEvidence(
-                    valid=False, active=False, provenance=prov
-                )
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
         if (
             not isinstance(capability, ValidatorCapability)
             or capability.role != CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR
@@ -2342,9 +2044,7 @@ class ProtectiveMonitoringValidator:
                 result="FAILED",
                 failure_reason="Raw boolean assertion rejected. Protective monitoring authority requires ProtectiveMonitoringSubsystem with SealedObservation.",
             )
-            return ProtectiveMonitoringEvidence(
-                valid=False, active=False, provenance=prov
-            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
 
         if observation is None or producer_capability is None:
             prov = EvidenceProvenance(
@@ -2354,9 +2054,7 @@ class ProtectiveMonitoringValidator:
                 result="FAILED",
                 failure_reason="Missing SealedObservation or ProducerCapability for Protective Monitoring authority provenance.",
             )
-            return ProtectiveMonitoringEvidence(
-                valid=False, active=False, provenance=prov
-            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
 
         if (
             not isinstance(producer_capability, ProducerCapability)
@@ -2369,9 +2067,7 @@ class ProtectiveMonitoringValidator:
                 result="FAILED",
                 failure_reason="Invalid or unauthorized ProducerCapability for Protective Monitoring.",
             )
-            return ProtectiveMonitoringEvidence(
-                valid=False, active=False, provenance=prov
-            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
 
         if not isinstance(observation, SealedObservation) or not observation.verify(
             producer_capability.authority_domain_id,
@@ -2386,9 +2082,7 @@ class ProtectiveMonitoringValidator:
                 result="FAILED",
                 failure_reason="SealedObservation verification failed for Protective Monitoring.",
             )
-            return ProtectiveMonitoringEvidence(
-                valid=False, active=False, provenance=prov
-            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
 
         if not isinstance(protective_subsystem, ProtectiveMonitoringSubsystem):
             prov = EvidenceProvenance(
@@ -2398,9 +2092,7 @@ class ProtectiveMonitoringValidator:
                 result="FAILED",
                 failure_reason="Subsystem must be an instance of ProtectiveMonitoringSubsystem.",
             )
-            return ProtectiveMonitoringEvidence(
-                valid=False, active=False, provenance=prov
-            )
+            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
 
         obs_payload = observation.frozen_payload
         active = protective_subsystem.is_active() and obs_payload.get("active") is True
@@ -2410,13 +2102,9 @@ class ProtectiveMonitoringValidator:
             source_operation="validate",
             source_session=session_id,
             result="SUCCESS" if active else "FAILED",
-            failure_reason=None
-            if active
-            else "Protective monitoring is inactive or faulty",
+            failure_reason=None if active else "Protective monitoring is inactive or faulty",
         )
-        unsealed = ProtectiveMonitoringEvidence(
-            valid=active, active=active, provenance=prov
-        )
+        unsealed = ProtectiveMonitoringEvidence(valid=active, active=active, provenance=prov)
         if active:
             digest = compute_evidence_digest(unsealed)
             token = capability.sign_token(session_id, digest)
@@ -2435,18 +2123,11 @@ class RecoveryEngine:
     ) -> None:
         self.authority_domain: AuthorityDomain | None = authority_domain
         self.state = initial_state
-        self.strategic_authorization_enabled = (
-            initial_state == RecoveryState.NORMAL and self.is_production_recovery
-        )
+        self.strategic_authorization_enabled = initial_state == RecoveryState.NORMAL and self.is_production_recovery
         self.last_evidence: RecoveryEvidence | None = None
         self.session_id: str = str(uuid.uuid4())
-        self.validator_capabilities: dict[str, ValidatorCapability] = (
-            validator_capabilities
-            or (
-                authority_domain._validator_capabilities.copy()
-                if authority_domain
-                else {}
-            )
+        self.validator_capabilities: dict[str, ValidatorCapability] = validator_capabilities or (
+            authority_domain._validator_capabilities.copy() if authority_domain else {}
         )
 
     @property
@@ -2486,16 +2167,12 @@ class RecoveryEngine:
     def complete_recovery_with_evidence(self, evidence: RecoveryEvidence) -> None:
         """Completes recovery using verifiable evidence object containing sealed authority capability bundle."""
         if self.state not in (RecoveryState.RECONCILING, RecoveryState.RECOVERING):
-            raise ValueError(
-                f"Cannot complete recovery with evidence from state '{self.state}'"
-            )
+            raise ValueError(f"Cannot complete recovery with evidence from state '{self.state}'")
 
         if not isinstance(evidence, RecoveryEvidence):
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
-            raise RecoveryEvidenceError(
-                "Recovery evidence must be an instance of RecoveryEvidence"
-            )
+            raise RecoveryEvidenceError("Recovery evidence must be an instance of RecoveryEvidence")
 
         if not self.is_production_recovery:
             self.state = RecoveryState.SAFE
@@ -2505,9 +2182,7 @@ class RecoveryEngine:
             )
 
         val_caps = (
-            self.authority_domain._validator_capabilities
-            if self.authority_domain
-            else self.validator_capabilities
+            self.authority_domain._validator_capabilities if self.authority_domain else self.validator_capabilities
         )
         if not evidence.has_valid_authority_capability(
             required_session=self.session_id, validator_capabilities=val_caps
@@ -2521,9 +2196,7 @@ class RecoveryEngine:
         if not evidence.is_satisfactory(required_session=self.session_id):
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
-            raise RecoveryEvidenceError(
-                "Recovery evidence validation failed. System placed in SAFE state."
-            )
+            raise RecoveryEvidenceError("Recovery evidence validation failed. System placed in SAFE state.")
 
         self.last_evidence = evidence
         self.state = RecoveryState.RECOVERY_COMPLETE
@@ -2534,9 +2207,7 @@ class RecoveryEngine:
         if not reconciliation_successful:
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
-            raise ValueError(
-                "Reconciliation failed. System placed in SAFE recovery state."
-            )
+            raise ValueError("Reconciliation failed. System placed in SAFE recovery state.")
 
         # Boolean shortcut alone CANNOT authorize strategic execution!
         self.state = RecoveryState.RECOVERY_COMPLETE

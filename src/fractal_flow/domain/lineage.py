@@ -10,7 +10,6 @@ class LineageInvalidException(Exception):
     """Raised when lineage validation or parent checks fail."""
 
 
-
 def load_spec_lineage_edges(
     yaml_path: str = "spec/lineage.yaml",
 ) -> dict[str, set[str]]:
@@ -18,11 +17,7 @@ def load_spec_lineage_edges(
     if path.exists():
         with open(path) as f:
             data = yaml.safe_load(f)
-            raw_edges = (
-                data.get("lineage", {}).get("legal_edges", {})
-                if isinstance(data, dict)
-                else {}
-            )
+            raw_edges = data.get("lineage", {}).get("legal_edges", {}) if isinstance(data, dict) else {}
             return {k: set(v) for k, v in raw_edges.items()}
     return {}
 
@@ -40,14 +35,10 @@ class Lineage:
     current_tier: str
     parent_is_valid: bool = True
 
-    def validate_child_action(
-        self, authoritative_parent_version: int | None = None
-    ) -> None:
+    def validate_child_action(self, authoritative_parent_version: int | None = None) -> None:
         """Validates child node execution using strict version identity and parent checks."""
         if not self.root_id or not self.parent_id:
-            raise LineageInvalidException(
-                "Lineage missing root_id or parent_id. Orphaned object cannot execute."
-            )
+            raise LineageInvalidException("Lineage missing root_id or parent_id. Orphaned object cannot execute.")
 
         if not self.parent_is_valid:
             raise LineageInvalidException(
@@ -55,9 +46,7 @@ class Lineage:
             )
 
         if self.parent_version <= 0:
-            raise LineageInvalidException(
-                f"Invalid parent version {self.parent_version}. Version must be positive."
-            )
+            raise LineageInvalidException(f"Invalid parent version {self.parent_version}. Version must be positive.")
 
         if authoritative_parent_version is not None:
             if self.parent_version != authoritative_parent_version:

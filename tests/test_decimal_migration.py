@@ -28,9 +28,7 @@ def test_effective_config_hash_stability() -> None:
         risk_per_trade_pct=Decimal("0.02"),
         max_currency_exposure_lots=Decimal("5.0"),
     )
-    news_overlay = NewsOverlay(
-        news_lockdown_active=False, risk_multiplier=Decimal("0.5")
-    )
+    news_overlay = NewsOverlay(news_lockdown_active=False, risk_multiplier=Decimal("0.5"))
 
     cfg1 = compute_effective_config(base, "EURUSD", news_overlay=news_overlay)
     cfg2 = compute_effective_config(base, "EURUSD", news_overlay=news_overlay)

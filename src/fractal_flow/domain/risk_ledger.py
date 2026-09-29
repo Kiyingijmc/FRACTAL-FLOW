@@ -10,7 +10,6 @@ class AccountingInvariantException(Exception):
     """Raised when risk ledger aggregate balances or entry history corrupts accounting invariants."""
 
 
-
 @unique
 class LedgerOperation(str, Enum):
     RESERVE = "RESERVE"
@@ -60,16 +59,9 @@ class OpportunityRiskLedger:
 
     @property
     def remaining_risk(self) -> float:
-        rem = (
-            self.total_risk
-            - self.allocated_risk
-            - self.reserved_risk
-            - self.consumed_risk
-        )
+        rem = self.total_risk - self.allocated_risk - self.reserved_risk - self.consumed_risk
         if rem < Decimal("0.0"):
-            raise AccountingInvariantException(
-                f"Negative remaining risk detected on budget '{self.budget_id}': {rem}"
-            )
+            raise AccountingInvariantException(f"Negative remaining risk detected on budget '{self.budget_id}': {rem}")
         return float(rem)
 
     @property
@@ -116,9 +108,7 @@ class OpportunityRiskLedger:
 
         if operation == LedgerOperation.RESERVE:
             if amt_dec > Decimal(str(self.remaining_risk)):
-                raise AccountingInvariantException(
-                    f"Reserve {amount} exceeds remaining risk {self.remaining_risk}"
-                )
+                raise AccountingInvariantException(f"Reserve {amount} exceeds remaining risk {self.remaining_risk}")
             self.reserved_risk += amt_dec
 
         elif operation == LedgerOperation.ALLOCATE:
@@ -197,10 +187,7 @@ class OpportunityRiskLedger:
             SealedObservation,
         )
 
-        if (
-            not isinstance(capability, ProducerCapability)
-            or capability.role != CapabilityRole.RISK_LEDGER
-        ):
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.RISK_LEDGER:
             raise RecoveryEvidenceError(
                 "OpportunityRiskLedger observation requires a valid RISK_LEDGER ProducerCapability."
             )
@@ -219,6 +206,4 @@ class OpportunityRiskLedger:
             "consumed_risk": str(self.consumed_risk),
             "faulted": faulted,
         }
-        return SealedObservation.create(
-            capability, session_id, int(time.time()), payload
-        )
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)

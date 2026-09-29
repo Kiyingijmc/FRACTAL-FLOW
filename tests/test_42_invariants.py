@@ -16,9 +16,7 @@ def test_invariant_verification_matrix_is_truthful() -> None:
     assert len(invariants) == 42, f"Expected 42 invariants, found {len(invariants)}"
 
     ids = [inv["id"] for inv in invariants]
-    assert sorted(ids) == list(range(1, 43)), (
-        "Invariant IDs must be sequentially numbered 1 to 42"
-    )
+    assert sorted(ids) == list(range(1, 43)), "Invariant IDs must be sequentially numbered 1 to 42"
 
     enforced_count = 0
     integration_count = 0
@@ -33,18 +31,12 @@ def test_invariant_verification_matrix_is_truthful() -> None:
 
         if status == "ENFORCED":
             enforced_count += 1
-            assert (
-                inv.get("test_reference") is not None
-                and inv["test_reference"] != "None"
-            ), (
+            assert inv.get("test_reference") is not None and inv["test_reference"] != "None", (
                 f"Invariant {inv['id']} marked ENFORCED must have a non-empty test_reference"
             )
         elif status == "INTEGRATION_VERIFIED":
             integration_count += 1
-            assert (
-                inv.get("test_reference") is not None
-                and inv["test_reference"] != "None"
-            ), (
+            assert inv.get("test_reference") is not None and inv["test_reference"] != "None", (
                 f"Invariant {inv['id']} marked INTEGRATION_VERIFIED must have a non-empty test_reference"
             )
         elif status == "SPECIFIED_ONLY":

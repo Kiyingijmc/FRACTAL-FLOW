@@ -201,9 +201,7 @@ class TradeDecision:
         if self.news_state == "NEWS_LOCKDOWN":
             return False
         return (
-            self.authorized
-            and self.tradeability == "TRADEABILITY_PASS"
-            and self.portfolio_state == "PORTFOLIO_ALLOW"
+            self.authorized and self.tradeability == "TRADEABILITY_PASS" and self.portfolio_state == "PORTFOLIO_ALLOW"
         )
 
 

@@ -54,43 +54,27 @@ def _provision_full_production_authority(
 
     b_prod = prod_bootstrap.get_producer_capability(
         CapabilityRole.BROKER_QUERY
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"
-    )
-    adapter = AuthoritativeBrokerAdapter(
-        capability=b_prod, authority=BrokerQueryQuality.FOUND
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
 
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.JOURNAL
-    ) or prod_bootstrap.mint_producer_capability(
+    prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.JOURNAL, "JournalSubsystem"
     )
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.SNAPSHOT
-    ) or prod_bootstrap.mint_producer_capability(
+    prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
     )
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.RISK_LEDGER
-    ) or prod_bootstrap.mint_producer_capability(
+    prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem"
     )
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.INTENT_REPOSITORY
-    ) or prod_bootstrap.mint_producer_capability(
+    prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(
         CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"
     )
     prod_bootstrap.get_producer_capability(
         CapabilityRole.EFFECTIVE_CONFIGURATION
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
     prod_bootstrap.get_producer_capability(
         CapabilityRole.PROTECTIVE_MONITOR
-    ) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id
-    )
+    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
     prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
     prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
@@ -100,24 +84,16 @@ def _provision_full_production_authority(
     prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
     prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
-    prod_bootstrap.get_validator_capability(
-        "JournalRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
+    prod_bootstrap.get_validator_capability("JournalRecoveryValidator") or prod_bootstrap.mint_validator_capability(
         CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
     )
-    prod_bootstrap.get_validator_capability(
-        "SnapshotRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
+    prod_bootstrap.get_validator_capability("SnapshotRecoveryValidator") or prod_bootstrap.mint_validator_capability(
         CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"
     )
-    prod_bootstrap.get_validator_capability(
-        "RiskLedgerRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
+    prod_bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or prod_bootstrap.mint_validator_capability(
         CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"
     )
-    prod_bootstrap.get_validator_capability(
-        "IntentRecoveryValidator"
-    ) or prod_bootstrap.mint_validator_capability(
+    prod_bootstrap.get_validator_capability("IntentRecoveryValidator") or prod_bootstrap.mint_validator_capability(
         CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"
     )
     prod_bootstrap.get_validator_capability(
@@ -125,9 +101,7 @@ def _provision_full_production_authority(
     ) or prod_bootstrap.mint_validator_capability(
         CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"
     )
-    prod_bootstrap.get_validator_capability(
-        "ConfigurationValidator"
-    ) or prod_bootstrap.mint_validator_capability(
+    prod_bootstrap.get_validator_capability("ConfigurationValidator") or prod_bootstrap.mint_validator_capability(
         CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"
     )
     prod_bootstrap.get_validator_capability(
@@ -146,9 +120,7 @@ def test_scenario_a_foreign_domain_capability_rejected() -> None:
 
     # Foreign domain creates capability
     foreign_bootstrap = AuthorityBootstrap("FOREIGN_DOMAIN")
-    foreign_cap = foreign_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
+    foreign_cap = foreign_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
 
     # Attempting to register producer with foreign capability or cross-validate MUST fail
     journal = DurableEventJournal()
@@ -179,9 +151,7 @@ def test_scenario_b_foreign_domain_producer_rejected() -> None:
     foreign_bootstrap.register_producer(CapabilityRole.JOURNAL, foreign_journal)
 
     # Registering a foreign domain's producer instance without registering it in prod_bootstrap MUST fail validation
-    j_cap = prod_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
+    j_cap = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
     val_cap = prod_bootstrap.mint_validator_capability(
         CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
     )
@@ -205,9 +175,7 @@ def test_scenario_b_foreign_domain_producer_rejected() -> None:
 
 def test_scenario_c_wrong_role_registration_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
-    snap_cap = prod_bootstrap.mint_producer_capability(
-        CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
-    )
+    snap_cap = prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
 
     class JournalProducer(DurableEventJournal):
         producer_id = "JournalSubsystem"
@@ -249,18 +217,8 @@ def test_scenario_e_wrong_producer_object_rejected() -> None:
     prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal_primary)
 
     # Imposter object identity check fails
-    assert (
-        prod_bootstrap.domain.is_registered_producer(
-            CapabilityRole.JOURNAL, journal_primary
-        )
-        is True
-    )
-    assert (
-        prod_bootstrap.domain.is_registered_producer(
-            CapabilityRole.JOURNAL, journal_imposter
-        )
-        is False
-    )
+    assert prod_bootstrap.domain.is_registered_producer(CapabilityRole.JOURNAL, journal_primary) is True
+    assert prod_bootstrap.domain.is_registered_producer(CapabilityRole.JOURNAL, journal_imposter) is False
 
 
 # --- Scenario F: Forged issuance evidence ---
@@ -273,9 +231,7 @@ def test_scenario_f_forged_issuance_evidence_rejected() -> None:
     assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
 
     with pytest.raises(RecoveryEvidenceError) as exc2:
-        ValidatorCapability(
-            "DOMAIN_X", CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "ValX", b"1234" * 8
-        )
+        ValidatorCapability("DOMAIN_X", CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "ValX", b"1234" * 8)
     assert "Direct instantiation of ValidatorCapability is forbidden" in str(exc2.value)
 
 
@@ -304,14 +260,10 @@ def test_scenario_h_post_seal_mint_rejected() -> None:
     prod_bootstrap.finalize()
 
     with pytest.raises(RecoveryEvidenceError):
-        prod_bootstrap.mint_producer_capability(
-            CapabilityRole.JOURNAL, "PostSealJournal"
-        )
+        prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "PostSealJournal")
 
     with pytest.raises(RecoveryEvidenceError):
-        prod_bootstrap.mint_validator_capability(
-            CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "PostSealVal"
-        )
+        prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "PostSealVal")
 
 
 # --- Scenario I: Post-seal registration ---
@@ -491,9 +443,9 @@ def test_scenario_s_orphan_binding_detected_at_finalization() -> None:
 
     with pytest.raises(AuthorityError) as exc:
         prod_bootstrap.finalize()
-    assert "ProducerBinding producer instance mismatch" in str(
+    assert "ProducerBinding producer instance mismatch" in str(exc.value) or "ProducerBinding identity mismatch" in str(
         exc.value
-    ) or "ProducerBinding identity mismatch" in str(exc.value)
+    )
 
 
 # --- Scenario T: Tampered binding ---
@@ -579,9 +531,7 @@ def test_scenario_w_fake_issuer_rejected() -> None:
     # Attempting to call ProducerCapability._mint from a non-AuthorityDomain or finalized domain fails closed
     fake_domain = object()
     with pytest.raises(RecoveryEvidenceError) as exc:
-        ProducerCapability._mint(
-            fake_domain, CapabilityRole.JOURNAL, "JournalSubsystem", b"0" * 32
-        )
+        ProducerCapability._mint(fake_domain, CapabilityRole.JOURNAL, "JournalSubsystem", b"0" * 32)
     assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
 
 
@@ -634,9 +584,7 @@ def test_scenario_z_foreign_domain_issuer_substitution_rejected() -> None:
     _provision_full_production_authority(prod_bootstrap)
 
     foreign_bootstrap = AuthorityBootstrap("FOREIGN_DOMAIN")
-    foreign_cap = foreign_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
+    foreign_cap = foreign_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
 
     # Downstream recovery validator rejects foreign domain capability
     journal = DurableEventJournal()

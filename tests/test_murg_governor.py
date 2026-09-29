@@ -18,9 +18,7 @@ def make_catalog() -> InstrumentCatalog:
     for symbol in ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"]:
         identity = InstrumentIdentity(
             canonical_id=symbol,
-            asset_class=AssetClass.FX_MAJOR
-            if symbol != "BTCUSD"
-            else AssetClass.CRYPTO,
+            asset_class=AssetClass.FX_MAJOR if symbol != "BTCUSD" else AssetClass.CRYPTO,
             base_asset=symbol[:3],
             quote_asset=symbol[3:],
             broker="TEST_BROKER",
@@ -51,9 +49,7 @@ def make_catalog() -> InstrumentCatalog:
 
 def test_resource_governor_enforces_hard_active_cap() -> None:
     catalog = make_catalog()
-    universe = UserMarketUniverse(
-        pinned_canonical_ids={"EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"}
-    )
+    universe = UserMarketUniverse(pinned_canonical_ids={"EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD"})
     account = AccountResourceContext(
         equity=10000.0,
         balance=10000.0,
@@ -73,9 +69,7 @@ def test_resource_governor_enforces_hard_active_cap() -> None:
 
     # Max active symbols cap set to 2
     governor = ResourceGovernor(max_active_symbols=2)
-    decisions = governor.evaluate_universe_activation(
-        catalog, universe, account, session, {}, {}
-    )
+    decisions = governor.evaluate_universe_activation(catalog, universe, account, session, {}, {})
 
     active_count = sum(1 for d in decisions.values() if d.activation_state == "ACTIVE")
     assert active_count == 2
@@ -106,9 +100,7 @@ def test_dormant_market_preserves_position_and_pending_monitoring() -> None:
     has_pos = {"EURUSD": True}
     has_pend = {"EURUSD": True}
 
-    decisions = governor.evaluate_universe_activation(
-        catalog, universe, account, session, has_pos, has_pend
-    )
+    decisions = governor.evaluate_universe_activation(catalog, universe, account, session, has_pos, has_pend)
     eur_dec = decisions["EURUSD"]
 
     # Entry analysis disabled during closed session, but position and pending-order monitoring REMAINS ACTIVE!

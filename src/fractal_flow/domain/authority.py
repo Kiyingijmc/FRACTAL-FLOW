@@ -5,7 +5,6 @@ class AuthorityViolationException(Exception):
     """Raised when an engine attempts an unauthorized capability or an unknown engine accesses capabilities."""
 
 
-
 # Capability Definitions for all core system engines
 CAPABILITIES = {
     "PDE": {

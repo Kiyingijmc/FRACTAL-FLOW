@@ -95,6 +95,5 @@ def test_ast_decimal_guard_no_forbidden_floats() -> None:
                                 )
 
     assert not forbidden_float_declarations, (
-        "Forbidden floating-point declarations found in financial fields:\n"
-        + "\n".join(forbidden_float_declarations)
+        "Forbidden floating-point declarations found in financial fields:\n" + "\n".join(forbidden_float_declarations)
     )

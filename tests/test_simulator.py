@@ -45,9 +45,7 @@ def test_broker_simulator_successful_fill() -> None:
 
 
 def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
-    sim = DeterministicBrokerSimulator(
-        config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT)
-    )
+    sim = DeterministicBrokerSimulator(config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT))
     intent = ExecutionIntent(
         intent_id="intent_2",
         decision_id="dec_2",
@@ -74,9 +72,7 @@ def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
 
     # Reconcile unknown status
     recon_status = sim.reconcile_intent("intent_2")
-    assert (
-        recon_status == ExecutionState.EXEC_REJECTED
-    )  # No position created during disconnect
+    assert recon_status == ExecutionState.EXEC_REJECTED  # No position created during disconnect
 
 
 def test_broker_simulator_stop_loss_tighten_ratchet() -> None:
