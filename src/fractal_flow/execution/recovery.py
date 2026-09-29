@@ -290,7 +290,9 @@ class TrustedRuntimeBootstrap:
     @classmethod
     def bootstrap_production_runtime(cls, reset: bool = False) -> "TrustedRuntimeBootstrap":
         """Bootstraps or returns the singular trusted production runtime authority root."""
-        if cls._instance is None or reset:
+        if reset and cls._instance is not None:
+            raise AuthorityError("Resetting or replacing an active production authority root is forbidden.")
+        if cls._instance is None:
             cls._instance = cls(_issuance_token=_BOOTSTRAP_ISSUANCE_TOKEN)
         return cls._instance
 
