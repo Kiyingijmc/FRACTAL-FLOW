@@ -646,26 +646,19 @@ def test_registration_and_minting_order_equivalence() -> None:
 
 
 def test_guard_direct_construction_and_extraction_cannot_forge_capability() -> None:
-    # Attempting to pass dummy guard / closure to ProducerCapability fails
+    # Any attempt to manually supply internal parameters or construct capability directly MUST fail
     with pytest.raises(RecoveryEvidenceError) as exc:
-        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8, _guard=lambda: True)
+        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8)
     assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
 
-    # Attempting to extract _verify_issuance_key from production domain before sealing and reuse after sealing fails
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
     domain = prod_bootstrap.domain
-    extracted_guard = domain._verify_issuance_key
-    extracted_key = domain._issuance_key
 
-    # Verification before sealing with correct key succeeds
-    assert extracted_guard(extracted_key) is True
+    # Domain no longer exposes extractable _issuance_key attribute
+    assert not hasattr(domain, "_issuance_key")
+    assert not hasattr(domain, "_verify_issuance_key")
 
-    # Seal domain
-    prod_bootstrap.finalize()
-
-    # Post-seal, verification returns False
-    assert extracted_guard(extracted_key) is False
-
+    # Direct construction attempt MUST fail closed
     with pytest.raises(RecoveryEvidenceError):
-        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8, _guard=extracted_guard, _key=extracted_key)
+        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8)
