@@ -60,8 +60,6 @@ from src.fractal_flow.execution.recovery import (
     _AuthorityToken,
     compute_evidence_digest,
     AuthorityBootstrap,
-    AuthorityDomain,
-    TrustedRuntimeAuthority,
     CapabilityRole,
     SealedObservation,
     ValidatorCapability,
@@ -77,31 +75,45 @@ from src.fractal_flow.domain.event import Event
 
 # --- Helper functions for valid capability and evidence creation ---
 
-def _setup_test_capabilities() -> tuple[TrustedRuntimeAuthority, AuthorityDomain, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
-    runtime_auth = TrustedRuntimeAuthority()
-    domain = runtime_auth.domain
+def _setup_test_capabilities() -> tuple[AuthorityBootstrap, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
+    bootstrap = AuthorityBootstrap()
+    j_val_cap = bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    s_val_cap = bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
+    r_val_cap = bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
+    i_val_cap = bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
+    b_val_cap = bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
+    c_val_cap = bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
+    p_val_cap = bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
+
+    j_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
+    p_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
+
+    bootstrap.finalize()
 
     val_caps = {
-        "JournalRecoveryValidator": domain.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"),
-        "SnapshotRecoveryValidator": domain.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"),
-        "RiskLedgerRecoveryValidator": domain.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"),
-        "IntentRecoveryValidator": domain.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"),
-        "BrokerReconciliationValidator": domain.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"),
-        "ConfigurationValidator": domain.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"),
-        "ProtectiveMonitoringValidator": domain.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"),
+        "JournalRecoveryValidator": j_val_cap,
+        "SnapshotRecoveryValidator": s_val_cap,
+        "RiskLedgerRecoveryValidator": r_val_cap,
+        "IntentRecoveryValidator": i_val_cap,
+        "BrokerReconciliationValidator": b_val_cap,
+        "ConfigurationValidator": c_val_cap,
+        "ProtectiveMonitoringValidator": p_val_cap,
     }
     prod_caps = {
-        "Journal": domain.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
-        "Snapshot": domain.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem"),
-        "RiskLedger": domain.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem"),
-        "IntentRepo": domain.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"),
-        "BrokerQuery": domain.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"),
-        "Config": domain.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem"),
-        "Protective": domain.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem"),
+        "Journal": j_prod_cap,
+        "Snapshot": s_prod_cap,
+        "RiskLedger": r_prod_cap,
+        "IntentRepo": i_prod_cap,
+        "BrokerQuery": b_prod_cap,
+        "Config": c_prod_cap,
+        "Protective": p_prod_cap,
     }
-
-    domain.finalize()
-    return runtime_auth, domain, val_caps, prod_caps
+    return bootstrap, val_caps, prod_caps
 
 
 def _query_broker_authoritative(
@@ -126,9 +138,8 @@ def _query_broker_authoritative(
 def _create_assembled_evidence(
     session_id: str,
     recon_report: ReconciliationReport,
-    authority_domain: AuthorityDomain,
-    val_caps: dict[str, ValidatorCapability],
-    prod_caps: dict[str, ProducerCapability],
+    validator_caps: dict[str, ValidatorCapability],
+    producer_caps: dict[str, ProducerCapability],
     journal_obj: Any = None,
     snapshot_engine_obj: Any = None,
     risk_ledger_obj: Any = None,
@@ -150,28 +161,20 @@ def _create_assembled_evidence(
     if protective_subsystem_obj is None:
         protective_subsystem_obj = ProtectiveMonitoringSubsystem()
 
-    if authority_domain:
-        authority_domain.register_producer(CapabilityRole.JOURNAL, journal_obj)
-        authority_domain.register_producer(CapabilityRole.SNAPSHOT, snapshot_engine_obj)
-        authority_domain.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger_obj)
-        authority_domain.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo_obj)
-        authority_domain.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config_obj)
-        authority_domain.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective_subsystem_obj)
+    j_obs = journal_obj.produce_observation(session_id, producer_caps["Journal"])
+    s_obs = snapshot_engine_obj.produce_observation(session_id, producer_caps["Snapshot"])
+    r_obs = risk_ledger_obj.produce_observation(session_id, producer_caps["RiskLedger"])
+    i_obs = intent_repo_obj.produce_observation(session_id, producer_caps["IntentRepo"])
+    c_obs = config_obj.produce_observation(session_id, producer_caps["Config"])
+    p_obs = protective_subsystem_obj.produce_observation(session_id, producer_caps["Protective"])
 
-    j_obs = journal_obj.produce_observation(session_id, prod_caps["Journal"])
-    s_obs = snapshot_engine_obj.produce_observation(session_id, prod_caps["Snapshot"])
-    r_obs = risk_ledger_obj.produce_observation(session_id, prod_caps["RiskLedger"])
-    i_obs = intent_repo_obj.produce_observation(session_id, prod_caps["IntentRepo"])
-    c_obs = config_obj.produce_observation(session_id, prod_caps["Config"])
-    p_obs = protective_subsystem_obj.produce_observation(session_id, prod_caps["Protective"])
-
-    j_ev = JournalRecoveryValidator.validate(journal_obj, session_id, val_caps["JournalRecoveryValidator"], observation=j_obs, producer_capability=prod_caps["Journal"], authority_domain=authority_domain)
-    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj, session_id, val_caps["SnapshotRecoveryValidator"], observation=s_obs, producer_capability=prod_caps["Snapshot"], authority_domain=authority_domain)
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj, session_id, val_caps["RiskLedgerRecoveryValidator"], observation=r_obs, producer_capability=prod_caps["RiskLedger"], authority_domain=authority_domain)
-    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj, session_id, val_caps["IntentRecoveryValidator"], observation=i_obs, producer_capability=prod_caps["IntentRepo"], authority_domain=authority_domain)
-    b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id, val_caps["BrokerReconciliationValidator"])
-    c_ev = ConfigurationValidator.validate(config_obj, session_id, val_caps["ConfigurationValidator"], observation=c_obs, producer_capability=prod_caps["Config"], authority_domain=authority_domain)
-    p_ev = ProtectiveMonitoringValidator.validate(protective_subsystem_obj, session_id, val_caps["ProtectiveMonitoringValidator"], observation=p_obs, producer_capability=prod_caps["Protective"], authority_domain=authority_domain)
+    j_ev = JournalRecoveryValidator.validate(journal_obj, session_id, validator_caps["JournalRecoveryValidator"], observation=j_obs, producer_capability=producer_caps["Journal"])
+    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj, session_id, validator_caps["SnapshotRecoveryValidator"], observation=s_obs, producer_capability=producer_caps["Snapshot"])
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj, session_id, validator_caps["RiskLedgerRecoveryValidator"], observation=r_obs, producer_capability=producer_caps["RiskLedger"])
+    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj, session_id, validator_caps["IntentRecoveryValidator"], observation=i_obs, producer_capability=producer_caps["IntentRepo"])
+    b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id, validator_caps["BrokerReconciliationValidator"])
+    c_ev = ConfigurationValidator.validate(config_obj, session_id, validator_caps["ConfigurationValidator"], observation=c_obs, producer_capability=producer_caps["Config"])
+    p_ev = ProtectiveMonitoringValidator.validate(protective_subsystem_obj, session_id, validator_caps["ProtectiveMonitoringValidator"], observation=p_obs, producer_capability=producer_caps["Protective"])
 
     return RecoveryEvidenceAssembler.assemble(
         journal=j_ev,
@@ -182,7 +185,7 @@ def _create_assembled_evidence(
         config=c_ev,
         protective=p_ev,
         session_id=session_id,
-        authority_domain=authority_domain,
+        validator_capabilities=validator_caps,
     )
 
 
@@ -220,8 +223,7 @@ def test_sealed_observation_signature_verification() -> None:
     # Verify valid signature using role key
     assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.RISK_LEDGER, "session_123", risk_cap._role_key) is True
 
-    # Reject wrong domain, wrong role or wrong session
-    assert obs.verify("wrong_domain_id", CapabilityRole.RISK_LEDGER, "session_123", risk_cap._role_key) is False
+    # Reject wrong role or wrong session
     assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.JOURNAL, "session_123", risk_cap._role_key) is False
     assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.RISK_LEDGER, "session_wrong", risk_cap._role_key) is False
 
@@ -253,8 +255,8 @@ def test_validator_capability_required_fails_closed_when_missing() -> None:
 
 
 def test_token_transplantation_on_modified_evidence_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -262,7 +264,7 @@ def test_token_transplantation_on_modified_evidence_rejected() -> None:
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], session_id)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=session_id)
 
-    legitimate = _create_assembled_evidence(session_id, report, authority_domain=domain, val_caps=val_caps, prod_caps=prod_caps)
+    legitimate = _create_assembled_evidence(session_id, report, validator_caps=val_caps, producer_caps=prod_caps)
 
     # Attempt transplantation attack: dataclass.replace to tamper with evidence fields while retaining token
     tampered_journal = replace(
@@ -283,8 +285,8 @@ def test_token_transplantation_on_modified_evidence_rejected() -> None:
 
 
 def test_token_transplantation_valid_flag_tamper_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -299,7 +301,7 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
     # Create legitimate evidence for other subsystems
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], session_id)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=session_id)
-    legitimate_good = _create_assembled_evidence(session_id, report, authority_domain=domain, val_caps=val_caps, prod_caps=prod_caps)
+    legitimate_good = _create_assembled_evidence(session_id, report, validator_caps=val_caps, producer_caps=prod_caps)
 
     # Attempt transplanting authority token from legitimate good evidence onto invalid journal evidence with forced valid=True
     forged_j_ev = replace(
@@ -318,13 +320,13 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
             config=legitimate_good.config_evidence,
             protective=legitimate_good.protective_evidence,
             session_id=session_id,
-            authority_domain=domain,
+                validator_capabilities=val_caps,
         )
 
 
 def test_subsystem_state_forgery_attacks_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
 
@@ -361,8 +363,8 @@ def test_subsystem_state_forgery_attacks_rejected() -> None:
 
 
 def test_caller_cannot_forge_authoritative_evidence() -> None:
-    runtime_auth, _, _, _ = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, _ = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
@@ -377,8 +379,8 @@ def test_caller_cannot_forge_authoritative_evidence() -> None:
 
 
 def test_fabricated_seven_validator_bundle_rejected() -> None:
-    runtime_auth, domain, _, _ = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, _ = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -403,13 +405,13 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
         RecoveryEvidenceAssembler.assemble(
             journal=j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
             broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id,
-            authority_domain=domain,
+            validator_capabilities=val_caps,
         )
     assert "forged" in str(exc.value).lower()
 
 
 def test_copy_or_deepcopy_strips_authority_token() -> None:
-    _, _, val_caps, _ = _setup_test_capabilities()
+    _, val_caps, _ = _setup_test_capabilities()
     cap = val_caps["JournalRecoveryValidator"]
     tok = cap.sign_token("session_1", "digest_123")
     assert tok is not None
@@ -462,7 +464,7 @@ def test_orphan_record_details_mutation_rejected() -> None:
 # --- 4. Orphan Propagation & Authorization Blocking ---
 
 def test_orphan_count_flows_into_recovery_evidence() -> None:
-    _, _, val_caps, prod_caps = _setup_test_capabilities()
+    _, val_caps, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -491,8 +493,8 @@ def test_orphan_count_flows_into_recovery_evidence() -> None:
 
 
 def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> None:
-    runtime_auth, _, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
@@ -540,7 +542,7 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
 # --- 5. UNKNOWN Broker State Blocking ---
 
 def test_unknown_broker_state_blocks_authorization() -> None:
-    _, _, val_caps, _ = _setup_test_capabilities()
+    _, val_caps, _ = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -589,7 +591,7 @@ def test_non_authoritative_query_never_becomes_rejection(quality: BrokerQueryQua
 
 
 def test_only_broker_query_authority_can_authorize_rejection() -> None:
-    _, _, _, prod_caps = _setup_test_capabilities()
+    _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -679,14 +681,14 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
 # --- 8. Session Binding ---
 
 def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
-    runtime_auth, domain, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     old_session = engine.session_id
 
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], old_session)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=old_session)
-    old_evidence = _create_assembled_evidence(old_session, report, authority_domain=domain, val_caps=val_caps, prod_caps=prod_caps)
+    old_evidence = _create_assembled_evidence(old_session, report, validator_caps=val_caps, producer_caps=prod_caps)
 
     # Trigger second restart -> new session ID
     engine.trigger_system_restart()
@@ -702,7 +704,7 @@ def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
 # --- 9. Deal Semantics & Contradictions ---
 
 def test_missing_deal_role_becomes_unknown() -> None:
-    _, _, _, prod_caps = _setup_test_capabilities()
+    _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -733,7 +735,7 @@ def test_missing_deal_role_becomes_unknown() -> None:
 
 
 def test_close_before_open_is_unknown() -> None:
-    _, _, _, prod_caps = _setup_test_capabilities()
+    _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
         intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
         idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
@@ -774,7 +776,7 @@ def test_close_before_open_is_unknown() -> None:
 # --- 10. Orphan Protective Management ---
 
 def test_orphan_position_keeps_protective_monitoring_active() -> None:
-    _, _, _, prod_caps = _setup_test_capabilities()
+    _, _, prod_caps = _setup_test_capabilities()
     orphan_pos = Position(
         position_id="POS_ORPHAN", intent_id="intent_untracked", order_id="ORD_ORPHAN",
         symbol="EURUSD", side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
@@ -828,15 +830,15 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
 # --- 12. Valid Legitimate Authorization Path ---
 
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
-    runtime_auth, domain, val_caps, prod_caps = _setup_test_capabilities()
-    engine = runtime_auth.create_recovery_engine()
+    _, val_caps, prod_caps = _setup_test_capabilities()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], engine.session_id)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=engine.session_id)
 
-    evidence = _create_assembled_evidence(session_id=engine.session_id, recon_report=report, authority_domain=domain, val_caps=val_caps, prod_caps=prod_caps)
+    evidence = _create_assembled_evidence(session_id=engine.session_id, recon_report=report, validator_caps=val_caps, producer_caps=prod_caps)
 
     engine.complete_recovery_with_evidence(evidence)
 

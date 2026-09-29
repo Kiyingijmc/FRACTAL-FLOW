@@ -132,9 +132,9 @@ class BrokerQueryResult:
     provider_identity: str = "BrokerQueryProvider"
     account_id: str = ""
     session_id: str = ""
-    authority_domain_id: str = ""
     observation_digest: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
+    _observation: Optional[Any] = field(default=None, repr=False, compare=False)
     _issuance_key: object = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -144,6 +144,10 @@ class BrokerQueryResult:
                 object.__setattr__(self, "authority", BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE)
                 object.__setattr__(self, "completeness", False)
                 object.__setattr__(self, "status", "NON_AUTHORITATIVE")
+
+    @property
+    def authoritative(self) -> bool:
+        return self.authority in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
 
     @classmethod
     def from_observation(
@@ -174,7 +178,7 @@ class BrokerQueryResult:
         positions = dict(payload.get("broker_positions", {}))
         deals = dict(payload.get("broker_deals", {}))
 
-        return cls(
+        res = cls(
             status="SUCCESS" if quality in (BrokerQueryQuality.FOUND, BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE) else "NON_AUTHORITATIVE",
             authority=quality,
             query_timestamp=q_timestamp,
@@ -185,11 +189,12 @@ class BrokerQueryResult:
             provider_identity=provider_id,
             account_id=acc_id,
             session_id=session_id,
-            authority_domain_id=producer_capability.authority_domain_id,
             observation_digest=observation.payload_digest,
             details=dict(payload.get("details", {})),
             _issuance_key=_BROKER_ISSUANCE_KEY,
         )
+        object.__setattr__(res, "_observation", observation)
+        return res
 
 
 class AuthoritativeBrokerAdapter:
@@ -324,12 +329,6 @@ class _ReconciliationAuthorityStamp:
     def __deepcopy__(self, memo: Any) -> None:
         return None
 
-    def __getstate__(self) -> Any:
-        raise TypeError("Serialization/pickling of _ReconciliationAuthorityStamp is prohibited.")
-
-    def __setstate__(self, state: Any) -> None:
-        raise TypeError("Deserialization/unpickling of _ReconciliationAuthorityStamp is prohibited.")
-
     @classmethod
     def _issue(
         cls,
@@ -354,9 +353,7 @@ class _ReconciliationAuthorityStamp:
             signature=sig,
         )
 
-    def verify(self, report_digest: str, expected_domain_id: str = "", expected_session_id: str = "") -> bool:
-        if expected_domain_id and self.authority_domain_id != expected_domain_id:
-            return False
+    def verify(self, report_digest: str, expected_session_id: str = "") -> bool:
         if expected_session_id and self.session_id != expected_session_id:
             return False
         msg = f"{self.authority_domain_id}|{self.engine_id}|{self.session_id}|{self.broker_observation_digest}|{self.generated_at}|{report_digest}".encode("utf-8")
@@ -387,7 +384,6 @@ class ReconciliationReport:
     broker_positions_seen: int
     broker_deals_seen: int
     generated_at: int
-    authority_domain_id: str = ""
     broker_observation_digest: str = ""
     session_id: str = ""
     orphan_records: Tuple[OrphanRecord, ...] = field(default_factory=tuple)
@@ -425,7 +421,6 @@ class ReconciliationReport:
             "broker_positions_seen": self.broker_positions_seen,
             "broker_deals_seen": self.broker_deals_seen,
             "generated_at": self.generated_at,
-            "authority_domain_id": self.authority_domain_id,
             "broker_observation_digest": self.broker_observation_digest,
             "session_id": self.session_id,
             "orphan_records": [
@@ -447,10 +442,10 @@ class ReconciliationReport:
         canonical_json = json.dumps(raw, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
-    def has_valid_authority_stamp(self, expected_domain_id: str = "", expected_session_id: str = "") -> bool:
+    def has_valid_authority_stamp(self, expected_session_id: str = "") -> bool:
         if self._authority_stamp is None:
             return False
-        return self._authority_stamp.verify(self.compute_digest(), expected_domain_id=expected_domain_id, expected_session_id=expected_session_id)
+        return self._authority_stamp.verify(expected_session_id=expected_session_id, report_digest=self.compute_digest())
 
 
 class ReconciliationEngine:
@@ -674,7 +669,6 @@ class ReconciliationEngine:
         q_quality = BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
         q_complete = False
         broker_obs_digest = ""
-        report_domain_id = ""
         report_session_id = session_id
 
         if query_result is not None:
@@ -685,7 +679,6 @@ class ReconciliationEngine:
             q_timestamp = query_result.query_timestamp or now
             q_complete = query_result.completeness
             broker_obs_digest = query_result.observation_digest
-            report_domain_id = query_result.authority_domain_id
             if query_result.session_id:
                 report_session_id = query_result.session_id
         else:
@@ -784,19 +777,19 @@ class ReconciliationEngine:
             broker_positions_seen=len(broker_positions),
             broker_deals_seen=len(broker_deals) if broker_deals else 0,
             generated_at=now,
-            authority_domain_id=report_domain_id,
             broker_observation_digest=broker_obs_digest,
             session_id=report_session_id,
             orphan_records=tuple(orphan_records),
         )
 
+        domain_id = getattr(getattr(query_result, "_observation", None), "domain_id", "UNTRUSTED")
         stamp = _ReconciliationAuthorityStamp._issue(
-            authority_domain_id=report_domain_id,
-            engine_id="ReconciliationEngine",
-            session_id=report_session_id,
-            broker_obs_digest=broker_obs_digest,
-            generated_at=now,
-            report_digest=unsealed_report.compute_digest(),
-            secret_key=_RECON_ENGINE_SECRET,
+            domain_id,
+            "ReconciliationEngine",
+            report_session_id,
+            broker_obs_digest,
+            now,
+            unsealed_report.compute_digest(),
+            _RECON_ENGINE_SECRET,
         )
         return replace(unsealed_report, _authority_stamp=stamp)

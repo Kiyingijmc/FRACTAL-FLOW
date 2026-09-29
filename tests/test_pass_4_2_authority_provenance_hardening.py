@@ -59,8 +59,6 @@ from src.fractal_flow.execution.recovery import (
     _RecoveryAuthorityBundle,
     compute_evidence_digest,
     AuthorityBootstrap,
-    AuthorityDomain,
-    TrustedRuntimeAuthority,
     CapabilityRole,
     SealedObservation,
     ValidatorCapability,
@@ -74,29 +72,28 @@ from src.fractal_flow.persistence.interfaces import DurableExecutionIntentReposi
 from src.fractal_flow.domain.event import Event
 
 
-def _bootstrap_all() -> tuple[TrustedRuntimeAuthority, AuthorityDomain, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
-    runtime_auth = TrustedRuntimeAuthority()
-    domain = runtime_auth.domain
+def _bootstrap_all() -> tuple[AuthorityBootstrap, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
+    bootstrap = AuthorityBootstrap()
     val_caps = {
-        "JournalRecoveryValidator": domain.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"),
-        "SnapshotRecoveryValidator": domain.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"),
-        "RiskLedgerRecoveryValidator": domain.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"),
-        "IntentRecoveryValidator": domain.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"),
-        "BrokerReconciliationValidator": domain.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"),
-        "ConfigurationValidator": domain.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"),
-        "ProtectiveMonitoringValidator": domain.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"),
+        "JournalRecoveryValidator": bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"),
+        "SnapshotRecoveryValidator": bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"),
+        "RiskLedgerRecoveryValidator": bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"),
+        "IntentRecoveryValidator": bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"),
+        "BrokerReconciliationValidator": bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"),
+        "ConfigurationValidator": bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"),
+        "ProtectiveMonitoringValidator": bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"),
     }
     prod_caps = {
-        "Journal": domain.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
-        "Snapshot": domain.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem"),
-        "RiskLedger": domain.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem"),
-        "IntentRepo": domain.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"),
-        "BrokerQuery": domain.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"),
-        "Config": domain.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem"),
-        "Protective": domain.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem"),
+        "Journal": bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem"),
+        "Snapshot": bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem"),
+        "RiskLedger": bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskSubsystem"),
+        "IntentRepo": bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"),
+        "BrokerQuery": bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"),
+        "Config": bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem"),
+        "Protective": bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem"),
     }
-    domain.finalize()
-    return runtime_auth, domain, val_caps, prod_caps
+    bootstrap.finalize()
+    return bootstrap, val_caps, prod_caps
 
 
 # --- 1. CAPABILITY ATTACKS ---
@@ -104,7 +101,7 @@ def _bootstrap_all() -> tuple[TrustedRuntimeAuthority, AuthorityDomain, dict[str
 def test_direct_validator_capability_construction_rejected() -> None:
     with pytest.raises(RecoveryEvidenceError) as exc:
         ValidatorCapability(
-            authority_domain_id="FRACTAL_PROD_1",
+            authority_domain_id="ATTACKER_DOMAIN",
             role=CapabilityRole.JOURNAL_RECOVERY_VALIDATOR,
             validator_id="JournalRecoveryValidator",
             _role_key=b"attacker_key_32_bytes_long_12345",
@@ -115,7 +112,7 @@ def test_direct_validator_capability_construction_rejected() -> None:
 def test_direct_producer_capability_construction_rejected() -> None:
     with pytest.raises(RecoveryEvidenceError) as exc:
         ProducerCapability(
-            authority_domain_id="FRACTAL_PROD_1",
+            authority_domain_id="ATTACKER_DOMAIN",
             role=CapabilityRole.JOURNAL,
             producer_id="FakeJournalProducer",
             _role_key=b"attacker_key_32_bytes_long_12345",
@@ -124,7 +121,7 @@ def test_direct_producer_capability_construction_rejected() -> None:
 
 
 def test_cross_validator_capability_transplantation_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     journal = DurableEventJournal()
     session_id = "sess_cross_val"
     j_obs = journal.produce_observation(session_id, prod_caps["Journal"])
@@ -142,7 +139,7 @@ def test_cross_validator_capability_transplantation_rejected() -> None:
 
 
 def test_capability_copy_and_deepcopy_return_none() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     v_cap = val_caps["JournalRecoveryValidator"]
     p_cap = prod_caps["Journal"]
 
@@ -155,7 +152,7 @@ def test_capability_copy_and_deepcopy_return_none() -> None:
 # --- 2. JOURNAL ATTACKS ---
 
 def test_fake_duck_typed_journal_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_j"
 
     fake_journal = type("FakeJournal", (), {"_faulted": False, "_global_sequence": 100})()
@@ -173,7 +170,7 @@ def test_fake_duck_typed_journal_rejected() -> None:
 
 
 def test_tampered_journal_sequence_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_tamper_j"
     journal = DurableEventJournal()
 
@@ -197,7 +194,7 @@ def test_tampered_journal_sequence_rejected() -> None:
 # --- 3. RISK LEDGER ATTACKS ---
 
 def test_fake_risk_ledger_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_r"
 
     fake_risk = type("FakeRisk", (), {"entries": [], "remaining_risk": 500.0, "_faulted": False})()
@@ -219,7 +216,7 @@ def test_fake_risk_ledger_rejected() -> None:
 
 
 def test_tampered_remaining_risk_and_entries_count_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_risk_tamper"
     ledger = OpportunityRiskLedger("b1", "o1", 500.0, 1.0)
     obs = ledger.produce_observation(session_id, prod_caps["RiskLedger"])
@@ -241,7 +238,7 @@ def test_tampered_remaining_risk_and_entries_count_rejected() -> None:
 # --- 4. INTENT REPOSITORY ATTACKS ---
 
 def test_plain_object_intent_repo_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_repo"
 
     obs = SealedObservation.create(prod_caps["IntentRepo"], session_id, 1000, {"db_path": "", "intents_count": 0, "idempotency_keys_count": 0})
@@ -260,7 +257,7 @@ def test_plain_object_intent_repo_rejected() -> None:
 # --- 5. CONFIGURATION ATTACKS ---
 
 def test_raw_string_config_authority_rejected() -> None:
-    runtime_auth, domain, val_caps, _ = _bootstrap_all()
+    _, val_caps, _ = _bootstrap_all()
     session_id = "sess_raw_str_cfg"
 
     ev = ConfigurationValidator.validate(
@@ -273,7 +270,7 @@ def test_raw_string_config_authority_rejected() -> None:
 
 
 def test_effective_config_id_mismatch_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_cfg_mismatch"
 
     config = compute_effective_config(BaseConfig(), "EURUSD")
@@ -293,7 +290,7 @@ def test_effective_config_id_mismatch_rejected() -> None:
 # --- 6. PROTECTIVE MONITORING ATTACKS ---
 
 def test_raw_boolean_protective_monitoring_rejected() -> None:
-    runtime_auth, domain, val_caps, _ = _bootstrap_all()
+    _, val_caps, _ = _bootstrap_all()
     session_id = "sess_bool_prot"
 
     ev_true = ProtectiveMonitoringValidator.validate(True, session_id, capability=val_caps["ProtectiveMonitoringValidator"])
@@ -305,7 +302,7 @@ def test_raw_boolean_protective_monitoring_rejected() -> None:
 
 
 def test_fake_active_attribute_object_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, val_caps, prod_caps = _bootstrap_all()
     session_id = "sess_fake_prot"
 
     fake_prot = type("FakeProt", (), {"active": True, "is_active": lambda self: True})()
@@ -336,7 +333,7 @@ def test_direct_broker_query_result_claiming_found_downgraded() -> None:
 
 
 def test_tampered_broker_observation_positions_rejected() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
+    _, _, prod_caps = _bootstrap_all()
     session_id = "sess_tamper_broker"
 
     adapter = AuthoritativeBrokerAdapter(
@@ -468,8 +465,8 @@ def test_reversal_deal_accounting_exhaustive_matrix() -> None:
 # --- 11. RECOVERY GATE INDEPENDENT VERIFICATION ---
 
 def test_recovery_gate_independently_verifies_authority_chain() -> None:
-    runtime_auth, domain, val_caps, prod_caps = _bootstrap_all()
-    engine = runtime_auth.create_recovery_engine()
+    bootstrap, val_caps, prod_caps = _bootstrap_all()
+    engine = RecoveryEngine(validator_capabilities=val_caps)
     engine.trigger_system_restart()
     session_id = engine.session_id
     engine.start_reconciliation()
@@ -513,7 +510,7 @@ def test_recovery_gate_independently_verifies_authority_chain() -> None:
         RecoveryEvidenceAssembler.assemble(
             journal=forged_j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
             broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id,
-            authority_domain=domain,
+            validator_capabilities=val_caps,
         )
     assert "invalid, forged, or payload-mismatched" in str(exc.value)
 
