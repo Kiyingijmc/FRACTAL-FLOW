@@ -122,18 +122,26 @@ def test_direct_instantiation_of_trusted_runtime_bootstrap_forbidden() -> None:
 
 
 def test_subclass_authority_domain_cannot_claim_production_trust() -> None:
-    class EvilDomain(AuthorityDomain):
+    # Direct setter mutation MUST raise AttributeError
+    with pytest.raises(AttributeError):
+        caller_domain = AuthorityDomain("ATTACKER")
+        caller_domain.is_production = True  # type: ignore
+
+    class EvilPropertyDomain(AuthorityDomain):
         def __init__(self) -> None:
             super().__init__("SPOOFED_PROD_ID")
-            self.is_production = True  # Attempt override
 
-    evil = EvilDomain()
-    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
-    prod_engine = prod_bootstrap.create_recovery_engine()
-    prod_engine.trigger_system_restart()
+        @property
+        def is_production(self) -> bool:  # Subclass property override attempt
+            return True
 
-    # Verification uses _production_root_token and domain matching
-    assert evil.domain_id != prod_bootstrap.domain.domain_id
+    evil = EvilPropertyDomain()
+    assert evil.is_production is True  # Subclass returning True property
+
+    # When injected into RecoveryEngine, strategic authorization MUST still fail closed
+    engine = RecoveryEngine(authority_domain=evil)
+    assert engine.is_production_recovery is False
+    assert engine.can_authorize_strategic_action() is False
 
 
 def test_domain_id_spoofing_rejected() -> None:
@@ -452,3 +460,24 @@ def test_raw_mapping_reconciliation_cannot_be_authoritative() -> None:
     ev = BrokerReconciliationValidator.reconcile(fake_report, "sess_1", val_cap)
     assert ev.valid is False
     assert "authentic ReconciliationReport instance" in ev.provenance.failure_reason
+
+
+def test_trusted_runtime_bootstrap_concurrency_race() -> None:
+    import threading
+
+    results = []
+
+    def _bootstrap_worker() -> None:
+        inst = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+        results.append(inst)
+
+    threads = [threading.Thread(target=_bootstrap_worker) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 10
+    first_domain = results[0].domain
+    for item in results:
+        assert item.domain is first_domain

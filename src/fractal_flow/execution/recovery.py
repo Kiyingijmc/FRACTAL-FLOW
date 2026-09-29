@@ -187,13 +187,21 @@ class AuthorityDomain:
 
     def __init__(self, domain_id: Optional[str] = None, _production_root_token: Optional[object] = None) -> None:
         self.domain_id: str = domain_id or f"FRACTAL_DOMAIN_{uuid.uuid4().hex[:12]}"
-        self.is_production: bool = (_production_root_token is _PRODUCTION_ROOT_TOKEN)
+        self._is_production: bool = (_production_root_token is _PRODUCTION_ROOT_TOKEN)
         self._master_key: bytes = uuid.uuid4().bytes
         self._finalized: bool = False
         self._minted_roles: Set[CapabilityRole] = set()
         self._validator_capabilities: Dict[str, ValidatorCapability] = {}
         self._producer_capabilities: Dict[CapabilityRole, ProducerCapability] = {}
         self._registered_producers: Dict[CapabilityRole, Any] = {}
+
+    @property
+    def is_production(self) -> bool:
+        """Returns True if and only if this domain is the singular production domain instance created by TrustedRuntimeBootstrap."""
+        prod_bootstrap = TrustedRuntimeBootstrap._instance
+        if prod_bootstrap is None or prod_bootstrap.domain is not self:
+            return False
+        return self._is_production
 
     def __copy__(self) -> None:
         return None
@@ -1420,14 +1428,21 @@ class RecoveryEngine:
         self.state = initial_state
         self.strategic_authorization_enabled = (
             initial_state == RecoveryState.NORMAL
-            and authority_domain is not None
-            and authority_domain.is_production
+            and self.is_production_recovery
         )
         self.last_evidence: Optional[RecoveryEvidence] = None
         self.session_id: str = str(uuid.uuid4())
         self.validator_capabilities: Dict[str, ValidatorCapability] = validator_capabilities or (
             authority_domain._validator_capabilities.copy() if authority_domain else {}
         )
+
+    @property
+    def is_production_recovery(self) -> bool:
+        """Returns True if and only if self.authority_domain is strictly identical (is) to the singular runtime production domain."""
+        prod_bootstrap = TrustedRuntimeBootstrap._instance
+        if prod_bootstrap is None or self.authority_domain is None:
+            return False
+        return self.authority_domain is prod_bootstrap.domain and self.authority_domain.is_production
 
     def trigger_system_restart(self) -> None:
         """Triggers recovery mode on system restart and disables strategic authorization."""
@@ -1454,6 +1469,11 @@ class RecoveryEngine:
             self.state = RecoveryState.SAFE
             self.strategic_authorization_enabled = False
             raise RecoveryEvidenceError("Recovery evidence must be an instance of RecoveryEvidence")
+
+        if not self.is_production_recovery:
+            self.state = RecoveryState.SAFE
+            self.strategic_authorization_enabled = False
+            raise RecoveryEvidenceError("Strategic authorization requires genuine production authority root provenance. System placed in SAFE state.")
 
         val_caps = self.authority_domain._validator_capabilities if self.authority_domain else self.validator_capabilities
         if not evidence.has_valid_authority_capability(required_session=self.session_id, validator_capabilities=val_caps):
@@ -1484,4 +1504,8 @@ class RecoveryEngine:
         self.strategic_authorization_enabled = False
 
     def can_authorize_strategic_action(self) -> bool:
-        return self.strategic_authorization_enabled and self.state in (RecoveryState.NORMAL, RecoveryState.RECOVERY_COMPLETE)
+        return (
+            self.strategic_authorization_enabled
+            and self.is_production_recovery
+            and self.state in (RecoveryState.NORMAL, RecoveryState.RECOVERY_COMPLETE)
+        )

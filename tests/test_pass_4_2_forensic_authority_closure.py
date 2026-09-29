@@ -60,6 +60,7 @@ from src.fractal_flow.execution.recovery import (
     _AuthorityToken,
     compute_evidence_digest,
     AuthorityBootstrap,
+    TrustedRuntimeBootstrap,
     CapabilityRole,
     SealedObservation,
     ValidatorCapability,
@@ -75,23 +76,27 @@ from src.fractal_flow.domain.event import Event
 
 # --- Helper functions for valid capability and evidence creation ---
 
-def _setup_test_capabilities() -> tuple[AuthorityBootstrap, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
-    bootstrap = AuthorityBootstrap()
-    j_val_cap = bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
-    s_val_cap = bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
-    r_val_cap = bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
-    i_val_cap = bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
-    b_val_cap = bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
-    c_val_cap = bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
-    p_val_cap = bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
+def _setup_test_capabilities(use_production: bool = False) -> tuple[Any, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
+    if use_production:
+        prod_boot = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+        bootstrap = prod_boot.domain
+    else:
+        bootstrap = AuthorityBootstrap()
+    j_val_cap = bootstrap.get_validator_capability("JournalRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    s_val_cap = bootstrap.get_validator_capability("SnapshotRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
+    r_val_cap = bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
+    i_val_cap = bootstrap.get_validator_capability("IntentRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
+    b_val_cap = bootstrap.get_validator_capability("BrokerReconciliationValidator") or bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
+    c_val_cap = bootstrap.get_validator_capability("ConfigurationValidator") or bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
+    p_val_cap = bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
-    j_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
-    s_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
-    r_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
-    i_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
-    b_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
-    c_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
-    p_prod_cap = bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
+    j_prod_cap = bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod_cap = bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod_cap = bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod_cap = bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod_cap = bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod_cap = bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
+    p_prod_cap = bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
 
     bootstrap.finalize()
 
@@ -830,8 +835,9 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
 # --- 12. Valid Legitimate Authorization Path ---
 
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
-    _, val_caps, prod_caps = _setup_test_capabilities()
-    engine = RecoveryEngine(validator_capabilities=val_caps)
+    _, val_caps, prod_caps = _setup_test_capabilities(use_production=True)
+    prod_boot = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    engine = prod_boot.create_recovery_engine()
     engine.trigger_system_restart()
     engine.start_reconciliation()
 
