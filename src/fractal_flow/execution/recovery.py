@@ -107,6 +107,7 @@ _DOMAIN_PROTECTED_ATTRS = (
     "_producer_capabilities",
     "_registered_producers",
     "_producer_bindings",
+    "_active_mint_context",
 )
 
 _BOOTSTRAP_PROTECTED_ATTRS = (
@@ -116,29 +117,6 @@ _BOOTSTRAP_PROTECTED_ATTRS = (
 )
 
 
-def _verify_capability_issuance_frame(expected_code_name: str) -> None:
-    """Verifies that capability instantiation originates directly from an un-finalized AuthorityDomain method frame."""
-    import sys
-    f = sys._getframe(0)
-    found_valid_frame = False
-    while f is not None:
-        caller_self = f.f_locals.get("self")
-        if (
-            isinstance(caller_self, AuthorityDomain)
-            and f.f_code.co_name == expected_code_name
-            and not getattr(caller_self, "_finalized", True)
-        ):
-            found_valid_frame = True
-            break
-        f = f.f_back
-
-    if not found_valid_frame:
-        if expected_code_name == "mint_producer_capability":
-            raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
-        else:
-            raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
-
-
 @dataclass(frozen=True)
 class ProducerCapability:
     """Scoped capability holding only role-derived signing key for an authoritative producer bound to an authority domain."""
@@ -146,9 +124,18 @@ class ProducerCapability:
     role: CapabilityRole
     producer_id: str
     _role_key: bytes = field(repr=False, compare=False)
+    _domain: Any = field(default=None, repr=False, compare=False)
+    _mint_ctx: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        _verify_capability_issuance_frame("mint_producer_capability")
+        if (
+            not isinstance(self._domain, AuthorityDomain)
+            or getattr(self._domain, "_finalized", True)
+            or getattr(self._domain, "_active_mint_context", None) is None
+            or getattr(self._domain, "_active_mint_context", None) is not self._mint_ctx
+            or self.authority_domain_id != getattr(self._domain, "domain_id", None)
+        ):
+            raise RecoveryEvidenceError("Direct instantiation of ProducerCapability is forbidden. Mint via AuthorityDomain.")
 
     def __copy__(self) -> None:
         return None
@@ -174,9 +161,18 @@ class ValidatorCapability:
     role: CapabilityRole
     validator_id: str
     _role_key: bytes = field(repr=False, compare=False)
+    _domain: Any = field(default=None, repr=False, compare=False)
+    _mint_ctx: Any = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        _verify_capability_issuance_frame("mint_validator_capability")
+        if (
+            not isinstance(self._domain, AuthorityDomain)
+            or getattr(self._domain, "_finalized", True)
+            or getattr(self._domain, "_active_mint_context", None) is None
+            or getattr(self._domain, "_active_mint_context", None) is not self._mint_ctx
+            or self.authority_domain_id != getattr(self._domain, "domain_id", None)
+        ):
+            raise RecoveryEvidenceError("Direct instantiation of ValidatorCapability is forbidden. Mint via AuthorityDomain.")
 
     def __copy__(self) -> None:
         return None
@@ -243,6 +239,7 @@ class AuthorityDomain:
         object.__setattr__(self, "_producer_capabilities", {})
         object.__setattr__(self, "_registered_producers", {})
         object.__setattr__(self, "_producer_bindings", {})
+        object.__setattr__(self, "_active_mint_context", None)
 
     def __setattr__(self, name: str, value: Any) -> None:
         if getattr(self, "_finalized", False) or name in _DOMAIN_PROTECTED_ATTRS:
@@ -323,12 +320,20 @@ class AuthorityDomain:
 
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, producer_id)
-        cap = ProducerCapability(
-            authority_domain_id=self.domain_id,
-            role=role,
-            producer_id=producer_id,
-            _role_key=role_key,
-        )
+        ctx = object()
+        object.__setattr__(self, "_active_mint_context", ctx)
+        try:
+            cap = ProducerCapability(
+                authority_domain_id=self.domain_id,
+                role=role,
+                producer_id=producer_id,
+                _role_key=role_key,
+                _domain=self,
+                _mint_ctx=ctx,
+            )
+        finally:
+            object.__setattr__(self, "_active_mint_context", None)
+
         self._producer_capabilities[role] = cap
 
         if role in self._registered_producers:
@@ -363,12 +368,20 @@ class AuthorityDomain:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'.")
         self._minted_roles.add(role)
         role_key = self._derive_role_key(role, validator_id)
-        cap = ValidatorCapability(
-            authority_domain_id=self.domain_id,
-            role=role,
-            validator_id=validator_id,
-            _role_key=role_key,
-        )
+        ctx = object()
+        object.__setattr__(self, "_active_mint_context", ctx)
+        try:
+            cap = ValidatorCapability(
+                authority_domain_id=self.domain_id,
+                role=role,
+                validator_id=validator_id,
+                _role_key=role_key,
+                _domain=self,
+                _mint_ctx=ctx,
+            )
+        finally:
+            object.__setattr__(self, "_active_mint_context", None)
+
         self._validator_capabilities[validator_id] = cap
         return cap
 
@@ -411,6 +424,14 @@ class AuthorityDomain:
                 capability=cap,
             )
             self._producer_bindings[role] = binding
+
+    def is_canonical_producer_capability(self, role: CapabilityRole, capability: Any) -> bool:
+        """Returns True if and only if capability is strictly identical (is) to the canonical capability registered for role."""
+        return self._producer_capabilities.get(role) is capability
+
+    def is_canonical_validator_capability(self, validator_id: str, capability: Any) -> bool:
+        """Returns True if and only if capability is strictly identical (is) to the canonical capability registered for validator_id."""
+        return self._validator_capabilities.get(validator_id) is capability
 
     def is_registered_producer(
         self,
@@ -1118,15 +1139,34 @@ class JournalRecoveryValidator:
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.JOURNAL_RECOVERY_VALIDATOR or capability.validator_id != "JournalRecoveryValidator":
             raise RecoveryEvidenceError("JournalRecoveryValidator requires a valid JOURNAL_RECOVERY_VALIDATOR capability.")
 
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.JOURNAL, journal):
-            prov = EvidenceProvenance(
-                source_component="JournalRecoveryValidator",
-                source_operation="validate",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered Journal instance in AuthorityDomain",
-            )
-            return JournalRecoveryEvidence(valid=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.JOURNAL, journal):
+                prov = EvidenceProvenance(
+                    source_component="JournalRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered Journal instance in AuthorityDomain",
+                )
+                return JournalRecoveryEvidence(valid=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.JOURNAL, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="JournalRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Journal in AuthorityDomain",
+                )
+                return JournalRecoveryEvidence(valid=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("JournalRecoveryValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="JournalRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for JournalRecoveryValidator in AuthorityDomain",
+                )
+                return JournalRecoveryEvidence(valid=False, provenance=prov)
 
         if observation is None or producer_capability is None:
             prov = EvidenceProvenance(
@@ -1224,15 +1264,34 @@ class SnapshotRecoveryValidator:
         producer_capability: Optional[ProducerCapability] = None,
         authority_domain: Optional[AuthorityDomain] = None,
     ) -> SnapshotRecoveryEvidence:
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.SNAPSHOT, snapshot_engine):
-            prov = EvidenceProvenance(
-                source_component="SnapshotRecoveryValidator",
-                source_operation="validate",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered SnapshotEngine instance in AuthorityDomain",
-            )
-            return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.SNAPSHOT, snapshot_engine):
+                prov = EvidenceProvenance(
+                    source_component="SnapshotRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered SnapshotEngine instance in AuthorityDomain",
+                )
+                return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.SNAPSHOT, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="SnapshotRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Snapshot in AuthorityDomain",
+                )
+                return SnapshotRecoveryEvidence(valid=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("SnapshotRecoveryValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="SnapshotRecoveryValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for SnapshotRecoveryValidator in AuthorityDomain",
+                )
+                return SnapshotRecoveryEvidence(valid=False, provenance=prov)
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR or capability.validator_id != "SnapshotRecoveryValidator":
             raise RecoveryEvidenceError("SnapshotRecoveryValidator requires a valid SNAPSHOT_RECOVERY_VALIDATOR capability.")
 
@@ -1330,15 +1389,34 @@ class RiskLedgerRecoveryValidator:
         producer_capability: Optional[ProducerCapability] = None,
         authority_domain: Optional[AuthorityDomain] = None,
     ) -> RiskLedgerRecoveryEvidence:
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.RISK_LEDGER, risk_ledger):
-            prov = EvidenceProvenance(
-                source_component="RiskLedgerRecoveryValidator",
-                source_operation="reconstruct",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered RiskLedger instance in AuthorityDomain",
-            )
-            return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.RISK_LEDGER, risk_ledger):
+                prov = EvidenceProvenance(
+                    source_component="RiskLedgerRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered RiskLedger instance in AuthorityDomain",
+                )
+                return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.RISK_LEDGER, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="RiskLedgerRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Risk Ledger in AuthorityDomain",
+                )
+                return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("RiskLedgerRecoveryValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="RiskLedgerRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for RiskLedgerRecoveryValidator in AuthorityDomain",
+                )
+                return RiskLedgerRecoveryEvidence(valid=False, provenance=prov)
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR or capability.validator_id != "RiskLedgerRecoveryValidator":
             raise RecoveryEvidenceError("RiskLedgerRecoveryValidator requires a valid RISK_LEDGER_RECOVERY_VALIDATOR capability.")
 
@@ -1424,15 +1502,34 @@ class IntentRecoveryValidator:
         producer_capability: Optional[ProducerCapability] = None,
         authority_domain: Optional[AuthorityDomain] = None,
     ) -> IntentRecoveryEvidence:
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo):
-            prov = EvidenceProvenance(
-                source_component="IntentRecoveryValidator",
-                source_operation="reconstruct",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered IntentRepository instance in AuthorityDomain",
-            )
-            return IntentRecoveryEvidence(valid=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo):
+                prov = EvidenceProvenance(
+                    source_component="IntentRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered IntentRepository instance in AuthorityDomain",
+                )
+                return IntentRecoveryEvidence(valid=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.INTENT_REPOSITORY, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="IntentRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Intent Repository in AuthorityDomain",
+                )
+                return IntentRecoveryEvidence(valid=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("IntentRecoveryValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="IntentRecoveryValidator",
+                    source_operation="reconstruct",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for IntentRecoveryValidator in AuthorityDomain",
+                )
+                return IntentRecoveryEvidence(valid=False, provenance=prov)
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.INTENT_RECOVERY_VALIDATOR or capability.validator_id != "IntentRecoveryValidator":
             raise RecoveryEvidenceError("IntentRecoveryValidator requires a valid INTENT_RECOVERY_VALIDATOR capability.")
 
@@ -1569,15 +1666,34 @@ class ConfigurationValidator:
         producer_capability: Optional[ProducerCapability] = None,
         authority_domain: Optional[AuthorityDomain] = None,
     ) -> ConfigurationEvidence:
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config_obj_or_id):
-            prov = EvidenceProvenance(
-                source_component="ConfigurationValidator",
-                source_operation="validate",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered Configuration instance in AuthorityDomain",
-            )
-            return ConfigurationEvidence(valid=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config_obj_or_id):
+                prov = EvidenceProvenance(
+                    source_component="ConfigurationValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered Configuration instance in AuthorityDomain",
+                )
+                return ConfigurationEvidence(valid=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="ConfigurationValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Configuration in AuthorityDomain",
+                )
+                return ConfigurationEvidence(valid=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("ConfigurationValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="ConfigurationValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for ConfigurationValidator in AuthorityDomain",
+                )
+                return ConfigurationEvidence(valid=False, provenance=prov)
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.CONFIGURATION_VALIDATOR or capability.validator_id != "ConfigurationValidator":
             raise RecoveryEvidenceError("ConfigurationValidator requires a valid CONFIGURATION_VALIDATOR capability.")
 
@@ -1679,15 +1795,34 @@ class ProtectiveMonitoringValidator:
         producer_capability: Optional[ProducerCapability] = None,
         authority_domain: Optional[AuthorityDomain] = None,
     ) -> ProtectiveMonitoringEvidence:
-        if authority_domain and not authority_domain.is_registered_producer(CapabilityRole.PROTECTIVE_MONITOR, protective_subsystem):
-            prov = EvidenceProvenance(
-                source_component="ProtectiveMonitoringValidator",
-                source_operation="validate",
-                source_session=session_id,
-                result="FAILED",
-                failure_reason="Unregistered ProtectiveMonitoringSubsystem instance in AuthorityDomain",
-            )
-            return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+        if authority_domain:
+            if not authority_domain.is_registered_producer(CapabilityRole.PROTECTIVE_MONITOR, protective_subsystem):
+                prov = EvidenceProvenance(
+                    source_component="ProtectiveMonitoringValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Unregistered ProtectiveMonitoringSubsystem instance in AuthorityDomain",
+                )
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+            if producer_capability and not authority_domain.is_canonical_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, producer_capability):
+                prov = EvidenceProvenance(
+                    source_component="ProtectiveMonitoringValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ProducerCapability for Protective Monitoring in AuthorityDomain",
+                )
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
+            if not authority_domain.is_canonical_validator_capability("ProtectiveMonitoringValidator", capability):
+                prov = EvidenceProvenance(
+                    source_component="ProtectiveMonitoringValidator",
+                    source_operation="validate",
+                    source_session=session_id,
+                    result="FAILED",
+                    failure_reason="Non-canonical ValidatorCapability for ProtectiveMonitoringValidator in AuthorityDomain",
+                )
+                return ProtectiveMonitoringEvidence(valid=False, active=False, provenance=prov)
         if not isinstance(capability, ValidatorCapability) or capability.role != CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR or capability.validator_id != "ProtectiveMonitoringValidator":
             raise RecoveryEvidenceError("ProtectiveMonitoringValidator requires a valid PROTECTIVE_MONITORING_VALIDATOR capability.")
 

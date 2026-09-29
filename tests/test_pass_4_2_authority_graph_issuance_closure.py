@@ -421,3 +421,117 @@ def test_scenario_t_tampered_binding_fields_rejected_at_finalization() -> None:
     with pytest.raises(AuthorityError) as exc:
         prod_bootstrap.finalize()
     assert "Cross-domain binding substitution detected" in str(exc.value)
+
+
+# --- Scenario U: Fake AuthorityDomain subclass ---
+
+def test_scenario_u_fake_authority_domain_subclass_rejected() -> None:
+    class ForgedDomain(AuthorityDomain):
+        def mint_producer_capability(self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None) -> ProducerCapability:
+            return ProducerCapability(
+                authority_domain_id=self.domain_id,
+                role=role,
+                producer_id=producer_id,
+                _role_key=b"attacker_key_32_bytes_long_12345",
+            )
+
+    attacker = ForgedDomain("ATTACKER_DOMAIN")
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        attacker.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
+
+
+# --- Scenario V: Fake minting frame / stack frame spoofing ---
+
+def test_scenario_v_fake_minting_frame_spoofing_rejected() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+
+    class ForgedDomain(AuthorityDomain):
+        def mint_producer_capability(self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None) -> ProducerCapability:
+            return ProducerCapability(
+                authority_domain_id=self.domain_id,
+                role=role,
+                producer_id=producer_id,
+                _role_key=b"attacker_key_32_bytes_long_12345",
+            )
+
+    attacker = ForgedDomain("SPOOFED_DOMAIN")
+
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        attacker.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
+
+
+# --- Scenario W: Fake issuer ---
+
+def test_scenario_w_fake_issuer_rejected() -> None:
+    # Attempting to directly instantiate capability with spoofed mint context parameters
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    domain = prod_bootstrap.domain
+
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        ProducerCapability(
+            authority_domain_id=domain.domain_id,
+            role=CapabilityRole.JOURNAL,
+            producer_id="JournalSubsystem",
+            _role_key=b"0" * 32,
+            _domain=domain,
+            _mint_ctx=object(),
+        )
+    assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
+
+
+# --- Scenario X: Issuer extraction ---
+
+def test_scenario_x_issuer_extraction_impossible() -> None:
+    from src.fractal_flow.execution.recovery import _DOMAIN_PROTECTED_ATTRS
+
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    domain = prod_bootstrap.domain
+
+    assert getattr(domain, "_active_mint_context", None) is None
+    assert "_active_mint_context" in _DOMAIN_PROTECTED_ATTRS
+
+    # Mutation or attribute replacement on active mint context is protected
+    with pytest.raises(AuthorityError):
+        domain._active_mint_context = object()
+
+
+# --- Scenario Y: Capability reconstruction from observable state ---
+
+def test_scenario_y_capability_reconstruction_from_observable_fields_rejected() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    _provision_full_production_authority(prod_bootstrap)
+
+    legitimate_cap = prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL)
+    assert legitimate_cap is not None
+
+    # Attacker attempts to reconstruct capability using observable fields
+    with pytest.raises(RecoveryEvidenceError):
+        ProducerCapability(
+            authority_domain_id=legitimate_cap.authority_domain_id,
+            role=legitimate_cap.role,
+            producer_id=legitimate_cap.producer_id,
+            _role_key=legitimate_cap._role_key,
+        )
+
+
+# --- Scenario Z: Foreign domain / issuer substitution ---
+
+def test_scenario_z_foreign_domain_issuer_substitution_rejected() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    _provision_full_production_authority(prod_bootstrap)
+
+    foreign_bootstrap = AuthorityBootstrap("FOREIGN_DOMAIN")
+    foreign_cap = foreign_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+
+    # Downstream recovery validator rejects foreign domain capability
+    journal = DurableEventJournal()
+    foreign_obs = journal.produce_observation("sess_123", foreign_cap)
+    val_cap = prod_bootstrap.get_validator_capability("JournalRecoveryValidator")
+
+    ev = JournalRecoveryValidator.validate(
+        journal, "sess_123", val_cap, observation=foreign_obs, producer_capability=foreign_cap, authority_domain=prod_bootstrap.domain
+    )
+    assert ev.valid is False
+    assert ev.provenance.result == "FAILED"
