@@ -1,35 +1,58 @@
 """Adversarial Persistence, Journal Corruption, Global Sequence Integrity, Event-ID Uniqueness, and Tail Recovery Test Suite."""
 
-import pytest
 import os
 import tempfile
 import threading
-from pathlib import Path
-from typing import Optional
 
-from src.fractal_flow.domain.event import Event, InvalidEventVersionException
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
-from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerOrder, BrokerDeal, DealEntryRole
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
-from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState, RecoveryEvidence, RecoveryEvidenceError, RecoveryEvidenceAssembler
-from src.fractal_flow.execution.reconciliation import (
-    ReconciliationEngine,
-    ReconciliationMismatchType,
-    BrokerQueryQuality,
-    ReconciliationReport,
+import pytest
+
+from src.fractal_flow.domain.event import Event
+from src.fractal_flow.domain.models import (
+    BrokerDeal,
+    DealEntryRole,
+    ExecutionIntent,
+    OrderSide,
+    Position,
+)
+from src.fractal_flow.domain.risk_ledger import (
+    AccountingInvariantException,
+    LedgerOperation,
+    OpportunityRiskLedger,
 )
 from src.fractal_flow.execution.execution_state import ExecutionState
-from src.fractal_flow.persistence.snapshot import SnapshotEngine, SnapshotCorruptionException
+from src.fractal_flow.execution.reconciliation import (
+    BrokerQueryQuality,
+    ReconciliationEngine,
+    ReconciliationMismatchType,
+)
+from src.fractal_flow.execution.recovery import (
+    RecoveryEngine,
+    RecoveryEvidence,
+    RecoveryEvidenceError,
+    RecoveryState,
+)
+from src.fractal_flow.persistence.interfaces import (
+    DurableExecutionIntentRepository,
+    IdempotencyConflictException,
+)
+from src.fractal_flow.persistence.journal import (
+    DurableEventJournal,
+    JournalCorruptionException,
+    JournalDurabilityException,
+)
+from src.fractal_flow.persistence.snapshot import (
+    SnapshotCorruptionException,
+    SnapshotEngine,
+)
 
 
 def make_test_event(
     seq: int,
-    event_id: Optional[str] = None,
+    event_id: str | None = None,
     aggregate_type: str = "Opportunity",
     aggregate_id: str = "agg_1",
-    aggregate_version: Optional[int] = None,
-    payload: Optional[dict] = None,
+    aggregate_version: int | None = None,
+    payload: dict | None = None,
 ) -> Event:
     return Event(
         event_id=event_id or f"evt_{seq}",
@@ -90,7 +113,9 @@ def test_journal_fsync_invoked(monkeypatch: pytest.MonkeyPatch) -> None:
             os.remove(path)
 
 
-def test_journal_fsync_failure_propagation_and_state_non_advancement(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_fsync_failure_propagation_and_state_non_advancement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def mock_fsync_fail(fd: int) -> None:
         raise OSError("Disk flush failed")
 
@@ -114,7 +139,9 @@ def test_journal_fsync_failure_propagation_and_state_non_advancement(monkeypatch
             os.remove(path)
 
 
-def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_physical_file_rollback_on_append_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -140,7 +167,9 @@ def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.Mo
             os.remove(path)
 
 
-def test_journal_rollback_fsync_failure_faults_journal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_rollback_fsync_failure_faults_journal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -274,7 +303,9 @@ def test_journal_type_safety_validation() -> None:
     try:
         # Inject boolean sequence_number: true
         with open(path, "w", encoding="utf-8") as f:
-            f.write('{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n')
+            f.write(
+                '{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n'
+            )
 
         with pytest.raises(JournalCorruptionException) as exc:
             DurableEventJournal(journal_file_path=path)
@@ -426,7 +457,9 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
             os.remove(path)
 
 
-def test_journal_tail_recovery_fsync_durability_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_tail_recovery_fsync_durability_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -570,13 +603,24 @@ def test_journal_concurrent_durable_file_appends() -> None:
 
 
 def test_snapshot_journal_exact_boundary_equivalence() -> None:
-    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+    with (
+        tempfile.TemporaryDirectory() as snap_dir,
+        tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp,
+    ):
         journal_path = tmp.name
 
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
         for i in range(1, 11):
-            journal.append(make_test_event(i, event_id=f"evt_b_{i}", aggregate_id="agg_bound", aggregate_version=i, payload={"count": i}))
+            journal.append(
+                make_test_event(
+                    i,
+                    event_id=f"evt_b_{i}",
+                    aggregate_id="agg_bound",
+                    aggregate_version=i,
+                    payload={"count": i},
+                )
+            )
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
         snap_engine.save_snapshot("Opportunity", "agg_bound", version=5, last_seq=5, payload={"count": 5})
@@ -648,12 +692,23 @@ def test_p422_snapshot_ahead_of_journal_head_rejected() -> None:
 
 
 def test_p422_corrupt_snapshot_fallback_records_evidence_flags() -> None:
-    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+    with (
+        tempfile.TemporaryDirectory() as snap_dir,
+        tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp,
+    ):
         journal_path = tmp.name
 
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
-        journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1, payload={"x": 10}))
+        journal.append(
+            make_test_event(
+                1,
+                event_id="e1",
+                aggregate_id="A",
+                aggregate_version=1,
+                payload={"x": 10},
+            )
+        )
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
         snap_engine.save_snapshot("Opportunity", "A", version=1, last_seq=1, payload={"x": 10})
@@ -940,11 +995,27 @@ def test_p42_15_16_idempotency_fingerprint_conflict() -> None:
 
 def test_p42_27_33_risk_ledger_exact_accounting_and_corruption_rejection() -> None:
     ledger = OpportunityRiskLedger("b1", "opp_1", total_risk=500.0, total_volume=1.0)
-    ledger.record_operation("e1", LedgerOperation.RESERVE, amount=200.0, volume=0.4, reference_id="r1", causation_id="c1", timestamp=1000)
+    ledger.record_operation(
+        "e1",
+        LedgerOperation.RESERVE,
+        amount=200.0,
+        volume=0.4,
+        reference_id="r1",
+        causation_id="c1",
+        timestamp=1000,
+    )
     assert ledger.remaining_risk == 300.0
 
     with pytest.raises(AccountingInvariantException):
-        ledger.record_operation("e2", LedgerOperation.ALLOCATE, amount=600.0, volume=1.2, reference_id="r2", causation_id="c2", timestamp=1000)
+        ledger.record_operation(
+            "e2",
+            LedgerOperation.ALLOCATE,
+            amount=600.0,
+            volume=1.2,
+            reference_id="r2",
+            causation_id="c2",
+            timestamp=1000,
+        )
 
 
 def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
@@ -987,10 +1058,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
     rec_engine.start_reconciliation()
 
     # Evidence with orphaned_count = 1
-    orphan_evidence = RecoveryEvidence.create_authoritative_evidence(
-        session_id=rec_engine.session_id,
-        orphaned_count=1
-    )
+    orphan_evidence = RecoveryEvidence.create_authoritative_evidence(session_id=rec_engine.session_id, orphaned_count=1)
 
     with pytest.raises((ValueError, RecoveryEvidenceError)) as exc:
         rec_engine.complete_recovery_with_evidence(orphan_evidence)
@@ -999,7 +1067,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
 
 
 def test_forensic_broker_query_provider_authority_boundary() -> None:
-    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider, BrokerQueryQuality
+    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider
 
     intent = ExecutionIntent(
         intent_id="intent_q_bound",
@@ -1061,8 +1129,9 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     assert rec_res_unauth.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
     # 4. Authoritative query with legitimate BROKER_QUERY capability succeeds in asserting EXEC_REJECTED
-    from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
     from src.fractal_flow.execution.reconciliation import AuthoritativeBrokerAdapter
+    from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
+
     bootstrap = AuthorityBootstrap()
     b_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "TestBrokerAdapter")
     bootstrap.finalize()

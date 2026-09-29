@@ -1,22 +1,47 @@
 """Comprehensive Adversarial Regression Test Suite covering state-machine closure, execution uncertainty, lineage integrity, and news lockdown boundaries."""
 
 import pytest
+
+from src.fractal_flow.domain.envelope import (
+    InvalidStateTransitionException,
+    StateRegistry,
+)
 from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
-from src.fractal_flow.domain.envelope import StateEnvelope, InvalidStateTransitionException, StateRegistry
-from src.fractal_flow.domain.models import TradeDecision, ExecutionIntent, OrderSide, Direction
+from src.fractal_flow.domain.models import (
+    Direction,
+    ExecutionIntent,
+    OrderSide,
+    TradeDecision,
+)
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario, IdempotencyConflictException
+from src.fractal_flow.simulation.simulator import (
+    DeterministicBrokerSimulator,
+    ExecutionScenario,
+    SimulationConfig,
+)
 
 
 def test_adversarial_stale_and_future_lineage_child() -> None:
     # Authoritative parent version is 3
-    stale_child = Lineage("root_1", "par_1", parent_version=2, parent_tier="OPPORTUNITY", current_tier="SIGNAL")
+    stale_child = Lineage(
+        "root_1",
+        "par_1",
+        parent_version=2,
+        parent_tier="OPPORTUNITY",
+        current_tier="SIGNAL",
+    )
     with pytest.raises(LineageInvalidException) as exc1:
         stale_child.validate_child_action(authoritative_parent_version=3)
     assert "Parent version mismatch" in str(exc1.value)
 
-    future_child = Lineage("root_1", "par_1", parent_version=4, parent_tier="OPPORTUNITY", current_tier="SIGNAL")
+    future_child = Lineage(
+        "root_1",
+        "par_1",
+        parent_version=4,
+        parent_tier="OPPORTUNITY",
+        current_tier="SIGNAL",
+    )
     with pytest.raises(LineageInvalidException) as exc2:
         future_child.validate_child_action(authoritative_parent_version=3)
     assert "Parent version mismatch" in str(exc2.value)
@@ -24,7 +49,13 @@ def test_adversarial_stale_and_future_lineage_child() -> None:
 
 def test_adversarial_illegal_lineage_edge_shortcut_rejected() -> None:
     # Attempting illegal edge ROOT -> POSITION
-    shortcut_child = Lineage("root_1", "root_1", parent_version=1, parent_tier="ROOT", current_tier="POSITION")
+    shortcut_child = Lineage(
+        "root_1",
+        "root_1",
+        parent_version=1,
+        parent_tier="ROOT",
+        current_tier="POSITION",
+    )
     with pytest.raises(LineageInvalidException) as exc:
         shortcut_child.validate_child_action(authoritative_parent_version=1)
     assert "Illegal lineage edge" in str(exc.value)
@@ -44,7 +75,8 @@ def test_adversarial_unknown_state_machine_and_states() -> None:
 def test_adversarial_unknown_after_accept_scenario() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_AFTER_ACCEPT)
+        clock=clock,
+        config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_AFTER_ACCEPT),
     )
     intent = ExecutionIntent(
         intent_id="intent_accept_unk",
@@ -84,7 +116,8 @@ def test_adversarial_unknown_after_accept_scenario() -> None:
 def test_adversarial_unknown_execution_no_duplicate_exposure() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_AFTER_FILL)
+        clock=clock,
+        config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_AFTER_FILL),
     )
     intent = ExecutionIntent(
         intent_id="intent_adv1",
