@@ -79,7 +79,7 @@ from src.fractal_flow.domain.event import Event
 def _setup_test_capabilities(use_production: bool = False) -> tuple[Any, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
     if use_production:
         prod_boot = TrustedRuntimeBootstrap.bootstrap_production_runtime()
-        bootstrap = prod_boot.domain
+        bootstrap = prod_boot
     else:
         bootstrap = AuthorityBootstrap()
     j_val_cap = bootstrap.get_validator_capability("JournalRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")

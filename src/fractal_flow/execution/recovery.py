@@ -219,9 +219,16 @@ class AuthorityDomain:
         info = f"{self.domain_id}|v2|{role.value}|{entity_id}".encode("utf-8")
         return hmac.new(self._master_key, info, hashlib.sha256).digest()
 
-    def mint_producer_capability(self, role: CapabilityRole, producer_id: str) -> ProducerCapability:
+    def mint_producer_capability(
+        self,
+        role: CapabilityRole,
+        producer_id: str,
+        _provisioning_token: Optional[object] = None,
+    ) -> ProducerCapability:
         if self._finalized:
             raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new producer capabilities.")
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Public/unauthorized capability minting on production AuthorityDomain is forbidden.")
         if role in self._minted_roles:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'.")
         self._minted_roles.add(role)
@@ -236,9 +243,16 @@ class AuthorityDomain:
         self._producer_capabilities[role] = cap
         return cap
 
-    def mint_validator_capability(self, role: CapabilityRole, validator_id: str) -> ValidatorCapability:
+    def mint_validator_capability(
+        self,
+        role: CapabilityRole,
+        validator_id: str,
+        _provisioning_token: Optional[object] = None,
+    ) -> ValidatorCapability:
         if self._finalized:
             raise RecoveryEvidenceError("AuthorityDomain is finalized; cannot mint new validator capabilities.")
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Public/unauthorized capability minting on production AuthorityDomain is forbidden.")
         if role in self._minted_roles:
             raise RecoveryEvidenceError(f"Role '{role.value}' capability has already been minted in domain '{self.domain_id}'.")
         self._minted_roles.add(role)
@@ -253,21 +267,50 @@ class AuthorityDomain:
         self._validator_capabilities[validator_id] = cap
         return cap
 
-    def register_producer(self, role: CapabilityRole, producer_instance: Any) -> None:
+    def register_producer(
+        self,
+        role: CapabilityRole,
+        producer_instance: Any,
+        _provisioning_token: Optional[object] = None,
+    ) -> None:
         """Registers a live producer instance with this authority domain."""
+        if self._finalized:
+            raise AuthorityError("AuthorityDomain is finalized; cannot register new producer instances.")
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Public/unauthorized producer registration on production AuthorityDomain is forbidden.")
         self._registered_producers[role] = producer_instance
 
     def is_registered_producer(self, role: CapabilityRole, producer_instance: Any) -> bool:
         return self._registered_producers.get(role) is producer_instance
 
-    def get_validator_capability(self, validator_id: str) -> Optional[ValidatorCapability]:
+    def get_validator_capability(
+        self,
+        validator_id: str,
+        _provisioning_token: Optional[object] = None,
+    ) -> Optional[ValidatorCapability]:
+        if self._finalized and self._is_production:
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve validator capabilities.")
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Unrestricted public retrieval of production validator capabilities is forbidden.")
         return self._validator_capabilities.get(validator_id)
 
-    def get_producer_capability(self, role: CapabilityRole) -> Optional[ProducerCapability]:
+    def get_producer_capability(
+        self,
+        role: CapabilityRole,
+        _provisioning_token: Optional[object] = None,
+    ) -> Optional[ProducerCapability]:
+        if self._finalized and self._is_production:
+            raise AuthorityError("AuthorityDomain is finalized; cannot retrieve producer capabilities.")
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Unrestricted public retrieval of production producer capabilities is forbidden.")
         return self._producer_capabilities.get(role)
 
-    def finalize(self) -> None:
+    def finalize(self, _provisioning_token: Optional[object] = None) -> None:
         """Locks domain minting and clears master key material."""
+        if self._is_production and _provisioning_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+            raise AuthorityError("Public/unauthorized finalization on production AuthorityDomain is forbidden.")
+        if self._finalized:
+            raise AuthorityError("AuthorityDomain is already finalized.")
         self._finalized = True
         self._master_key = b"\x00" * 32
 
@@ -309,6 +352,24 @@ class TrustedRuntimeBootstrap:
     @property
     def domain(self) -> AuthorityDomain:
         return self._domain
+
+    def mint_producer_capability(self, role: CapabilityRole, producer_id: str) -> ProducerCapability:
+        return self._domain.mint_producer_capability(role, producer_id, _provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
+
+    def mint_validator_capability(self, role: CapabilityRole, validator_id: str) -> ValidatorCapability:
+        return self._domain.mint_validator_capability(role, validator_id, _provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
+
+    def register_producer(self, role: CapabilityRole, producer_instance: Any) -> None:
+        self._domain.register_producer(role, producer_instance, _provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
+
+    def get_producer_capability(self, role: CapabilityRole) -> Optional[ProducerCapability]:
+        return self._domain.get_producer_capability(role, _provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
+
+    def get_validator_capability(self, validator_id: str) -> Optional[ValidatorCapability]:
+        return self._domain.get_validator_capability(validator_id, _provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
+
+    def finalize(self) -> None:
+        self._domain.finalize(_provisioning_token=_BOOTSTRAP_ISSUANCE_TOKEN)
 
     def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> "RecoveryEngine":
         return RecoveryEngine(authority_domain=self._domain, initial_state=initial_state)

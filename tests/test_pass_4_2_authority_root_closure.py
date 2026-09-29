@@ -315,8 +315,8 @@ def test_unregistered_producer_subsystems_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     domain = prod_bootstrap.domain
 
-    j_val = domain.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
-    j_prod = domain.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    j_val = prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    j_prod = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
 
     # Live journal created BUT NOT registered in domain
     unregistered_journal = DurableEventJournal()
@@ -345,22 +345,22 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     session_id = engine.session_id
     engine.start_reconciliation()
 
-    # Mint or retrieve capabilities on production domain
-    j_val = domain.get_validator_capability("JournalRecoveryValidator") or domain.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
-    s_val = domain.get_validator_capability("SnapshotRecoveryValidator") or domain.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
-    r_val = domain.get_validator_capability("RiskLedgerRecoveryValidator") or domain.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
-    i_val = domain.get_validator_capability("IntentRecoveryValidator") or domain.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
-    b_val = domain.get_validator_capability("BrokerReconciliationValidator") or domain.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
-    c_val = domain.get_validator_capability("ConfigurationValidator") or domain.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
-    p_val = domain.get_validator_capability("ProtectiveMonitoringValidator") or domain.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
+    # Mint or retrieve capabilities on production domain via trusted bootstrap
+    j_val = prod_bootstrap.get_validator_capability("JournalRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    s_val = prod_bootstrap.get_validator_capability("SnapshotRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
+    r_val = prod_bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
+    i_val = prod_bootstrap.get_validator_capability("IntentRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
+    b_val = prod_bootstrap.get_validator_capability("BrokerReconciliationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
+    c_val = prod_bootstrap.get_validator_capability("ConfigurationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
+    p_val = prod_bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
-    j_prod = domain.get_producer_capability(CapabilityRole.JOURNAL) or domain.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
-    s_prod = domain.get_producer_capability(CapabilityRole.SNAPSHOT) or domain.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
-    r_prod = domain.get_producer_capability(CapabilityRole.RISK_LEDGER) or domain.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
-    i_prod = domain.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or domain.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
-    b_prod = domain.get_producer_capability(CapabilityRole.BROKER_QUERY) or domain.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
-    c_prod = domain.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or domain.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
-    p_prod = domain.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or domain.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
+    j_prod = prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod = prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod = prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod = prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod = prod_bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod = prod_bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, "ConfigSubsystem")
+    p_prod = prod_bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, "ProtectiveSubsystem")
 
     journal = DurableEventJournal()
     snap_engine = SnapshotEngine()
@@ -369,13 +369,13 @@ def test_legitimate_trusted_runtime_bootstrap_path_succeeds() -> None:
     config = compute_effective_config(BaseConfig(), "EURUSD")
     protective = ProtectiveMonitoringSubsystem()
 
-    # Register producers
-    domain.register_producer(CapabilityRole.JOURNAL, journal)
-    domain.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
-    domain.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
-    domain.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
-    domain.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
-    domain.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
+    # Register producers via trusted bootstrap
+    prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
+    prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
+    prod_bootstrap.register_producer(CapabilityRole.RISK_LEDGER, risk_ledger)
+    prod_bootstrap.register_producer(CapabilityRole.INTENT_REPOSITORY, intent_repo)
+    prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
+    prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
     adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
     query_res = adapter.query_broker_state(session_id)
@@ -435,7 +435,7 @@ def test_stamp_cross_domain_rejected() -> None:
     domain_a = prod_bootstrap.domain
     domain_b = AuthorityDomain("DOMAIN_B")
 
-    b_prod_a = domain_a.get_producer_capability(CapabilityRole.BROKER_QUERY) or domain_a.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapter")
+    b_prod_a = prod_bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapter")
     adapter_a = AuthoritativeBrokerAdapter(capability=b_prod_a, authority=BrokerQueryQuality.FOUND)
     res_a = adapter_a.query_broker_state("sess_1")
 
