@@ -1,35 +1,83 @@
 """Versioned Immutable Configuration Schema with Canonical Deterministic Hashing."""
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, Any, Optional
+from typing import Any, Optional, Union, overload
+from decimal import Decimal
 import hashlib
 import json
+
+
+@overload
+def _to_decimal(val: None) -> None: ...
+
+
+@overload
+def _to_decimal(val: Union[Decimal, float, int, str]) -> Decimal: ...
+
+
+def _to_decimal(val: Union[Decimal, float, int, str, None]) -> Optional[Decimal]:
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    return Decimal(str(val))
+
+
+def _normalize_decimal_dict(d: Any) -> Any:
+    """Recursively converts Decimal objects to string representation for canonical serialization."""
+    if isinstance(d, Decimal):
+        return str(d)
+    if isinstance(d, dict):
+        return {k: _normalize_decimal_dict(v) for k, v in d.items()}
+    if isinstance(d, list):
+        return [_normalize_decimal_dict(v) for v in d]
+    return d
 
 
 @dataclass(frozen=True)
 class BaseConfig:
     version: int = 1
-    max_spread_pips: float = 2.0
-    risk_per_trade_pct: float = 0.01
+    max_spread_pips: Decimal = field(default_factory=lambda: Decimal("2.0"))
+    risk_per_trade_pct: Decimal = field(default_factory=lambda: Decimal("0.01"))
     news_pre_watch_mins: int = 60
     news_pre_lockdown_mins: int = 15
     news_post_lockdown_mins: int = 10
     ttl_default_ns: int = 300_000_000_000  # 5 mins in ns
-    max_currency_exposure_lots: float = 10.0
+    max_currency_exposure_lots: Decimal = field(default_factory=lambda: Decimal("10.0"))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "max_spread_pips", _to_decimal(self.max_spread_pips))
+        object.__setattr__(
+            self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct)
+        )
+        object.__setattr__(
+            self,
+            "max_currency_exposure_lots",
+            _to_decimal(self.max_currency_exposure_lots),
+        )
 
 
 @dataclass(frozen=True)
 class SymbolOverlay:
     symbol: str
-    max_spread_pips: Optional[float] = None
+    max_spread_pips: Optional[Decimal] = None
     overlay_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.max_spread_pips is not None:
+            object.__setattr__(
+                self, "max_spread_pips", _to_decimal(self.max_spread_pips)
+            )
 
 
 @dataclass(frozen=True)
 class NewsOverlay:
     news_lockdown_active: bool = False
-    risk_multiplier: float = 1.0
+    risk_multiplier: Decimal = field(default_factory=lambda: Decimal("1.0"))
     overlay_version: int = 1
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "risk_multiplier", _to_decimal(self.risk_multiplier))
 
 
 @dataclass(frozen=True)
@@ -37,32 +85,58 @@ class EffectiveConfiguration:
     effective_config_id: str
     version: int
     symbol: str
-    max_spread_pips: float
-    risk_per_trade_pct: float
+    max_spread_pips: Decimal
+    risk_per_trade_pct: Decimal
     news_lockdown_active: bool
-    risk_multiplier: float
+    risk_multiplier: Decimal
     ttl_default_ns: int
-    max_currency_exposure_lots: float
+    max_currency_exposure_lots: Decimal
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "max_spread_pips", _to_decimal(self.max_spread_pips))
+        object.__setattr__(
+            self, "risk_per_trade_pct", _to_decimal(self.risk_per_trade_pct)
+        )
+        object.__setattr__(self, "risk_multiplier", _to_decimal(self.risk_multiplier))
+        object.__setattr__(
+            self,
+            "max_currency_exposure_lots",
+            _to_decimal(self.max_currency_exposure_lots),
+        )
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative configuration provenance."""
-        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
-        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION:
-            raise RecoveryEvidenceError("EffectiveConfiguration observation requires a valid EFFECTIVE_CONFIGURATION ProducerCapability.")
+        from src.fractal_flow.execution.recovery import (
+            CapabilityRole,
+            SealedObservation,
+            RecoveryEvidenceError,
+            ProducerCapability,
+        )
+
+        if (
+            not isinstance(capability, ProducerCapability)
+            or capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION
+        ):
+            raise RecoveryEvidenceError(
+                "EffectiveConfiguration observation requires a valid EFFECTIVE_CONFIGURATION ProducerCapability."
+            )
 
         import time
+
         payload = {
             "effective_config_id": self.effective_config_id,
             "version": self.version,
             "symbol": self.symbol,
-            "max_spread_pips": self.max_spread_pips,
-            "risk_per_trade_pct": self.risk_per_trade_pct,
+            "max_spread_pips": str(self.max_spread_pips),
+            "risk_per_trade_pct": str(self.risk_per_trade_pct),
             "news_lockdown_active": self.news_lockdown_active,
-            "risk_multiplier": self.risk_multiplier,
+            "risk_multiplier": str(self.risk_multiplier),
             "ttl_default_ns": self.ttl_default_ns,
-            "max_currency_exposure_lots": self.max_currency_exposure_lots,
+            "max_currency_exposure_lots": str(self.max_currency_exposure_lots),
         }
-        return SealedObservation.create(capability, session_id, int(time.time()), payload)
+        return SealedObservation.create(
+            capability, session_id, int(time.time()), payload
+        )
 
 
 def compute_effective_config(
@@ -72,28 +146,37 @@ def compute_effective_config(
     news_overlay: Optional[NewsOverlay] = None,
 ) -> EffectiveConfiguration:
     """Computes immutable EffectiveConfiguration with canonical deterministic SHA256 hashing covering all fields."""
-    max_spread = base.max_spread_pips
+    base_spread = _to_decimal(base.max_spread_pips)
+    base_risk = _to_decimal(base.risk_per_trade_pct)
+    base_exposure = _to_decimal(base.max_currency_exposure_lots)
+
+    max_spread = base_spread
     if symbol_overlay and symbol_overlay.max_spread_pips is not None:
-        max_spread = symbol_overlay.max_spread_pips
+        max_spread = _to_decimal(symbol_overlay.max_spread_pips)
 
     news_active = news_overlay.news_lockdown_active if news_overlay else False
-    risk_mult = news_overlay.risk_multiplier if news_overlay else 1.0
+    risk_mult = (
+        _to_decimal(news_overlay.risk_multiplier) if news_overlay else Decimal("1.0")
+    )
+
+    effective_risk_per_trade = base_risk * risk_mult
 
     eff_dict = {
         "version": base.version,
         "symbol": symbol,
         "max_spread_pips": max_spread,
-        "risk_per_trade_pct": base.risk_per_trade_pct * risk_mult,
+        "risk_per_trade_pct": effective_risk_per_trade,
         "news_lockdown_active": news_active,
         "risk_multiplier": risk_mult,
         "ttl_default_ns": base.ttl_default_ns,
-        "max_currency_exposure_lots": base.max_currency_exposure_lots,
+        "max_currency_exposure_lots": base_exposure,
         "symbol_overlay": asdict(symbol_overlay) if symbol_overlay else None,
         "news_overlay": asdict(news_overlay) if news_overlay else None,
     }
 
-    # Canonical sorted JSON serialization
-    canonical_json = json.dumps(eff_dict, sort_keys=True)
+    # Canonical sorted JSON serialization with Decimal string normalization
+    normalized_dict = _normalize_decimal_dict(eff_dict)
+    canonical_json = json.dumps(normalized_dict, sort_keys=True)
     config_id = f"cfg_{hashlib.sha256(canonical_json.encode('utf-8')).hexdigest()[:12]}"
 
     return EffectiveConfiguration(
@@ -101,9 +184,9 @@ def compute_effective_config(
         version=base.version,
         symbol=symbol,
         max_spread_pips=max_spread,
-        risk_per_trade_pct=base.risk_per_trade_pct * risk_mult,
+        risk_per_trade_pct=effective_risk_per_trade,
         news_lockdown_active=news_active,
         risk_multiplier=risk_mult,
         ttl_default_ns=base.ttl_default_ns,
-        max_currency_exposure_lots=base.max_currency_exposure_lots,
+        max_currency_exposure_lots=base_exposure,
     )

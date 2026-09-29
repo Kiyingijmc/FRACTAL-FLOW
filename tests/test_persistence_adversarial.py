@@ -4,23 +4,46 @@ import pytest
 import os
 import tempfile
 import threading
-from pathlib import Path
 from typing import Optional
 
-from src.fractal_flow.domain.event import Event, InvalidEventVersionException
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
-from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
-from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerOrder, BrokerDeal, DealEntryRole
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
-from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState, RecoveryEvidence, RecoveryEvidenceError, RecoveryEvidenceAssembler
+from src.fractal_flow.domain.event import Event
+from src.fractal_flow.persistence.journal import (
+    DurableEventJournal,
+    JournalCorruptionException,
+    JournalDurabilityException,
+)
+from src.fractal_flow.persistence.interfaces import (
+    DurableExecutionIntentRepository,
+    IdempotencyConflictException,
+)
+from src.fractal_flow.domain.models import (
+    ExecutionIntent,
+    OrderSide,
+    Position,
+    BrokerDeal,
+    DealEntryRole,
+)
+from src.fractal_flow.domain.risk_ledger import (
+    OpportunityRiskLedger,
+    LedgerOperation,
+    AccountingInvariantException,
+)
+from src.fractal_flow.execution.recovery import (
+    RecoveryEngine,
+    RecoveryState,
+    RecoveryEvidence,
+    RecoveryEvidenceError,
+)
 from src.fractal_flow.execution.reconciliation import (
     ReconciliationEngine,
     ReconciliationMismatchType,
     BrokerQueryQuality,
-    ReconciliationReport,
 )
 from src.fractal_flow.execution.execution_state import ExecutionState
-from src.fractal_flow.persistence.snapshot import SnapshotEngine, SnapshotCorruptionException
+from src.fractal_flow.persistence.snapshot import (
+    SnapshotEngine,
+    SnapshotCorruptionException,
+)
 
 
 def make_test_event(
@@ -90,7 +113,9 @@ def test_journal_fsync_invoked(monkeypatch: pytest.MonkeyPatch) -> None:
             os.remove(path)
 
 
-def test_journal_fsync_failure_propagation_and_state_non_advancement(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_fsync_failure_propagation_and_state_non_advancement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def mock_fsync_fail(fd: int) -> None:
         raise OSError("Disk flush failed")
 
@@ -114,7 +139,9 @@ def test_journal_fsync_failure_propagation_and_state_non_advancement(monkeypatch
             os.remove(path)
 
 
-def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_physical_file_rollback_on_append_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -140,7 +167,9 @@ def test_journal_physical_file_rollback_on_append_failure(monkeypatch: pytest.Mo
             os.remove(path)
 
 
-def test_journal_rollback_fsync_failure_faults_journal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_rollback_fsync_failure_faults_journal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -274,7 +303,9 @@ def test_journal_type_safety_validation() -> None:
     try:
         # Inject boolean sequence_number: true
         with open(path, "w", encoding="utf-8") as f:
-            f.write('{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n')
+            f.write(
+                '{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n'
+            )
 
         with pytest.raises(JournalCorruptionException) as exc:
             DurableEventJournal(journal_file_path=path)
@@ -319,7 +350,9 @@ def test_journal_duplicate_event_id_conflicting_payload_rejection() -> None:
     journal.append(make_test_event(1, event_id="evt_same", payload={"p": "first"}))
 
     with pytest.raises(JournalCorruptionException):
-        journal.append(make_test_event(2, event_id="evt_same", payload={"p": "different"}))
+        journal.append(
+            make_test_event(2, event_id="evt_same", payload={"p": "different"})
+        )
 
 
 @pytest.mark.parametrize(
@@ -345,7 +378,9 @@ def test_journal_genuine_truncation_recovery_matrix(truncated_fragment: str) -> 
         with open(path, "a", encoding="utf-8") as f:
             f.write(truncated_fragment)
 
-        recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        recovered = DurableEventJournal(
+            journal_file_path=path, truncate_corrupted_tail=True
+        )
         assert len(recovered.get_all_records()) == 2
         assert recovered._global_sequence == 2
 
@@ -406,7 +441,9 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
         assert os.path.getsize(path) > expected_valid_size
 
         # Recover with truncate_corrupted_tail=True
-        recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        recovered = DurableEventJournal(
+            journal_file_path=path, truncate_corrupted_tail=True
+        )
         assert len(recovered.get_all_records()) == 2
 
         # Verify physical file size and exact bytes match expected_valid_bytes
@@ -418,7 +455,9 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
         assert actual_bytes == expected_valid_bytes
 
         # Verify recovery idempotency: reloading clean file does not perform further truncation
-        reloaded = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
+        reloaded = DurableEventJournal(
+            journal_file_path=path, truncate_corrupted_tail=True
+        )
         assert len(reloaded.get_all_records()) == 2
         assert os.path.getsize(path) == expected_valid_size
     finally:
@@ -426,7 +465,9 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
             os.remove(path)
 
 
-def test_journal_tail_recovery_fsync_durability_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_journal_tail_recovery_fsync_durability_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         path = tmp.name
 
@@ -502,10 +543,18 @@ def test_journal_corrupted_middle_record_fail_closed() -> None:
 def test_journal_interleaved_aggregates_sequencing() -> None:
     journal = DurableEventJournal()
 
-    r1 = journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
-    r2 = journal.append(make_test_event(2, event_id="e2", aggregate_id="B", aggregate_version=1))
-    r3 = journal.append(make_test_event(3, event_id="e3", aggregate_id="A", aggregate_version=2))
-    r4 = journal.append(make_test_event(4, event_id="e4", aggregate_id="B", aggregate_version=2))
+    r1 = journal.append(
+        make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1)
+    )
+    r2 = journal.append(
+        make_test_event(2, event_id="e2", aggregate_id="B", aggregate_version=1)
+    )
+    r3 = journal.append(
+        make_test_event(3, event_id="e3", aggregate_id="A", aggregate_version=2)
+    )
+    r4 = journal.append(
+        make_test_event(4, event_id="e4", aggregate_id="B", aggregate_version=2)
+    )
 
     assert r1.sequence_number == 1
     assert r2.sequence_number == 2
@@ -562,7 +611,9 @@ def test_journal_concurrent_durable_file_appends() -> None:
         assert len(reloaded_records) == 50
 
         seqs = [r.sequence_number for r in reloaded_records]
-        assert seqs == list(range(1, 51))  # Global sequence is strictly contiguous 1..50!
+        assert seqs == list(
+            range(1, 51)
+        )  # Global sequence is strictly contiguous 1..50!
         assert len(reloaded._event_ids) == 50
     finally:
         if os.path.exists(path):
@@ -570,16 +621,29 @@ def test_journal_concurrent_durable_file_appends() -> None:
 
 
 def test_snapshot_journal_exact_boundary_equivalence() -> None:
-    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+    with (
+        tempfile.TemporaryDirectory() as snap_dir,
+        tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp,
+    ):
         journal_path = tmp.name
 
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
         for i in range(1, 11):
-            journal.append(make_test_event(i, event_id=f"evt_b_{i}", aggregate_id="agg_bound", aggregate_version=i, payload={"count": i}))
+            journal.append(
+                make_test_event(
+                    i,
+                    event_id=f"evt_b_{i}",
+                    aggregate_id="agg_bound",
+                    aggregate_version=i,
+                    payload={"count": i},
+                )
+            )
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
-        snap_engine.save_snapshot("Opportunity", "agg_bound", version=5, last_seq=5, payload={"count": 5})
+        snap_engine.save_snapshot(
+            "Opportunity", "agg_bound", version=5, last_seq=5, payload={"count": 5}
+        )
 
         def counter_reducer(state: dict, evt: Event) -> dict:
             state["count"] = evt.payload["count"]
@@ -588,14 +652,18 @@ def test_snapshot_journal_exact_boundary_equivalence() -> None:
         snap_engine.register_reducer("TEST_EVENT", counter_reducer)
 
         # Path 1: Snapshot @ 5 + journal replay 6..10
-        state_from_snap = snap_engine.replay_journal(journal, "Opportunity", "agg_bound")
+        state_from_snap = snap_engine.replay_journal(
+            journal, "Opportunity", "agg_bound"
+        )
         assert state_from_snap["count"] == 10
         assert state_from_snap["_last_seq"] == 10
 
         # Path 2: Full genesis journal replay (no snapshot)
         genesis_snap_engine = SnapshotEngine()  # Empty snapshot engine
         genesis_snap_engine.register_reducer("TEST_EVENT", counter_reducer)
-        state_from_genesis = genesis_snap_engine.replay_journal(journal, "Opportunity", "agg_bound")
+        state_from_genesis = genesis_snap_engine.replay_journal(
+            journal, "Opportunity", "agg_bound"
+        )
         assert state_from_genesis["count"] == 10
         assert state_from_genesis["_last_seq"] == 10
 
@@ -608,13 +676,21 @@ def test_snapshot_journal_exact_boundary_equivalence() -> None:
 
 def test_p422_snapshot_sequence_for_wrong_aggregate_rejected() -> None:
     journal = DurableEventJournal()
-    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
-    journal.append(make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2))
-    journal.append(make_test_event(3, event_id="e3", aggregate_id="B", aggregate_version=1))  # seq 3 belongs to B!
+    journal.append(
+        make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1)
+    )
+    journal.append(
+        make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2)
+    )
+    journal.append(
+        make_test_event(3, event_id="e3", aggregate_id="B", aggregate_version=1)
+    )  # seq 3 belongs to B!
 
     snap_engine = SnapshotEngine()
     # Snapshot for A claiming sequence 3 (which belongs to B)
-    snap = snap_engine.save_snapshot("Opportunity", "A", version=2, last_seq=3, payload={"state": "OPP_VALID"})
+    snap = snap_engine.save_snapshot(
+        "Opportunity", "A", version=2, last_seq=3, payload={"state": "OPP_VALID"}
+    )
 
     with pytest.raises(SnapshotCorruptionException) as exc:
         snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
@@ -623,12 +699,18 @@ def test_p422_snapshot_sequence_for_wrong_aggregate_rejected() -> None:
 
 def test_p422_snapshot_aggregate_version_mismatch_at_boundary_rejected() -> None:
     journal = DurableEventJournal()
-    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
-    journal.append(make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2))
+    journal.append(
+        make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1)
+    )
+    journal.append(
+        make_test_event(2, event_id="e2", aggregate_id="A", aggregate_version=2)
+    )
 
     snap_engine = SnapshotEngine()
     # Snapshot claiming sequence 2 but aggregate_version 99 (when journal has aggregate_version 2)
-    snap = snap_engine.save_snapshot("Opportunity", "A", version=99, last_seq=2, payload={"state": "OPP_VALID"})
+    snap = snap_engine.save_snapshot(
+        "Opportunity", "A", version=99, last_seq=2, payload={"state": "OPP_VALID"}
+    )
 
     with pytest.raises(SnapshotCorruptionException) as exc:
         snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
@@ -637,10 +719,14 @@ def test_p422_snapshot_aggregate_version_mismatch_at_boundary_rejected() -> None
 
 def test_p422_snapshot_ahead_of_journal_head_rejected() -> None:
     journal = DurableEventJournal()
-    journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1))
+    journal.append(
+        make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1)
+    )
 
     snap_engine = SnapshotEngine()
-    snap = snap_engine.save_snapshot("Opportunity", "A", version=5, last_seq=999, payload={"state": "OPP_VALID"})
+    snap = snap_engine.save_snapshot(
+        "Opportunity", "A", version=5, last_seq=999, payload={"state": "OPP_VALID"}
+    )
 
     with pytest.raises(SnapshotCorruptionException) as exc:
         snap_engine.validate_snapshot_boundary(snap, journal, "Opportunity", "A")
@@ -648,15 +734,28 @@ def test_p422_snapshot_ahead_of_journal_head_rejected() -> None:
 
 
 def test_p422_corrupt_snapshot_fallback_records_evidence_flags() -> None:
-    with tempfile.TemporaryDirectory() as snap_dir, tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
+    with (
+        tempfile.TemporaryDirectory() as snap_dir,
+        tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp,
+    ):
         journal_path = tmp.name
 
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
-        journal.append(make_test_event(1, event_id="e1", aggregate_id="A", aggregate_version=1, payload={"x": 10}))
+        journal.append(
+            make_test_event(
+                1,
+                event_id="e1",
+                aggregate_id="A",
+                aggregate_version=1,
+                payload={"x": 10},
+            )
+        )
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
-        snap_engine.save_snapshot("Opportunity", "A", version=1, last_seq=1, payload={"x": 10})
+        snap_engine.save_snapshot(
+            "Opportunity", "A", version=1, last_seq=1, payload={"x": 10}
+        )
 
         # Corrupt snapshot file and clear in-memory cache
         snap_file = snap_engine._get_snapshot_file_path("Opportunity", "A")
@@ -703,7 +802,9 @@ def test_p422_illegal_recovery_state_transitions_rejected() -> None:
     rec_engine = RecoveryEngine()
 
     # Attempting complete_recovery_with_evidence from NORMAL state must raise RecoveryEvidenceError or ValueError
-    good_evidence = RecoveryEvidence.create_authoritative_evidence(session_id=rec_engine.session_id)
+    good_evidence = RecoveryEvidence.create_authoritative_evidence(
+        session_id=rec_engine.session_id
+    )
 
     with pytest.raises(ValueError) as exc:
         rec_engine.complete_recovery_with_evidence(good_evidence)
@@ -880,9 +981,15 @@ def test_reconciliation_and_recovery_idempotency_stability() -> None:
     )
 
     # Run reconcile_broker_wide 3 times in succession
-    res1 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
-    res2 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
-    res3 = ReconciliationEngine.reconcile_broker_wide({"intent_idem_1": intent}, {}, {"POS_IDEM": pos})
+    res1 = ReconciliationEngine.reconcile_broker_wide(
+        {"intent_idem_1": intent}, {}, {"POS_IDEM": pos}
+    )
+    res2 = ReconciliationEngine.reconcile_broker_wide(
+        {"intent_idem_1": intent}, {}, {"POS_IDEM": pos}
+    )
+    res3 = ReconciliationEngine.reconcile_broker_wide(
+        {"intent_idem_1": intent}, {}, {"POS_IDEM": pos}
+    )
 
     assert res1 == res2 == res3
     assert res1[0].resolved_execution_state == ExecutionState.EXEC_FILLED
@@ -940,11 +1047,27 @@ def test_p42_15_16_idempotency_fingerprint_conflict() -> None:
 
 def test_p42_27_33_risk_ledger_exact_accounting_and_corruption_rejection() -> None:
     ledger = OpportunityRiskLedger("b1", "opp_1", total_risk=500.0, total_volume=1.0)
-    ledger.record_operation("e1", LedgerOperation.RESERVE, amount=200.0, volume=0.4, reference_id="r1", causation_id="c1", timestamp=1000)
+    ledger.record_operation(
+        "e1",
+        LedgerOperation.RESERVE,
+        amount=200.0,
+        volume=0.4,
+        reference_id="r1",
+        causation_id="c1",
+        timestamp=1000,
+    )
     assert ledger.remaining_risk == 300.0
 
     with pytest.raises(AccountingInvariantException):
-        ledger.record_operation("e2", LedgerOperation.ALLOCATE, amount=600.0, volume=1.2, reference_id="r2", causation_id="c2", timestamp=1000)
+        ledger.record_operation(
+            "e2",
+            LedgerOperation.ALLOCATE,
+            amount=600.0,
+            volume=1.2,
+            reference_id="r2",
+            causation_id="c2",
+            timestamp=1000,
+        )
 
 
 def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
@@ -961,7 +1084,9 @@ def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
 
 def test_p42_07_08_snapshot_engine_checksum_verification() -> None:
     snap_engine = SnapshotEngine()
-    snap = snap_engine.save_snapshot("Opportunity", "opp_1", version=1, last_seq=1, payload={"state": "OPP_VALID"})
+    snap = snap_engine.save_snapshot(
+        "Opportunity", "opp_1", version=1, last_seq=1, payload={"state": "OPP_VALID"}
+    )
 
     loaded = snap_engine.load_snapshot("Opportunity", "opp_1")
     assert loaded is not None
@@ -974,7 +1099,9 @@ def test_forensic_evidence_provenance_session_mismatch_rejected() -> None:
     rec_engine.start_reconciliation()
 
     # Create evidence with wrong/stale session ID in provenance
-    bad_session_evidence = RecoveryEvidence.create_authoritative_evidence(session_id="wrong_stale_session_id")
+    bad_session_evidence = RecoveryEvidence.create_authoritative_evidence(
+        session_id="wrong_stale_session_id"
+    )
 
     with pytest.raises((ValueError, RecoveryEvidenceError)) as exc:
         rec_engine.complete_recovery_with_evidence(bad_session_evidence)
@@ -988,8 +1115,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
 
     # Evidence with orphaned_count = 1
     orphan_evidence = RecoveryEvidence.create_authoritative_evidence(
-        session_id=rec_engine.session_id,
-        orphaned_count=1
+        session_id=rec_engine.session_id, orphaned_count=1
     )
 
     with pytest.raises((ValueError, RecoveryEvidenceError)) as exc:
@@ -999,7 +1125,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
 
 
 def test_forensic_broker_query_provider_authority_boundary() -> None:
-    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider, BrokerQueryQuality
+    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider
 
     intent = ExecutionIntent(
         intent_id="intent_q_bound",
@@ -1024,7 +1150,9 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     )
 
     # 1. Query Provider returning NOT_FOUND_NON_AUTHORITATIVE
-    non_auth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE)
+    non_auth_provider = BrokerQueryProvider(
+        authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE
+    )
     query_res_non_auth = non_auth_provider.query_broker_state()
 
     rec_res1 = ReconciliationEngine.reconcile_intent(
@@ -1036,7 +1164,9 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     assert rec_res1.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
     # 2. Query Provider returning STALE
-    stale_provider = BrokerQueryProvider(authority=BrokerQueryQuality.FOUND, max_age_seconds=10, query_timestamp=1000)
+    stale_provider = BrokerQueryProvider(
+        authority=BrokerQueryQuality.FOUND, max_age_seconds=10, query_timestamp=1000
+    )
     query_res_stale = stale_provider.query_broker_state(current_timestamp=2000)
     assert query_res_stale.authority == BrokerQueryQuality.STALE
 
@@ -1049,7 +1179,9 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     assert rec_res2.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
 
     # 3. Un-capability-backed Query Provider attempting NOT_FOUND_AUTHORITATIVE fails closed to EXEC_UNKNOWN
-    unauth_provider = BrokerQueryProvider(authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
+    unauth_provider = BrokerQueryProvider(
+        authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE
+    )
     query_res_unauth = unauth_provider.query_broker_state()
 
     rec_res_unauth = ReconciliationEngine.reconcile_intent(
@@ -1063,8 +1195,11 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     # 4. Authoritative query with legitimate BROKER_QUERY capability succeeds in asserting EXEC_REJECTED
     from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
     from src.fractal_flow.execution.reconciliation import AuthoritativeBrokerAdapter
+
     bootstrap = AuthorityBootstrap()
-    b_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "TestBrokerAdapter")
+    b_cap = bootstrap.mint_producer_capability(
+        CapabilityRole.BROKER_QUERY, "TestBrokerAdapter"
+    )
     bootstrap.finalize()
 
     auth_adapter = AuthoritativeBrokerAdapter(
@@ -1086,7 +1221,9 @@ def test_forensic_snapshot_state_hash_mismatch_rejected() -> None:
     from src.fractal_flow.persistence.snapshot import AggregateSnapshot
 
     snap_engine = SnapshotEngine()
-    snap = snap_engine.save_snapshot("Opportunity", "opp_hash", version=1, last_seq=1, payload={"val": 100})
+    snap = snap_engine.save_snapshot(
+        "Opportunity", "opp_hash", version=1, last_seq=1, payload={"val": 100}
+    )
 
     # Mutate in-memory snapshot state_hash maliciously
     key = "Opportunity:opp_hash"

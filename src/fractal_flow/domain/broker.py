@@ -1,8 +1,8 @@
 """Broker Constraint Model with exact Decimal volume step, stops level, freeze level, and tick normalization."""
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
-from src.fractal_flow.domain.units import Volume, PricePips
+from decimal import Decimal
+from src.fractal_flow.domain.units import Volume
 
 
 @dataclass(frozen=True)
@@ -71,4 +71,6 @@ class BrokerConstraints:
         t_dec = Decimal(str(self.tick_size))
         remainder = p_dec % t_dec
         if remainder != Decimal("0"):
-            raise ValueError(f"Price {price} does not align with tick_size {self.tick_size} for {self.symbol}")
+            raise ValueError(
+                f"Price {price} does not align with tick_size {self.tick_size} for {self.symbol}"
+            )

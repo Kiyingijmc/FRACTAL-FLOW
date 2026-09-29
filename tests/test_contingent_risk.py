@@ -1,6 +1,5 @@
 """Tests for Pass 4C Contingent Risk, Hybrid Entries, and Opportunity Budget Allocation."""
 
-import pytest
 from src.fractal_flow.domain.entry import (
     EntryModel,
     OrderType,
@@ -124,7 +123,12 @@ def test_hybrid_entry_shared_risk_budget() -> None:
         effective_config_id="cfg_h",
     )
 
-    hybrid = HybridEntryPlan(hybrid_id="h_1", opportunity_id="opp_hybrid", risk_budget=budget, legs=[leg1, leg2])
+    hybrid = HybridEntryPlan(
+        hybrid_id="h_1",
+        opportunity_id="opp_hybrid",
+        risk_budget=budget,
+        legs=[leg1, leg2],
+    )
     total_allocated_risk = sum(leg.allocated_risk for leg in hybrid.legs)
     total_allocated_vol = sum(leg.approved_volume for leg in hybrid.legs)
 

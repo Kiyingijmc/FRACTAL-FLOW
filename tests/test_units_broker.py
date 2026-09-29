@@ -1,10 +1,23 @@
 """Tests for StateEnvelope validation, BrokerConstraints, Units, and Configuration Identity."""
 
 import pytest
-from src.fractal_flow.domain.units import Price, Volume, PositiveCurrencyAmount, SignedCurrencyAmount, Score, price_to_pips, pips_to_price
+from src.fractal_flow.domain.units import (
+    Price,
+    Volume,
+    PositiveCurrencyAmount,
+    SignedCurrencyAmount,
+    Score,
+    price_to_pips,
+    pips_to_price,
+)
 from src.fractal_flow.domain.broker import BrokerConstraints
-from src.fractal_flow.domain.envelope import StateEnvelope, InvalidStateTransitionException
-from src.fractal_flow.config.config import BaseConfig, SymbolOverlay, NewsOverlay, compute_effective_config
+from src.fractal_flow.domain.envelope import StateEnvelope
+from src.fractal_flow.config.config import (
+    BaseConfig,
+    SymbolOverlay,
+    NewsOverlay,
+    compute_effective_config,
+)
 
 
 def test_units_validation() -> None:
@@ -81,7 +94,9 @@ def test_state_envelope_validation() -> None:
 def test_effective_configuration_reproducible_identity() -> None:
     base = BaseConfig()
     sym = SymbolOverlay(symbol="EURUSD", max_spread_pips=1.5, overlay_version=1)
-    news = NewsOverlay(news_lockdown_active=False, risk_multiplier=0.5, overlay_version=2)
+    news = NewsOverlay(
+        news_lockdown_active=False, risk_multiplier=0.5, overlay_version=2
+    )
 
     cfg1 = compute_effective_config(base, "EURUSD", sym, news)
     cfg2 = compute_effective_config(base, "EURUSD", sym, news)

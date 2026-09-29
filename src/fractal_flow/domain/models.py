@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
+from decimal import Decimal
 from enum import Enum, unique
 
 
@@ -31,9 +32,9 @@ class DealEntryRole(str, Enum):
 class MarketObservation:
     symbol: str
     timestamp: int
-    bid: float
-    ask: float
-    volume: float
+    bid: Decimal
+    ask: Decimal
+    volume: Decimal
     timeframe: str = "1M"
 
 
@@ -41,9 +42,9 @@ class MarketObservation:
 class FeatureSet:
     symbol: str
     timestamp: int
-    atr_14: float
-    spread_pips: float
-    relative_volatility: float
+    atr_14: Decimal
+    spread_pips: Decimal
+    relative_volatility: float  # Statistical metric ratio
 
 
 @dataclass(frozen=True)
@@ -73,32 +74,32 @@ class PullbackObject:
     direction: Direction
     parent_direction: Direction
     start_time: int
-    start_price: float
-    impulse_high: float
-    impulse_low: float
-    impulse_range: float
-    current_high: float
-    current_low: float
-    counter_move: float
-    counter_move_norm: float
-    retracement_depth: float
+    start_price: Decimal
+    impulse_high: Decimal
+    impulse_low: Decimal
+    impulse_range: Decimal
+    current_high: Decimal
+    current_low: Decimal
+    counter_move: Decimal
+    counter_move_norm: Decimal
+    retracement_depth: float  # Percentage / ratio metric
     duration: int
-    duration_ratio: float
-    velocity: float
-    acceleration: float
-    efficiency: float
-    momentum: float
-    range: float
-    structural_damage: float
-    weakening_score: float
-    resumption_score: float
-    false_resumption_risk: float
+    duration_ratio: float  # Ratio metric
+    velocity: float  # Statistical rate metric
+    acceleration: float  # Statistical rate metric
+    efficiency: float  # Ratio metric
+    momentum: float  # Indicator metric
+    range: Decimal
+    structural_damage: float  # Score metric
+    weakening_score: float  # Score metric
+    resumption_score: float  # Score metric
+    false_resumption_risk: float  # Probability score metric
     maturity: str
     state: str
     sub_state: str
     validity: bool
-    confidence: float
-    protected_level: float
+    confidence: float  # Probability score metric
+    protected_level: Decimal
     primary_entry_allowed: bool = True
     micro_entry_allowed: bool = False
     reentry_allowed: bool = True
@@ -123,14 +124,14 @@ class OpportunityObject:
     primary_pullback_id: str
     setup_type: str
     direction: Direction
-    structural_edge: float
-    opportunity_space: float
+    structural_edge: float  # Statistical score metric
+    opportunity_space: float  # Statistical score metric
     tradeability: str
-    execution_quality: float
+    execution_quality: float  # Score metric
     entry_profile: str
     risk_class: str
     ttl_class: str
-    confidence: float
+    confidence: float  # Confidence score
     state: str
     entry_allowed: bool
     parent_opportunity_id: Optional[str] = None
@@ -140,8 +141,8 @@ class OpportunityObject:
 class TradeabilityAssessment:
     opportunity_id: str
     status: str
-    spread_pips: float
-    allowed_spread_pips: float
+    spread_pips: Decimal
+    allowed_spread_pips: Decimal
     passed: bool
 
 
@@ -149,8 +150,8 @@ class TradeabilityAssessment:
 class RiskAssessment:
     opportunity_id: str
     status: str
-    requested_risk: float
-    approved_risk: float
+    requested_risk: Decimal
+    approved_risk: Decimal
     account_feasible: bool
 
 
@@ -158,7 +159,7 @@ class RiskAssessment:
 class PortfolioAssessment:
     opportunity_id: str
     result: str
-    currency_exposure_lots: Dict[str, float]
+    currency_exposure_lots: Dict[str, Decimal]
 
 
 @dataclass
@@ -179,18 +180,18 @@ class TradeDecision:
     news_state: str
     risk_state: str
     portfolio_state: str
-    entry_price: float
-    structural_sl: float
+    entry_price: Decimal
+    structural_sl: Decimal
     tp_plan: Dict[str, Any]
     ttl_ns: int
-    requested_risk: float
-    approved_risk: float
-    position_size_lots: float
+    requested_risk: Decimal
+    approved_risk: Decimal
+    position_size_lots: Decimal
     arbitration_result: str
     effective_config_id: str
     broker_constraint_snapshot: Dict[str, Any]
     quote_timestamp: int
-    spread_pips: float
+    spread_pips: Decimal
     configuration_version: int = 1
     lineage_version: int = 1
     authorized: bool = False
@@ -199,7 +200,11 @@ class TradeDecision:
         """NEWS_LOCKDOWN is a hard authorization boundary that blocks trade authorization."""
         if self.news_state == "NEWS_LOCKDOWN":
             return False
-        return self.authorized and self.tradeability == "TRADEABILITY_PASS" and self.portfolio_state == "PORTFOLIO_ALLOW"
+        return (
+            self.authorized
+            and self.tradeability == "TRADEABILITY_PASS"
+            and self.portfolio_state == "PORTFOLIO_ALLOW"
+        )
 
 
 @dataclass
@@ -211,15 +216,15 @@ class ExecutionIntent:
     idempotency_key: str
     symbol: str
     side: OrderSide
-    requested_volume: float
-    entry_price: float
-    sl: float
+    requested_volume: Decimal
+    entry_price: Decimal
+    sl: Decimal
     tp_plan: Dict[str, Any]
     effective_config_id: str
     lineage_version: int
     broker_constraint_snapshot: Dict[str, Any]
     quote_timestamp: int
-    spread_pips: float
+    spread_pips: Decimal
     status: str
     created_at: int
     updated_at: int
@@ -228,9 +233,9 @@ class ExecutionIntent:
     order_type: Optional[str] = None
     fill_policy: Optional[str] = None
     time_in_force: Optional[str] = None
-    trigger_price: Optional[float] = None
-    limit_price: Optional[float] = None
-    stop_limit_price: Optional[float] = None
+    trigger_price: Optional[Decimal] = None
+    limit_price: Optional[Decimal] = None
+    stop_limit_price: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -239,8 +244,8 @@ class BrokerOrder:
     intent_id: str
     symbol: str
     side: str
-    volume: float
-    price: float
+    volume: Decimal
+    price: Decimal
     status: str
 
 
@@ -251,9 +256,9 @@ class BrokerDeal:
     position_id: str
     symbol: str
     side: str
-    volume: float
-    price: float
-    commission: float
+    volume: Decimal
+    price: Decimal
+    commission: Decimal
     timestamp: int
     entry_role: DealEntryRole = DealEntryRole.UNKNOWN
 
@@ -265,25 +270,25 @@ class Position:
     order_id: str
     symbol: str
     side: str
-    requested_volume: float
-    filled_volume: float
-    remaining_volume: float
-    entry_price: float
-    current_sl: float
+    requested_volume: Decimal
+    filled_volume: Decimal
+    remaining_volume: Decimal
+    entry_price: Decimal
+    current_sl: Decimal
     lifecycle_state: str
     health_state: str
     opened_at: int
     deals: List[BrokerDeal] = field(default_factory=list)
-    realized_pnl: float = 0.0
-    unrealized_pnl: float = 0.0
+    realized_pnl: Decimal = Decimal("0.0")
+    unrealized_pnl: Decimal = Decimal("0.0")
     reconciliation_status: str = "RECON_NORMAL"
 
 
 @dataclass
 class PositionManagementState:
     position_id: str
-    trailing_sl: float
-    tp_level: float
+    trailing_sl: Decimal
+    tp_level: Decimal
     is_runner: bool
 
 

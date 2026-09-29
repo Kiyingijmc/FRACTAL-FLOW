@@ -1,22 +1,29 @@
 """Canonical Lineage Chain and Governance Model."""
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Set
+from typing import Optional, Dict, Set
 from pathlib import Path
 import yaml
 
 
 class LineageInvalidException(Exception):
     """Raised when lineage validation or parent checks fail."""
+
     pass
 
 
-def load_spec_lineage_edges(yaml_path: str = "spec/lineage.yaml") -> Dict[str, Set[str]]:
+def load_spec_lineage_edges(
+    yaml_path: str = "spec/lineage.yaml",
+) -> Dict[str, Set[str]]:
     path = Path(yaml_path)
     if path.exists():
         with open(path) as f:
             data = yaml.safe_load(f)
-            raw_edges = data.get("lineage", {}).get("legal_edges", {}) if isinstance(data, dict) else {}
+            raw_edges = (
+                data.get("lineage", {}).get("legal_edges", {})
+                if isinstance(data, dict)
+                else {}
+            )
             return {k: set(v) for k, v in raw_edges.items()}
     return {}
 
@@ -34,10 +41,14 @@ class Lineage:
     current_tier: str
     parent_is_valid: bool = True
 
-    def validate_child_action(self, authoritative_parent_version: Optional[int] = None) -> None:
+    def validate_child_action(
+        self, authoritative_parent_version: Optional[int] = None
+    ) -> None:
         """Validates child node execution using strict version identity and parent checks."""
         if not self.root_id or not self.parent_id:
-            raise LineageInvalidException("Lineage missing root_id or parent_id. Orphaned object cannot execute.")
+            raise LineageInvalidException(
+                "Lineage missing root_id or parent_id. Orphaned object cannot execute."
+            )
 
         if not self.parent_is_valid:
             raise LineageInvalidException(

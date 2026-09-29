@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional
 
 class InvalidEventVersionException(Exception):
     """Raised when an event version is invalid, non-sequential, or represents a gap/duplicate/future version."""
+
     pass
 
 
@@ -38,7 +39,9 @@ class Event:
                 f"Event aggregate_version must be positive integer, got {self.aggregate_version}"
             )
 
-        if not (self.source_timestamp <= self.event_timestamp <= self.processing_timestamp):
+        if not (
+            self.source_timestamp <= self.event_timestamp <= self.processing_timestamp
+        ):
             raise ValueError(
                 f"Event temporal ordering violation: source_timestamp ({self.source_timestamp}) "
                 f"<= event_timestamp ({self.event_timestamp}) <= processing_timestamp ({self.processing_timestamp}) required."

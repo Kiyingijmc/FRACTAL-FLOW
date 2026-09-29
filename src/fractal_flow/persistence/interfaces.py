@@ -1,7 +1,7 @@
 """Persistence Interfaces for Durable Execution Intents, Risk Ledgers, and State Snapshots."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict
 from typing import Optional, List, Dict, Any
 import threading
 import hashlib
@@ -10,11 +10,12 @@ import sqlite3
 from pathlib import Path
 
 from src.fractal_flow.domain.event import Event, AggregateVersionTracker
-from src.fractal_flow.domain.models import ExecutionIntent, Position, OrderSide
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 
 
 class IdempotencyConflictException(Exception):
     """Raised when an intent with an existing idempotency_key has materially different request parameters."""
+
     pass
 
 
@@ -25,7 +26,9 @@ class IEventStore(ABC):
         pass
 
     @abstractmethod
-    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
+    def get_events_for_aggregate(
+        self, aggregate_type: str, aggregate_id: str
+    ) -> List[Event]:
         """Retrieves ordered event stream for an aggregate."""
         pass
 
@@ -43,10 +46,14 @@ class InMemoryEventStore(IEventStore):
             self._tracker.append_event(event)
             self._events.append(event)
 
-    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
+    def get_events_for_aggregate(
+        self, aggregate_type: str, aggregate_id: str
+    ) -> List[Event]:
         with self._lock:
             return [
-                e for e in self._events if e.aggregate_type == aggregate_type and e.aggregate_id == aggregate_id
+                e
+                for e in self._events
+                if e.aggregate_type == aggregate_type and e.aggregate_id == aggregate_id
             ]
 
 
@@ -86,7 +93,9 @@ class DurableExecutionIntentRepository:
     @staticmethod
     def _serialize_intent(intent: ExecutionIntent) -> str:
         d = asdict(intent)
-        d["side"] = intent.side.value if hasattr(intent.side, "value") else str(intent.side)
+        d["side"] = (
+            intent.side.value if hasattr(intent.side, "value") else str(intent.side)
+        )
         return json.dumps(d, sort_keys=True)
 
     @staticmethod
@@ -104,7 +113,9 @@ class DurableExecutionIntentRepository:
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT intent_id, idempotency_key, fingerprint, data_json FROM execution_intents")
+            cursor.execute(
+                "SELECT intent_id, idempotency_key, fingerprint, data_json FROM execution_intents"
+            )
             rows = cursor.fetchall()
             for intent_id, key, fp, json_str in rows:
                 intent = self._deserialize_intent(json_str)
@@ -116,7 +127,9 @@ class DurableExecutionIntentRepository:
 
     @staticmethod
     def compute_fingerprint(intent: ExecutionIntent) -> str:
-        side_val = intent.side.value if hasattr(intent.side, "value") else str(intent.side)
+        side_val = (
+            intent.side.value if hasattr(intent.side, "value") else str(intent.side)
+        )
         payload = {
             "symbol": intent.symbol,
             "side": side_val,
@@ -137,7 +150,9 @@ class DurableExecutionIntentRepository:
             "limit_price": intent.limit_price,
             "stop_limit_price": intent.stop_limit_price,
         }
-        return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode("utf-8")
+        ).hexdigest()
 
     def save_intent(self, intent: ExecutionIntent) -> None:
         with self._lock:
@@ -159,7 +174,14 @@ class DurableExecutionIntentRepository:
                     with conn:
                         conn.execute(
                             "INSERT INTO execution_intents (intent_id, idempotency_key, fingerprint, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                            (intent.intent_id, key, fingerprint, json_str, intent.created_at, intent.updated_at)
+                            (
+                                intent.intent_id,
+                                key,
+                                fingerprint,
+                                json_str,
+                                intent.created_at,
+                                intent.updated_at,
+                            ),
                         )
                 finally:
                     conn.close()
@@ -179,15 +201,29 @@ class DurableExecutionIntentRepository:
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative intent repository provenance."""
-        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
-        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.INTENT_REPOSITORY:
-            raise RecoveryEvidenceError("DurableExecutionIntentRepository observation requires a valid INTENT_REPOSITORY ProducerCapability.")
+        from src.fractal_flow.execution.recovery import (
+            CapabilityRole,
+            SealedObservation,
+            RecoveryEvidenceError,
+            ProducerCapability,
+        )
+
+        if (
+            not isinstance(capability, ProducerCapability)
+            or capability.role != CapabilityRole.INTENT_REPOSITORY
+        ):
+            raise RecoveryEvidenceError(
+                "DurableExecutionIntentRepository observation requires a valid INTENT_REPOSITORY ProducerCapability."
+            )
 
         import time
+
         with self._lock:
             payload = {
                 "db_path": str(self.db_path) if self.db_path else "",
                 "intents_count": len(self._intents),
                 "idempotency_keys_count": len(self._idempotency_map),
             }
-            return SealedObservation.create(capability, session_id, int(time.time()), payload)
+            return SealedObservation.create(
+                capability, session_id, int(time.time()), payload
+            )

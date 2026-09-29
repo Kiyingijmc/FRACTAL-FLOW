@@ -7,7 +7,13 @@ from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 from src.fractal_flow.persistence.interfaces import InMemoryEventStore
 
 
-def make_event(version: int, aggregate_id: str = "agg_1", src_ts: int = 100, evt_ts: int = 100, proc_ts: int = 100) -> Event:
+def make_event(
+    version: int,
+    aggregate_id: str = "agg_1",
+    src_ts: int = 100,
+    evt_ts: int = 100,
+    proc_ts: int = 100,
+) -> Event:
     return Event(
         event_id=f"evt_{version}",
         event_type="TEST_EVENT",
