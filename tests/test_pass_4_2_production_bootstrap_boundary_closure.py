@@ -590,3 +590,82 @@ def test_module_introspection_reveals_no_reusable_sentinels() -> None:
         assert sentinel_name not in module_vars
         assert sentinel_name not in module_dir
         assert not hasattr(rec, sentinel_name)
+
+
+def test_class_policy_mutation_ineffective() -> None:
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    domain = prod_bootstrap.domain
+
+    # Attacker attempts to clear or replace class level attribute policies
+    AuthorityDomain._IMMUTABLE_ATTRIBUTES = set()  # type: ignore
+    TrustedRuntimeBootstrap._IMMUTABLE_ATTRIBUTES = set()  # type: ignore
+
+    # Attempts to mutate domain attributes MUST STILL FAIL CLOSED
+    with pytest.raises(AuthorityError):
+        domain._provisioning_token = object()
+
+    with pytest.raises(AuthorityError):
+        domain._master_key = b"\x00" * 32
+
+    with pytest.raises(AuthorityError):
+        domain._validator_capabilities = {}
+
+    with pytest.raises(AuthorityError):
+        prod_bootstrap._domain = None  # type: ignore
+
+    _provision_full_production_authority(prod_bootstrap)
+    prod_bootstrap.finalize()
+
+    with pytest.raises(AuthorityError):
+        domain._finalized = False
+
+
+def test_registration_and_minting_order_equivalence() -> None:
+    # Order A: Mint capability -> Register producer
+    boot_a = AuthorityBootstrap("DOMAIN_ORDER_A")
+    journal_a = DurableEventJournal()
+    cap_a = boot_a.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    boot_a.register_producer(CapabilityRole.JOURNAL, journal_a)
+
+    from src.fractal_flow.execution.recovery import ProducerBinding
+    binding_a = boot_a._producer_bindings[CapabilityRole.JOURNAL]
+    assert isinstance(binding_a, ProducerBinding)
+    assert binding_a.capability is cap_a
+    assert binding_a.producer_instance is journal_a
+
+    # Order B: Register producer -> Mint capability
+    boot_b = AuthorityBootstrap("DOMAIN_ORDER_B")
+    journal_b = DurableEventJournal()
+    boot_b.register_producer(CapabilityRole.JOURNAL, journal_b)
+    cap_b = boot_b.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+
+    binding_b = boot_b._producer_bindings[CapabilityRole.JOURNAL]
+    assert isinstance(binding_b, ProducerBinding)
+    assert binding_b.capability is cap_b
+    assert binding_b.producer_instance is journal_b
+
+
+def test_guard_direct_construction_and_extraction_cannot_forge_capability() -> None:
+    # Attempting to pass dummy guard / closure to ProducerCapability fails
+    with pytest.raises(RecoveryEvidenceError) as exc:
+        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8, _guard=lambda: True)
+    assert "Direct instantiation of ProducerCapability is forbidden" in str(exc.value)
+
+    # Attempting to extract _verify_issuance_key from production domain before sealing and reuse after sealing fails
+    prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
+    _provision_full_production_authority(prod_bootstrap)
+    domain = prod_bootstrap.domain
+    extracted_guard = domain._verify_issuance_key
+    extracted_key = domain._issuance_key
+
+    # Verification before sealing with correct key succeeds
+    assert extracted_guard(extracted_key) is True
+
+    # Seal domain
+    prod_bootstrap.finalize()
+
+    # Post-seal, verification returns False
+    assert extracted_guard(extracted_key) is False
+
+    with pytest.raises(RecoveryEvidenceError):
+        ProducerCapability("DOMAIN_X", CapabilityRole.JOURNAL, "ProducerX", b"1234"*8, _guard=extracted_guard, _key=extracted_key)
