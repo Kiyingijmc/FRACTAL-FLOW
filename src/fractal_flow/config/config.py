@@ -44,6 +44,26 @@ class EffectiveConfiguration:
     ttl_default_ns: int
     max_currency_exposure_lots: float
 
+    def produce_observation(self, session_id: str, capability: Any) -> Any:
+        """Produces a sealed observation proving authoritative configuration provenance."""
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.EFFECTIVE_CONFIGURATION:
+            raise RecoveryEvidenceError("EffectiveConfiguration observation requires a valid EFFECTIVE_CONFIGURATION ProducerCapability.")
+
+        import time
+        payload = {
+            "effective_config_id": self.effective_config_id,
+            "version": self.version,
+            "symbol": self.symbol,
+            "max_spread_pips": self.max_spread_pips,
+            "risk_per_trade_pct": self.risk_per_trade_pct,
+            "news_lockdown_active": self.news_lockdown_active,
+            "risk_multiplier": self.risk_multiplier,
+            "ttl_default_ns": self.ttl_default_ns,
+            "max_currency_exposure_lots": self.max_currency_exposure_lots,
+        }
+        return SealedObservation.create(capability, session_id, int(time.time()), payload)
+
 
 def compute_effective_config(
     base: BaseConfig,
