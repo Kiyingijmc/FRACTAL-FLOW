@@ -481,3 +481,47 @@ def test_trusted_runtime_bootstrap_concurrency_race() -> None:
     first_domain = results[0].domain
     for item in results:
         assert item.domain is first_domain
+
+
+# --- 7. TrustedRuntimeBootstrap Subclass Attacks ---
+
+def test_trusted_runtime_bootstrap_subclass_cannot_create_production_root() -> None:
+    class EvilBootstrap(TrustedRuntimeBootstrap):
+        pass
+
+    with pytest.raises(AuthorityError) as exc:
+        EvilBootstrap.bootstrap_production_runtime()
+    assert "Subclass invocation" in str(exc.value)
+
+
+def test_multiple_malicious_subclasses_cannot_create_production_root() -> None:
+    class EvilBootstrapA(TrustedRuntimeBootstrap):
+        pass
+
+    class EvilBootstrapB(TrustedRuntimeBootstrap):
+        pass
+
+    with pytest.raises(AuthorityError):
+        EvilBootstrapA.bootstrap_production_runtime()
+
+    with pytest.raises(AuthorityError):
+        EvilBootstrapB.bootstrap_production_runtime()
+
+
+def test_subclass_cannot_create_alternate_production_engine() -> None:
+    class EvilBootstrapEngine(TrustedRuntimeBootstrap):
+        def create_recovery_engine(self, initial_state: RecoveryState = RecoveryState.NORMAL) -> RecoveryEngine:
+            fake_domain = AuthorityDomain("EVIL_BOOTSTRAP_DOMAIN")
+            return RecoveryEngine(authority_domain=fake_domain, initial_state=initial_state)
+
+    with pytest.raises(AuthorityError):
+        EvilBootstrapEngine.bootstrap_production_runtime()
+
+
+def test_subclass_cannot_exploit_reset_to_replace_root() -> None:
+    class EvilResetBootstrap(TrustedRuntimeBootstrap):
+        pass
+
+    with pytest.raises(AuthorityError) as exc:
+        EvilResetBootstrap.bootstrap_production_runtime(reset=True)
+    assert "Subclass invocation" in str(exc.value)

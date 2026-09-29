@@ -278,7 +278,7 @@ class TrustedRuntimeBootstrap:
     _instance: Optional["TrustedRuntimeBootstrap"] = None
 
     def __init__(self, _issuance_token: Optional[object] = None) -> None:
-        if _issuance_token is not _BOOTSTRAP_ISSUANCE_TOKEN:
+        if _issuance_token is not _BOOTSTRAP_ISSUANCE_TOKEN or type(self) is not TrustedRuntimeBootstrap:
             raise AuthorityError("Direct instantiation of TrustedRuntimeBootstrap is forbidden. Use TrustedRuntimeBootstrap.bootstrap_production_runtime().")
         prod_id = f"FRACTAL_PROD_DOMAIN_{uuid.uuid4().hex[:12]}"
         self._domain = AuthorityDomain(domain_id=prod_id, _production_root_token=_PRODUCTION_ROOT_TOKEN)
@@ -298,6 +298,8 @@ class TrustedRuntimeBootstrap:
     @classmethod
     def bootstrap_production_runtime(cls, reset: bool = False) -> "TrustedRuntimeBootstrap":
         """Bootstraps or returns the singular trusted production runtime authority root."""
+        if cls is not TrustedRuntimeBootstrap:
+            raise AuthorityError("Subclass invocation of TrustedRuntimeBootstrap.bootstrap_production_runtime is forbidden.")
         if reset and cls._instance is not None:
             raise AuthorityError("Resetting or replacing an active production authority root is forbidden.")
         if cls._instance is None:
