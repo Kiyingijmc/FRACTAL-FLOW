@@ -1,30 +1,28 @@
 """SnapshotEngine providing aggregate snapshot persistence, boundary/provenance validation, atomic disk writes, and deterministic journal replay."""
 
-import hashlib
+from dataclasses import dataclass, asdict
+from typing import Dict, Any, List, Optional, Callable, Tuple
 import json
+import hashlib
 import os
 import threading
-from collections.abc import Callable
-from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 from src.fractal_flow.domain.event import Event
-from src.fractal_flow.persistence.journal import DurableEventJournal
+from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 
 
 class SnapshotCorruptionException(Exception):
     """Raised when aggregate snapshot integrity, checksum, boundary, or schema verification fails."""
+    pass
 
 
-_INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset(
-    {
-        "_last_version",
-        "_last_seq",
-        "_snapshot_valid",
-        "_snapshot_fallback_used",
-    }
-)
+_INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset({
+    "_last_version",
+    "_last_seq",
+    "_snapshot_valid",
+    "_snapshot_fallback_used",
+})
 
 
 @dataclass(frozen=True)
@@ -33,16 +31,19 @@ class AggregateSnapshot:
     aggregate_id: str
     aggregate_version: int
     last_sequence_number: int
-    state_payload: dict[str, Any]
+    state_payload: Dict[str, Any]
     checksum: str
     state_hash: str = ""
     schema_version: str = "1.0"
     created_at: int = 0
 
     @staticmethod
-    def compute_state_hash(payload: dict[str, Any]) -> str:
+    def compute_state_hash(payload: Dict[str, Any]) -> str:
         """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
-        canonical_payload = {k: v for k, v in payload.items() if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS}
+        canonical_payload = {
+            k: v for k, v in payload.items()
+            if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS
+        }
         return hashlib.sha256(json.dumps(canonical_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -51,7 +52,7 @@ class AggregateSnapshot:
         aggregate_id: str,
         aggregate_version: int,
         last_seq: int,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         schema_version: str = "1.0",
         created_at: int = 0,
         state_hash: str = "",
@@ -73,21 +74,17 @@ class AggregateSnapshot:
 class SnapshotEngine:
     """Provides crash-safe aggregate snapshotting with boundary/provenance validation, atomic disk persistence, and deterministic replay."""
 
-    def __init__(self, snapshot_dir: str | None = None) -> None:
+    def __init__(self, snapshot_dir: Optional[str] = None) -> None:
         self.snapshot_dir = Path(snapshot_dir) if snapshot_dir else None
         if self.snapshot_dir:
             self.snapshot_dir.mkdir(parents=True, exist_ok=True)
-        self._snapshots: dict[str, AggregateSnapshot] = {}
-        self._reducers: dict[str, Callable[[dict[str, Any], Event], dict[str, Any]]] = {}
+        self._snapshots: Dict[str, AggregateSnapshot] = {}
+        self._reducers: Dict[str, Callable[[Dict[str, Any], Event], Dict[str, Any]]] = {}
         self._lock = threading.Lock()
         self._snapshot_valid: bool = True
         self._snapshot_fallback_used: bool = False
 
-    def register_reducer(
-        self,
-        event_type: str,
-        reducer_func: Callable[[dict[str, Any], Event], dict[str, Any]],
-    ) -> None:
+    def register_reducer(self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]) -> None:
         """Registers an explicit semantic event reducer for state transitions during replay."""
         with self._lock:
             self._reducers[event_type] = reducer_func
@@ -98,21 +95,14 @@ class SnapshotEngine:
         aggregate_id: str,
         version: int,
         last_seq: int,
-        payload: dict[str, Any],
+        payload: Dict[str, Any],
         schema_version: str = "1.0",
         created_at: int = 0,
     ) -> AggregateSnapshot:
         key = f"{aggregate_type}:{aggregate_id}"
         st_hash = AggregateSnapshot.compute_state_hash(payload)
         checksum = AggregateSnapshot.compute_checksum(
-            aggregate_type,
-            aggregate_id,
-            version,
-            last_seq,
-            payload,
-            schema_version,
-            created_at,
-            state_hash=st_hash,
+            aggregate_type, aggregate_id, version, last_seq, payload, schema_version, created_at, state_hash=st_hash
         )
         snap = AggregateSnapshot(
             aggregate_type=aggregate_type,
@@ -134,7 +124,7 @@ class SnapshotEngine:
             self._snapshots[key] = snap
             return snap
 
-    def load_snapshot(self, aggregate_type: str, aggregate_id: str) -> AggregateSnapshot | None:
+    def load_snapshot(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
         key = f"{aggregate_type}:{aggregate_id}"
         with self._lock:
             snap = self._snapshots.get(key)
@@ -164,7 +154,7 @@ class SnapshotEngine:
                 raise SnapshotCorruptionException(f"Snapshot checksum mismatch for aggregate '{key}'")
             return snap
 
-    def canonicalize_state(self, state: dict[str, Any]) -> dict[str, Any]:
+    def canonicalize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Strips replay diagnostics and metadata from business state."""
         return {k: v for k, v in state.items() if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS}
 
@@ -174,16 +164,14 @@ class SnapshotEngine:
         aggregate_type: str,
         aggregate_id: str,
         target_sequence: int,
-        initial_state: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        initial_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Replays journal from genesis up to target_sequence strictly using registered reducers."""
         state = dict(initial_state or {})
         all_records = journal.get_all_records()
         agg_records = [
-            r
-            for r in all_records
-            if r.event.aggregate_type == aggregate_type
-            and r.event.aggregate_id == aggregate_id
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             and r.sequence_number <= target_sequence
         ]
 
@@ -203,7 +191,7 @@ class SnapshotEngine:
         journal: DurableEventJournal,
         aggregate_type: str,
         aggregate_id: str,
-        initial_state: dict[str, Any] | None = None,
+        initial_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Verifies independent replay equivalence between snapshot state payload and journal replay from genesis."""
         replayed = self.replay_to_sequence(
@@ -253,25 +241,16 @@ class SnapshotEngine:
                 )
 
             # Ensure the specific sequence number snapshot.last_sequence_number belongs to expected_type:expected_id!
-            boundary_record = next(
-                (r for r in all_records if r.sequence_number == snapshot.last_sequence_number),
-                None,
-            )
-            if (
-                not boundary_record
-                or boundary_record.event.aggregate_type != expected_type
-                or boundary_record.event.aggregate_id != expected_id
-            ):
+            boundary_record = next((r for r in all_records if r.sequence_number == snapshot.last_sequence_number), None)
+            if not boundary_record or boundary_record.event.aggregate_type != expected_type or boundary_record.event.aggregate_id != expected_id:
                 raise SnapshotCorruptionException(
                     f"Snapshot boundary sequence {snapshot.last_sequence_number} does not belong to aggregate '{expected_type}:{expected_id}'. Fail closed."
                 )
 
             # Find aggregate events up to the snapshot sequence boundary
             agg_records_at_boundary = [
-                r
-                for r in all_records
-                if r.event.aggregate_type == expected_type
-                and r.event.aggregate_id == expected_id
+                r for r in all_records
+                if r.event.aggregate_type == expected_type and r.event.aggregate_id == expected_id
                 and r.sequence_number <= snapshot.last_sequence_number
             ]
 
@@ -324,7 +303,7 @@ class SnapshotEngine:
                     pass
             raise SnapshotCorruptionException(f"Snapshot durable persistence failed: {e}") from e
 
-    def _load_snapshot_from_disk(self, aggregate_type: str, aggregate_id: str) -> AggregateSnapshot | None:
+    def _load_snapshot_from_disk(self, aggregate_type: str, aggregate_id: str) -> Optional[AggregateSnapshot]:
         file_path = self._get_snapshot_file_path(aggregate_type, aggregate_id)
         if not file_path.exists():
             return None
@@ -340,10 +319,7 @@ class SnapshotEngine:
                 last_sequence_number=data["last_sequence_number"],
                 state_payload=data["state_payload"],
                 checksum=data["checksum"],
-                state_hash=data.get(
-                    "state_hash",
-                    AggregateSnapshot.compute_state_hash(data["state_payload"]),
-                ),
+                state_hash=data.get("state_hash", AggregateSnapshot.compute_state_hash(data["state_payload"])),
                 schema_version=data.get("schema_version", "1.0"),
                 created_at=data.get("created_at", 0),
             )
@@ -358,8 +334,8 @@ class SnapshotEngine:
         journal: DurableEventJournal,
         aggregate_type: str,
         aggregate_id: str,
-        initial_state: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        initial_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Replays events deterministically starting after latest snapshot sequence using semantic reducers.
 
         Tracks snapshot validity explicitly. Falls back gracefully to full genesis replay if snapshot is corrupt.
@@ -392,10 +368,8 @@ class SnapshotEngine:
 
         all_records = journal.get_all_records()
         aggregate_records = [
-            r
-            for r in all_records
-            if r.event.aggregate_type == aggregate_type
-            and r.event.aggregate_id == aggregate_id
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             and r.sequence_number > min_seq
         ]
 
@@ -416,18 +390,11 @@ class SnapshotEngine:
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative snapshot engine provenance."""
-        from src.fractal_flow.execution.recovery import (
-            CapabilityRole,
-            ProducerCapability,
-            RecoveryEvidenceError,
-            SealedObservation,
-        )
-
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
         if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.SNAPSHOT:
             raise RecoveryEvidenceError("SnapshotEngine observation requires a valid SNAPSHOT ProducerCapability.")
 
         import time
-
         with self._lock:
             payload = {
                 "snapshot_valid": self._snapshot_valid,

@@ -5,74 +5,73 @@ manipulate broker query authority, bypass orphan tracking, corrupt snapshot equi
 transplant tokens across modified evidence, or pass invalid deal chains to authorize strategic execution.
 """
 
+import pytest
+import time
+import uuid
+import json
 import copy
-from dataclasses import replace
+import sys
 from decimal import Decimal
 from typing import Any
+from dataclasses import replace
 
-import pytest
-
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config
-from src.fractal_flow.domain.event import Event
 from src.fractal_flow.domain.models import (
-    BrokerDeal,
-    DealEntryRole,
     ExecutionIntent,
-    OrderSide,
     Position,
+    BrokerOrder,
+    BrokerDeal,
+    OrderSide,
+    DealEntryRole,
 )
-from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.execution.reconciliation import (
-    AuthoritativeBrokerAdapter,
-    BrokerQueryQuality,
+    ReconciliationEngine,
+    ReconciliationReport,
+    ReconciliationMismatchType,
     BrokerQueryResult,
+    BrokerQueryQuality,
+    BrokerQueryProvider,
+    AuthoritativeBrokerAdapter,
     OrphanRecord,
     OrphanStatus,
-    ReconciliationEngine,
-    ReconciliationMismatchType,
-    ReconciliationReport,
 )
 from src.fractal_flow.execution.recovery import (
-    AuthorityBootstrap,
-    BrokerReconciliationEvidence,
-    BrokerReconciliationValidator,
-    CapabilityRole,
-    ConfigurationEvidence,
-    ConfigurationValidator,
-    EvidenceProvenance,
-    IntentRecoveryEvidence,
-    IntentRecoveryValidator,
-    JournalRecoveryEvidence,
-    JournalRecoveryValidator,
-    ProducerCapability,
-    ProtectiveMonitoringEvidence,
-    ProtectiveMonitoringSubsystem,
-    ProtectiveMonitoringValidator,
     RecoveryEngine,
-    RecoveryEvidence,
-    RecoveryEvidenceAssembler,
-    RecoveryEvidenceError,
     RecoveryState,
-    RiskLedgerRecoveryEvidence,
-    RiskLedgerRecoveryValidator,
-    SealedObservation,
-    SnapshotRecoveryEvidence,
+    RecoveryEvidence,
+    RecoveryEvidenceError,
+    RecoveryEvidenceAssembler,
+    JournalRecoveryValidator,
     SnapshotRecoveryValidator,
-    TrustedRuntimeBootstrap,
-    ValidatorCapability,
+    RiskLedgerRecoveryValidator,
+    IntentRecoveryValidator,
+    BrokerReconciliationValidator,
+    ConfigurationValidator,
+    ProtectiveMonitoringValidator,
+    ProtectiveMonitoringSubsystem,
+    EvidenceProvenance,
+    JournalRecoveryEvidence,
+    SnapshotRecoveryEvidence,
+    RiskLedgerRecoveryEvidence,
+    IntentRecoveryEvidence,
+    BrokerReconciliationEvidence,
+    ConfigurationEvidence,
+    ProtectiveMonitoringEvidence,
+    _AuthorityToken,
     compute_evidence_digest,
+    AuthorityBootstrap,
+    TrustedRuntimeBootstrap,
+    CapabilityRole,
+    SealedObservation,
+    ValidatorCapability,
+    ProducerCapability,
 )
-from src.fractal_flow.persistence.interfaces import (
-    DurableExecutionIntentRepository,
-    IdempotencyConflictException,
-)
-from src.fractal_flow.persistence.journal import DurableEventJournal
-from src.fractal_flow.persistence.snapshot import (
-    AggregateSnapshot,
-    SnapshotCorruptionException,
-    SnapshotEngine,
-)
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
+from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
+from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
+from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
+from src.fractal_flow.domain.event import Event
 
 
 @pytest.fixture(autouse=True)
@@ -84,67 +83,30 @@ def _reset_bootstrap() -> None:
 
 # --- Helper functions for valid capability and evidence creation ---
 
-
-def _setup_test_capabilities(
-    use_production: bool = False,
-) -> tuple[Any, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
+def _setup_test_capabilities(use_production: bool = False) -> tuple[Any, dict[str, ValidatorCapability], dict[str, ProducerCapability]]:
     if use_production:
         prod_boot = TrustedRuntimeBootstrap.bootstrap_production_runtime()
         bootstrap = prod_boot
     else:
         bootstrap = AuthorityBootstrap()
-    j_val_cap = bootstrap.get_validator_capability("JournalRecoveryValidator") or bootstrap.mint_validator_capability(
-        CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
-    )
-    s_val_cap = bootstrap.get_validator_capability("SnapshotRecoveryValidator") or bootstrap.mint_validator_capability(
-        CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"
-    )
-    r_val_cap = bootstrap.get_validator_capability(
-        "RiskLedgerRecoveryValidator"
-    ) or bootstrap.mint_validator_capability(
-        CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"
-    )
-    i_val_cap = bootstrap.get_validator_capability("IntentRecoveryValidator") or bootstrap.mint_validator_capability(
-        CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"
-    )
-    b_val_cap = bootstrap.get_validator_capability(
-        "BrokerReconciliationValidator"
-    ) or bootstrap.mint_validator_capability(
-        CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"
-    )
-    c_val_cap = bootstrap.get_validator_capability("ConfigurationValidator") or bootstrap.mint_validator_capability(
-        CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"
-    )
-    p_val_cap = bootstrap.get_validator_capability(
-        "ProtectiveMonitoringValidator"
-    ) or bootstrap.mint_validator_capability(
-        CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"
-    )
+    j_val_cap = bootstrap.get_validator_capability("JournalRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    s_val_cap = bootstrap.get_validator_capability("SnapshotRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
+    r_val_cap = bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
+    i_val_cap = bootstrap.get_validator_capability("IntentRecoveryValidator") or bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
+    b_val_cap = bootstrap.get_validator_capability("BrokerReconciliationValidator") or bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
+    c_val_cap = bootstrap.get_validator_capability("ConfigurationValidator") or bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
+    p_val_cap = bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
     config = compute_effective_config(BaseConfig(), "EURUSD")
     protective = ProtectiveMonitoringSubsystem()
 
-    j_prod_cap = bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
-    s_prod_cap = bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or bootstrap.mint_producer_capability(
-        CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
-    )
-    r_prod_cap = bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or bootstrap.mint_producer_capability(
-        CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem"
-    )
-    i_prod_cap = bootstrap.get_producer_capability(
-        CapabilityRole.INTENT_REPOSITORY
-    ) or bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
-    b_prod_cap = bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or bootstrap.mint_producer_capability(
-        CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem"
-    )
-    c_prod_cap = bootstrap.get_producer_capability(
-        CapabilityRole.EFFECTIVE_CONFIGURATION
-    ) or bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
-    p_prod_cap = bootstrap.get_producer_capability(
-        CapabilityRole.PROTECTIVE_MONITOR
-    ) or bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
+    j_prod_cap = bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    s_prod_cap = bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    r_prod_cap = bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    i_prod_cap = bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    b_prod_cap = bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    c_prod_cap = bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
+    p_prod_cap = bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
     if use_production:
         journal = DurableEventJournal()
@@ -236,51 +198,13 @@ def _create_assembled_evidence(
     c_obs = config_obj.produce_observation(session_id, producer_caps["Config"])
     p_obs = protective_subsystem_obj.produce_observation(session_id, producer_caps["Protective"])
 
-    j_ev = JournalRecoveryValidator.validate(
-        journal_obj,
-        session_id,
-        validator_caps["JournalRecoveryValidator"],
-        observation=j_obs,
-        producer_capability=producer_caps["Journal"],
-    )
-    s_ev = SnapshotRecoveryValidator.validate(
-        snapshot_engine_obj,
-        session_id,
-        validator_caps["SnapshotRecoveryValidator"],
-        observation=s_obs,
-        producer_capability=producer_caps["Snapshot"],
-    )
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(
-        risk_ledger_obj,
-        session_id,
-        validator_caps["RiskLedgerRecoveryValidator"],
-        observation=r_obs,
-        producer_capability=producer_caps["RiskLedger"],
-    )
-    i_ev = IntentRecoveryValidator.reconstruct(
-        intent_repo_obj,
-        session_id,
-        validator_caps["IntentRecoveryValidator"],
-        observation=i_obs,
-        producer_capability=producer_caps["IntentRepo"],
-    )
-    b_ev = BrokerReconciliationValidator.reconcile(
-        recon_report, session_id, validator_caps["BrokerReconciliationValidator"]
-    )
-    c_ev = ConfigurationValidator.validate(
-        config_obj,
-        session_id,
-        validator_caps["ConfigurationValidator"],
-        observation=c_obs,
-        producer_capability=producer_caps["Config"],
-    )
-    p_ev = ProtectiveMonitoringValidator.validate(
-        protective_subsystem_obj,
-        session_id,
-        validator_caps["ProtectiveMonitoringValidator"],
-        observation=p_obs,
-        producer_capability=producer_caps["Protective"],
-    )
+    j_ev = JournalRecoveryValidator.validate(journal_obj, session_id, validator_caps["JournalRecoveryValidator"], observation=j_obs, producer_capability=producer_caps["Journal"])
+    s_ev = SnapshotRecoveryValidator.validate(snapshot_engine_obj, session_id, validator_caps["SnapshotRecoveryValidator"], observation=s_obs, producer_capability=producer_caps["Snapshot"])
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger_obj, session_id, validator_caps["RiskLedgerRecoveryValidator"], observation=r_obs, producer_capability=producer_caps["RiskLedger"])
+    i_ev = IntentRecoveryValidator.reconstruct(intent_repo_obj, session_id, validator_caps["IntentRecoveryValidator"], observation=i_obs, producer_capability=producer_caps["IntentRepo"])
+    b_ev = BrokerReconciliationValidator.reconcile(recon_report, session_id, validator_caps["BrokerReconciliationValidator"])
+    c_ev = ConfigurationValidator.validate(config_obj, session_id, validator_caps["ConfigurationValidator"], observation=c_obs, producer_capability=producer_caps["Config"])
+    p_ev = ProtectiveMonitoringValidator.validate(protective_subsystem_obj, session_id, validator_caps["ProtectiveMonitoringValidator"], observation=p_obs, producer_capability=producer_caps["Protective"])
 
     return RecoveryEvidenceAssembler.assemble(
         journal=j_ev,
@@ -296,7 +220,6 @@ def _create_assembled_evidence(
 
 
 # --- 1. Capability Bootstrap & Role Escalation Tests ---
-
 
 def test_authority_bootstrap_role_escalation_and_finalization() -> None:
     bootstrap = AuthorityBootstrap()
@@ -328,41 +251,17 @@ def test_sealed_observation_signature_verification() -> None:
     obs = SealedObservation.create(risk_cap, "session_123", 1000, {"balance": Decimal("500.00")})
 
     # Verify valid signature using role key
-    assert (
-        obs.verify(
-            risk_cap.authority_domain_id,
-            CapabilityRole.RISK_LEDGER,
-            "session_123",
-            risk_cap._role_key,
-        )
-        is True
-    )
+    assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.RISK_LEDGER, "session_123", risk_cap._role_key) is True
 
     # Reject wrong role or wrong session
-    assert (
-        obs.verify(
-            risk_cap.authority_domain_id,
-            CapabilityRole.JOURNAL,
-            "session_123",
-            risk_cap._role_key,
-        )
-        is False
-    )
-    assert (
-        obs.verify(
-            risk_cap.authority_domain_id,
-            CapabilityRole.RISK_LEDGER,
-            "session_wrong",
-            risk_cap._role_key,
-        )
-        is False
-    )
+    assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.JOURNAL, "session_123", risk_cap._role_key) is False
+    assert obs.verify(risk_cap.authority_domain_id, CapabilityRole.RISK_LEDGER, "session_wrong", risk_cap._role_key) is False
 
 
 def test_compute_evidence_digest_strict_type_canonicalization() -> None:
     # Decimal canonicalization
     d1 = {"risk": Decimal("100.00")}
-    d2 = {"risk": Decimal(100)}
+    d2 = {"risk": Decimal("100")}
     assert compute_evidence_digest(d1) == compute_evidence_digest(d2)
 
     # Fail closed on NaN or infinity
@@ -378,15 +277,10 @@ def test_compute_evidence_digest_strict_type_canonicalization() -> None:
 
 # --- 2. Cryptographic Token ↔ Evidence Digest Binding & Transplantation Tests ---
 
-
 def test_validator_capability_required_fails_closed_when_missing() -> None:
     # Calling validator without ValidatorCapability must raise RecoveryEvidenceError
     with pytest.raises(RecoveryEvidenceError) as exc:
-        JournalRecoveryValidator.validate(
-            type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(),
-            "session_1",
-            capability=None,
-        )  # type: ignore
+        JournalRecoveryValidator.validate(type("MockJournal", (), {"_faulted": False, "_global_sequence": 0})(), "session_1", capability=None)  # type: ignore
     assert "requires a valid JOURNAL_RECOVERY_VALIDATOR capability" in str(exc.value)
 
 
@@ -431,13 +325,7 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
     faulted_journal = DurableEventJournal()
     faulted_journal._faulted = True
     j_obs = faulted_journal.produce_observation(session_id, prod_caps["Journal"])
-    j_ev = JournalRecoveryValidator.validate(
-        faulted_journal,
-        session_id,
-        val_caps["JournalRecoveryValidator"],
-        observation=j_obs,
-        producer_capability=prod_caps["Journal"],
-    )
+    j_ev = JournalRecoveryValidator.validate(faulted_journal, session_id, val_caps["JournalRecoveryValidator"], observation=j_obs, producer_capability=prod_caps["Journal"])
     assert j_ev.valid is False
 
     # Create legitimate evidence for other subsystems
@@ -462,7 +350,7 @@ def test_token_transplantation_valid_flag_tamper_rejected() -> None:
             config=legitimate_good.config_evidence,
             protective=legitimate_good.protective_evidence,
             session_id=session_id,
-            validator_capabilities=val_caps,
+                validator_capabilities=val_caps,
         )
 
 
@@ -476,25 +364,13 @@ def test_subsystem_state_forgery_attacks_rejected() -> None:
     faulted_risk = OpportunityRiskLedger("b1", "o1", 1000.0, 10.0)
     faulted_risk._faulted = True
     r_obs = faulted_risk.produce_observation(session_id, prod_caps["RiskLedger"])
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(
-        faulted_risk,
-        session_id,
-        val_caps["RiskLedgerRecoveryValidator"],
-        observation=r_obs,
-        producer_capability=prod_caps["RiskLedger"],
-    )
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(faulted_risk, session_id, val_caps["RiskLedgerRecoveryValidator"], observation=r_obs, producer_capability=prod_caps["RiskLedger"])
     assert r_ev.valid is False
 
     # 2. Inactive Protective Monitoring
     inactive_prot = ProtectiveMonitoringSubsystem(_active=False)
     p_obs = inactive_prot.produce_observation(session_id, prod_caps["Protective"])
-    p_ev = ProtectiveMonitoringValidator.validate(
-        inactive_prot,
-        session_id,
-        val_caps["ProtectiveMonitoringValidator"],
-        observation=p_obs,
-        producer_capability=prod_caps["Protective"],
-    )
+    p_ev = ProtectiveMonitoringValidator.validate(inactive_prot, session_id, val_caps["ProtectiveMonitoringValidator"], observation=p_obs, producer_capability=prod_caps["Protective"])
     assert p_ev.valid is False
 
     # 3. Manually Constructed ReconciliationReport Lacking Authority Stamp
@@ -512,9 +388,7 @@ def test_subsystem_state_forgery_attacks_rejected() -> None:
         broker_deals_seen=0,
         generated_at=1000,
     )
-    b_ev = BrokerReconciliationValidator.reconcile(
-        unauthenticated_report, session_id, val_caps["BrokerReconciliationValidator"]
-    )
+    b_ev = BrokerReconciliationValidator.reconcile(unauthenticated_report, session_id, val_caps["BrokerReconciliationValidator"])
     assert b_ev.valid is False
 
 
@@ -541,41 +415,13 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
     session_id = engine.session_id
     engine.start_reconciliation()
 
-    p_j = EvidenceProvenance(
-        source_component="JournalRecoveryValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_s = EvidenceProvenance(
-        source_component="SnapshotRecoveryValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_r = EvidenceProvenance(
-        source_component="RiskLedgerRecoveryValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_i = EvidenceProvenance(
-        source_component="IntentRecoveryValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_b = EvidenceProvenance(
-        source_component="BrokerReconciliationValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_c = EvidenceProvenance(
-        source_component="ConfigurationValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
-    p_p = EvidenceProvenance(
-        source_component="ProtectiveMonitoringValidator",
-        source_session=session_id,
-        result="SUCCESS",
-    )
+    p_j = EvidenceProvenance(source_component="JournalRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_s = EvidenceProvenance(source_component="SnapshotRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_r = EvidenceProvenance(source_component="RiskLedgerRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_i = EvidenceProvenance(source_component="IntentRecoveryValidator", source_session=session_id, result="SUCCESS")
+    p_b = EvidenceProvenance(source_component="BrokerReconciliationValidator", source_session=session_id, result="SUCCESS")
+    p_c = EvidenceProvenance(source_component="ConfigurationValidator", source_session=session_id, result="SUCCESS")
+    p_p = EvidenceProvenance(source_component="ProtectiveMonitoringValidator", source_session=session_id, result="SUCCESS")
 
     j_ev = JournalRecoveryEvidence(valid=True, provenance=p_j)
     s_ev = SnapshotRecoveryEvidence(valid=True, provenance=p_s)
@@ -587,14 +433,8 @@ def test_fabricated_seven_validator_bundle_rejected() -> None:
 
     with pytest.raises(RecoveryEvidenceError) as exc:
         RecoveryEvidenceAssembler.assemble(
-            journal=j_ev,
-            snapshot=s_ev,
-            risk=r_ev,
-            intents=i_ev,
-            broker=b_ev,
-            config=c_ev,
-            protective=p_ev,
-            session_id=session_id,
+            journal=j_ev, snapshot=s_ev, risk=r_ev, intents=i_ev,
+            broker=b_ev, config=c_ev, protective=p_ev, session_id=session_id,
             validator_capabilities=val_caps,
         )
     assert "forged" in str(exc.value).lower()
@@ -611,15 +451,10 @@ def test_copy_or_deepcopy_strips_authority_token() -> None:
 
 # --- 3. Orphan Lifecycle & Transition Matrix Tests ---
 
-
 def test_orphan_legal_state_machine_transitions() -> None:
     orphan = OrphanRecord(
-        orphan_id="ORPHAN_1",
-        object_type="POSITION",
-        object_id="POS_1",
-        symbol="EURUSD",
-        volume=1.0,
-        status=OrphanStatus.DETECTED,
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
     )
 
     # DETECTED -> RECONCILING
@@ -634,12 +469,8 @@ def test_orphan_legal_state_machine_transitions() -> None:
 
 def test_orphan_illegal_state_machine_transitions_rejected() -> None:
     orphan = OrphanRecord(
-        orphan_id="ORPHAN_1",
-        object_type="POSITION",
-        object_id="POS_1",
-        symbol="EURUSD",
-        volume=1.0,
-        status=OrphanStatus.DETECTED,
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
     )
 
     # Illegal transition: DETECTED -> RECOVERED directly (must go through RECONCILING)
@@ -650,12 +481,8 @@ def test_orphan_illegal_state_machine_transitions_rejected() -> None:
 
 def test_orphan_record_details_mutation_rejected() -> None:
     orphan = OrphanRecord(
-        orphan_id="ORPHAN_1",
-        object_type="POSITION",
-        object_id="POS_1",
-        symbol="EURUSD",
-        volume=1.0,
-        status=OrphanStatus.DETECTED,
+        orphan_id="ORPHAN_1", object_type="POSITION", object_id="POS_1",
+        symbol="EURUSD", volume=1.0, status=OrphanStatus.DETECTED,
         details={"key": "value"},
     )
 
@@ -666,44 +493,19 @@ def test_orphan_record_details_mutation_rejected() -> None:
 
 # --- 4. Orphan Propagation & Authorization Blocking ---
 
-
 def test_orphan_count_flows_into_recovery_evidence() -> None:
     _, val_caps, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
     orphan_pos = Position(
-        position_id="POS_ORPHAN",
-        intent_id="intent_untracked",
-        order_id="ORD_ORPHAN",
-        symbol="EURUSD",
-        side="BUY",
-        requested_volume=1.0,
-        filled_volume=1.0,
-        remaining_volume=0.0,
-        entry_price=1.0850,
-        current_sl=1.0820,
-        lifecycle_state="POS_ACTIVE",
-        health_state="HEALTH_HEALTHY",
-        opened_at=1000,
+        position_id="POS_ORPHAN", intent_id="intent_untracked", order_id="ORD_ORPHAN",
+        symbol="EURUSD", side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
+        entry_price=1.0850, current_sl=1.0820, lifecycle_state="POS_ACTIVE", health_state="HEALTH_HEALTHY", opened_at=1000,
     )
 
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], "session_1", positions={"POS_ORPHAN": orphan_pos})
@@ -715,11 +517,7 @@ def test_orphan_count_flows_into_recovery_evidence() -> None:
     )
 
     assert report.orphaned_count == 1
-    broker_ev = BrokerReconciliationValidator.reconcile(
-        report,
-        session_id="session_1",
-        capability=val_caps["BrokerReconciliationValidator"],
-    )
+    broker_ev = BrokerReconciliationValidator.reconcile(report, session_id="session_1", capability=val_caps["BrokerReconciliationValidator"])
     assert broker_ev.orphaned_count == 1
     assert broker_ev.valid is False
 
@@ -731,28 +529,12 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     engine.start_reconciliation()
 
     orphan_pos = Position(
-        position_id="POS_ORPHAN",
-        intent_id="intent_untracked",
-        order_id="ORD_ORPHAN",
-        symbol="EURUSD",
-        side="BUY",
-        requested_volume=1.0,
-        filled_volume=1.0,
-        remaining_volume=0.0,
-        entry_price=1.0850,
-        current_sl=1.0820,
-        lifecycle_state="POS_ACTIVE",
-        health_state="HEALTH_HEALTHY",
-        opened_at=1000,
+        position_id="POS_ORPHAN", intent_id="intent_untracked", order_id="ORD_ORPHAN",
+        symbol="EURUSD", side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
+        entry_price=1.0850, current_sl=1.0820, lifecycle_state="POS_ACTIVE", health_state="HEALTH_HEALTHY", opened_at=1000,
     )
-    query_res = _query_broker_authoritative(
-        prod_caps["BrokerQuery"],
-        engine.session_id,
-        positions={"POS_ORPHAN": orphan_pos},
-    )
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=engine.session_id
-    )
+    query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], engine.session_id, positions={"POS_ORPHAN": orphan_pos})
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=engine.session_id)
 
     journal = DurableEventJournal()
     snap_engine = SnapshotEngine()
@@ -768,58 +550,17 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
     c_obs = config.produce_observation(engine.session_id, prod_caps["Config"])
     p_obs = protective.produce_observation(engine.session_id, prod_caps["Protective"])
 
-    j_ev = JournalRecoveryValidator.validate(
-        journal,
-        engine.session_id,
-        val_caps["JournalRecoveryValidator"],
-        observation=j_obs,
-        producer_capability=prod_caps["Journal"],
-    )
-    s_ev = SnapshotRecoveryValidator.validate(
-        snap_engine,
-        engine.session_id,
-        val_caps["SnapshotRecoveryValidator"],
-        observation=s_obs,
-        producer_capability=prod_caps["Snapshot"],
-    )
-    r_ev = RiskLedgerRecoveryValidator.reconstruct(
-        risk_ledger,
-        engine.session_id,
-        val_caps["RiskLedgerRecoveryValidator"],
-        observation=r_obs,
-        producer_capability=prod_caps["RiskLedger"],
-    )
-    i_ev = IntentRecoveryValidator.reconstruct(
-        intent_repo,
-        engine.session_id,
-        val_caps["IntentRecoveryValidator"],
-        observation=i_obs,
-        producer_capability=prod_caps["IntentRepo"],
-    )
+    j_ev = JournalRecoveryValidator.validate(journal, engine.session_id, val_caps["JournalRecoveryValidator"], observation=j_obs, producer_capability=prod_caps["Journal"])
+    s_ev = SnapshotRecoveryValidator.validate(snap_engine, engine.session_id, val_caps["SnapshotRecoveryValidator"], observation=s_obs, producer_capability=prod_caps["Snapshot"])
+    r_ev = RiskLedgerRecoveryValidator.reconstruct(risk_ledger, engine.session_id, val_caps["RiskLedgerRecoveryValidator"], observation=r_obs, producer_capability=prod_caps["RiskLedger"])
+    i_ev = IntentRecoveryValidator.reconstruct(intent_repo, engine.session_id, val_caps["IntentRecoveryValidator"], observation=i_obs, producer_capability=prod_caps["IntentRepo"])
     b_ev = BrokerReconciliationValidator.reconcile(report, engine.session_id, val_caps["BrokerReconciliationValidator"])
-    c_ev = ConfigurationValidator.validate(
-        config,
-        engine.session_id,
-        val_caps["ConfigurationValidator"],
-        observation=c_obs,
-        producer_capability=prod_caps["Config"],
-    )
-    p_ev = ProtectiveMonitoringValidator.validate(
-        protective,
-        engine.session_id,
-        val_caps["ProtectiveMonitoringValidator"],
-        observation=p_obs,
-        producer_capability=prod_caps["Protective"],
-    )
+    c_ev = ConfigurationValidator.validate(config, engine.session_id, val_caps["ConfigurationValidator"], observation=c_obs, producer_capability=prod_caps["Config"])
+    p_ev = ProtectiveMonitoringValidator.validate(protective, engine.session_id, val_caps["ProtectiveMonitoringValidator"], observation=p_obs, producer_capability=prod_caps["Protective"])
 
     evidence = RecoveryEvidence(
-        journal_evidence=j_ev,
-        snapshot_evidence=s_ev,
-        risk_evidence=r_ev,
-        intent_evidence=i_ev,
-        broker_evidence=b_ev,
-        config_evidence=c_ev,
-        protective_evidence=p_ev,
+        journal_evidence=j_ev, snapshot_evidence=s_ev, risk_evidence=r_ev, intent_evidence=i_ev,
+        broker_evidence=b_ev, config_evidence=c_ev, protective_evidence=p_ev
     )
 
     with pytest.raises(RecoveryEvidenceError):
@@ -830,34 +571,18 @@ def test_orphaned_broker_position_blocks_strategic_authorization(tmp_path) -> No
 
 # --- 5. UNKNOWN Broker State Blocking ---
 
-
 def test_unknown_broker_state_blocks_authorization() -> None:
     _, val_caps, _ = _setup_test_capabilities()
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
 
     query_res = BrokerQueryResult(
-        status="NON_AUTHORITATIVE",
-        authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
+        status="NON_AUTHORITATIVE", authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
         query_timestamp=1000,
     )
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={"intent_1": intent}, query_result=query_res)
@@ -865,14 +590,11 @@ def test_unknown_broker_state_blocks_authorization() -> None:
     assert report.unknown_count == 1
     assert report.authoritative is False
 
-    b_ev = BrokerReconciliationValidator.reconcile(
-        report, "session_1", capability=val_caps["BrokerReconciliationValidator"]
-    )
+    b_ev = BrokerReconciliationValidator.reconcile(report, "session_1", capability=val_caps["BrokerReconciliationValidator"])
     assert b_ev.valid is False
 
 
 # --- 6. Broker Authority & Query Quality ---
-
 
 @pytest.mark.parametrize(
     "quality",
@@ -883,29 +605,13 @@ def test_unknown_broker_state_blocks_authorization() -> None:
         BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
     ],
 )
-def test_non_authoritative_query_never_becomes_rejection(
-    quality: BrokerQueryQuality,
-) -> None:
+def test_non_authoritative_query_never_becomes_rejection(quality: BrokerQueryQuality) -> None:
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
 
     query_res = BrokerQueryResult(status="FAIL", authority=quality, query_timestamp=1000)
@@ -917,32 +623,14 @@ def test_non_authoritative_query_never_becomes_rejection(
 def test_only_broker_query_authority_can_authorize_rejection() -> None:
     _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
 
-    auth_query = _query_broker_authoritative(
-        prod_caps["BrokerQuery"],
-        "session_1",
-        authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE,
-    )
+    auth_query = _query_broker_authoritative(prod_caps["BrokerQuery"], "session_1", authority=BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE)
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={"intent_1": intent}, query_result=auth_query)
 
     assert report.results[0].resolved_execution_state == ExecutionState.EXEC_REJECTED
@@ -950,32 +638,14 @@ def test_only_broker_query_authority_can_authorize_rejection() -> None:
 
 def test_authoritative_rejections_cannot_override_query_result() -> None:
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
 
-    non_auth_query = BrokerQueryResult(
-        status="NON_AUTHORITATIVE",
-        authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE,
-        query_timestamp=1000,
-    )
+    non_auth_query = BrokerQueryResult(status="NON_AUTHORITATIVE", authority=BrokerQueryQuality.NOT_FOUND_NON_AUTHORITATIVE, query_timestamp=1000)
     report = ReconciliationEngine.reconcile_broker_wide(
         local_intents={"intent_1": intent},
         authoritative_rejections={"intent_1"},  # Attempted override
@@ -987,21 +657,12 @@ def test_authoritative_rejections_cannot_override_query_result() -> None:
 
 # --- 7. Snapshot Semantic Forgery & Replay Equivalence ---
 
-
 def test_snapshot_self_hash_does_not_make_forged_state_valid(tmp_path) -> None:
     journal = DurableEventJournal(str(tmp_path / "journal.log"))
     evt = Event(
-        event_id="e1",
-        event_type="OpportunityDiscovered",
-        aggregate_type="Opportunity",
-        aggregate_id="A",
-        root_id="r1",
-        parent_id="p1",
-        aggregate_version=1,
-        source_timestamp=100,
-        event_timestamp=100,
-        processing_timestamp=100,
-        payload={"balance": 100},
+        event_id="e1", event_type="OpportunityDiscovered", aggregate_type="Opportunity",
+        aggregate_id="A", root_id="r1", parent_id="p1", aggregate_version=1,
+        source_timestamp=100, event_timestamp=100, processing_timestamp=100, payload={"balance": 100},
     )
     journal.append(evt)
 
@@ -1011,13 +672,8 @@ def test_snapshot_self_hash_does_not_make_forged_state_valid(tmp_path) -> None:
     forged_chk = AggregateSnapshot.compute_checksum("Opportunity", "A", 1, 1, forged_payload, state_hash=forged_hash)
 
     snap = AggregateSnapshot(
-        aggregate_type="Opportunity",
-        aggregate_id="A",
-        aggregate_version=1,
-        last_sequence_number=1,
-        state_payload=forged_payload,
-        checksum=forged_chk,
-        state_hash=forged_hash,
+        aggregate_type="Opportunity", aggregate_id="A", aggregate_version=1,
+        last_sequence_number=1, state_payload=forged_payload, checksum=forged_chk, state_hash=forged_hash,
     )
 
     with pytest.raises(SnapshotCorruptionException) as exc:
@@ -1029,17 +685,9 @@ def test_snapshot_self_hash_does_not_make_forged_state_valid(tmp_path) -> None:
 def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None:
     journal = DurableEventJournal(str(tmp_path / "journal.log"))
     evt = Event(
-        event_id="e1",
-        event_type="OpportunityDiscovered",
-        aggregate_type="Opportunity",
-        aggregate_id="A",
-        root_id="r1",
-        parent_id="p1",
-        aggregate_version=1,
-        source_timestamp=100,
-        event_timestamp=100,
-        processing_timestamp=100,
-        payload={"balance": 100},
+        event_id="e1", event_type="OpportunityDiscovered", aggregate_type="Opportunity",
+        aggregate_id="A", root_id="r1", parent_id="p1", aggregate_version=1,
+        source_timestamp=100, event_timestamp=100, processing_timestamp=100, payload={"balance": 100},
     )
     journal.append(evt)
 
@@ -1048,13 +696,8 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
     forged_hash = AggregateSnapshot.compute_state_hash(forged_payload)
     forged_chk = AggregateSnapshot.compute_checksum("Opportunity", "A", 1, 1, forged_payload, state_hash=forged_hash)
     snap = AggregateSnapshot(
-        aggregate_type="Opportunity",
-        aggregate_id="A",
-        aggregate_version=1,
-        last_sequence_number=1,
-        state_payload=forged_payload,
-        checksum=forged_chk,
-        state_hash=forged_hash,
+        aggregate_type="Opportunity", aggregate_id="A", aggregate_version=1,
+        last_sequence_number=1, state_payload=forged_payload, checksum=forged_chk, state_hash=forged_hash,
     )
     snap_engine._snapshots["Opportunity:A"] = snap
 
@@ -1067,7 +710,6 @@ def test_corrupt_snapshot_can_fallback_to_verified_full_replay(tmp_path) -> None
 
 # --- 8. Session Binding ---
 
-
 def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     _, val_caps, prod_caps = _setup_test_capabilities()
     engine = RecoveryEngine(validator_capabilities=val_caps)
@@ -1075,9 +717,7 @@ def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
     old_session = engine.session_id
 
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], old_session)
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=old_session
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=old_session)
     old_evidence = _create_assembled_evidence(old_session, report, validator_caps=val_caps, producer_caps=prod_caps)
 
     # Trigger second restart -> new session ID
@@ -1093,64 +733,27 @@ def test_evidence_from_previous_recovery_session_is_rejected(tmp_path) -> None:
 
 # --- 9. Deal Semantics & Contradictions ---
 
-
 def test_missing_deal_role_becomes_unknown() -> None:
     _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
     pos = Position(
-        position_id="POS_1",
-        intent_id="intent_1",
-        order_id="ORD_1",
-        symbol="EURUSD",
-        side="BUY",
-        requested_volume=1.0,
-        filled_volume=1.0,
-        remaining_volume=0.0,
-        entry_price=1.0850,
-        current_sl=1.0820,
-        lifecycle_state="POS_ACTIVE",
-        health_state="HEALTH_HEALTHY",
-        opened_at=1000,
+        position_id="POS_1", intent_id="intent_1", order_id="ORD_1", symbol="EURUSD",
+        side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
+        entry_price=1.0850, current_sl=1.0820, lifecycle_state="POS_ACTIVE", health_state="HEALTH_HEALTHY", opened_at=1000,
     )
     deal_unknown = BrokerDeal(
-        deal_id="D_UNKNOWN",
-        order_id="ORD_1",
-        position_id="POS_1",
-        symbol="EURUSD",
-        side="BUY",
-        volume=1.0,
-        price=1.0850,
-        commission=0.0,
-        timestamp=1000,
+        deal_id="D_UNKNOWN", order_id="ORD_1", position_id="POS_1", symbol="EURUSD",
+        side="BUY", volume=1.0, price=1.0850, commission=0.0, timestamp=1000,
         entry_role=DealEntryRole.UNKNOWN,
     )
 
-    query_res = _query_broker_authoritative(
-        prod_caps["BrokerQuery"],
-        "session_1",
-        positions={"POS_1": pos},
-        deals={"D_UNKNOWN": deal_unknown},
-    )
+    query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], "session_1", positions={"POS_1": pos}, deals={"D_UNKNOWN": deal_unknown})
 
     report = ReconciliationEngine.reconcile_broker_wide(
         local_intents={"intent_1": intent},
@@ -1164,71 +767,31 @@ def test_missing_deal_role_becomes_unknown() -> None:
 def test_close_before_open_is_unknown() -> None:
     _, _, prod_caps = _setup_test_capabilities()
     intent = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000,
     )
     pos = Position(
-        position_id="POS_1",
-        intent_id="intent_1",
-        order_id="ORD_1",
-        symbol="EURUSD",
-        side="BUY",
-        requested_volume=1.0,
-        filled_volume=1.0,
-        remaining_volume=0.0,
-        entry_price=1.0850,
-        current_sl=1.0820,
-        lifecycle_state="POS_ACTIVE",
-        health_state="HEALTH_HEALTHY",
-        opened_at=1000,
+        position_id="POS_1", intent_id="intent_1", order_id="ORD_1", symbol="EURUSD",
+        side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
+        entry_price=1.0850, current_sl=1.0820, lifecycle_state="POS_ACTIVE", health_state="HEALTH_HEALTHY", opened_at=1000,
     )
     close_deal = BrokerDeal(
-        deal_id="D_CLOSE",
-        order_id="ORD_1",
-        position_id="POS_1",
-        symbol="EURUSD",
-        side="SELL",
-        volume=1.0,
-        price=1.0850,
-        commission=0.0,
-        timestamp=900,  # Earlier timestamp!
+        deal_id="D_CLOSE", order_id="ORD_1", position_id="POS_1", symbol="EURUSD",
+        side="SELL", volume=1.0, price=1.0850, commission=0.0, timestamp=900,  # Earlier timestamp!
         entry_role=DealEntryRole.CLOSE,
     )
     open_deal = BrokerDeal(
-        deal_id="D_OPEN",
-        order_id="ORD_1",
-        position_id="POS_1",
-        symbol="EURUSD",
-        side="BUY",
-        volume=1.0,
-        price=1.0850,
-        commission=0.0,
-        timestamp=1000,
+        deal_id="D_OPEN", order_id="ORD_1", position_id="POS_1", symbol="EURUSD",
+        side="BUY", volume=1.0, price=1.0850, commission=0.0, timestamp=1000,
         entry_role=DealEntryRole.OPEN,
     )
 
     query_res = _query_broker_authoritative(
-        prod_caps["BrokerQuery"],
-        "session_1",
-        positions={"POS_1": pos},
-        deals={"D_CLOSE": close_deal, "D_OPEN": open_deal},
+        prod_caps["BrokerQuery"], "session_1",
+        positions={"POS_1": pos}, deals={"D_CLOSE": close_deal, "D_OPEN": open_deal},
     )
 
     report = ReconciliationEngine.reconcile_broker_wide(
@@ -1242,23 +805,12 @@ def test_close_before_open_is_unknown() -> None:
 
 # --- 10. Orphan Protective Management ---
 
-
 def test_orphan_position_keeps_protective_monitoring_active() -> None:
     _, _, prod_caps = _setup_test_capabilities()
     orphan_pos = Position(
-        position_id="POS_ORPHAN",
-        intent_id="intent_untracked",
-        order_id="ORD_ORPHAN",
-        symbol="EURUSD",
-        side="BUY",
-        requested_volume=1.0,
-        filled_volume=1.0,
-        remaining_volume=0.0,
-        entry_price=1.0850,
-        current_sl=1.0820,
-        lifecycle_state="POS_ACTIVE",
-        health_state="HEALTH_HEALTHY",
-        opened_at=1000,
+        position_id="POS_ORPHAN", intent_id="intent_untracked", order_id="ORD_ORPHAN",
+        symbol="EURUSD", side="BUY", requested_volume=1.0, filled_volume=1.0, remaining_volume=0.0,
+        entry_price=1.0850, current_sl=1.0820, lifecycle_state="POS_ACTIVE", health_state="HEALTH_HEALTHY", opened_at=1000,
     )
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], "session_1", positions={"POS_ORPHAN": orphan_pos})
     report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res)
@@ -1271,30 +823,14 @@ def test_orphan_position_keeps_protective_monitoring_active() -> None:
 
 # --- 11. Intent Fingerprint Mutations ---
 
-
 def test_order_type_mutation_changes_intent_fingerprint(tmp_path) -> None:
     repo = DurableExecutionIntentRepository(str(tmp_path / "intents.db"))
     intent_base = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
-        order_type="MARKET",
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000, order_type="MARKET",
     )
     repo.save_intent(intent_base)
 
@@ -1307,26 +843,11 @@ def test_order_type_mutation_changes_intent_fingerprint(tmp_path) -> None:
 def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
     repo = DurableExecutionIntentRepository(str(tmp_path / "intents.db"))
     intent_base = ExecutionIntent(
-        intent_id="intent_1",
-        decision_id="dec_1",
-        opportunity_id="opp_1",
-        root_id="root_1",
-        idempotency_key="key_1",
-        symbol="EURUSD",
-        side=OrderSide.BUY,
-        requested_volume=1.0,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={},
-        effective_config_id="cfg_1",
-        lineage_version=1,
-        broker_constraint_snapshot={},
-        quote_timestamp=1000,
-        spread_pips=1.0,
-        status="EXEC_SUBMITTED",
-        created_at=1000,
-        updated_at=1000,
-        limit_price=1.0840,
+        intent_id="intent_1", decision_id="dec_1", opportunity_id="opp_1", root_id="root_1",
+        idempotency_key="key_1", symbol="EURUSD", side=OrderSide.BUY, requested_volume=1.0,
+        entry_price=1.0850, sl=1.0820, tp_plan={}, effective_config_id="cfg_1", lineage_version=1,
+        broker_constraint_snapshot={}, quote_timestamp=1000, spread_pips=1.0, status="EXEC_SUBMITTED",
+        created_at=1000, updated_at=1000, limit_price=1.0840,
     )
     repo.save_intent(intent_base)
 
@@ -1338,7 +859,6 @@ def test_limit_price_mutation_changes_intent_fingerprint(tmp_path) -> None:
 
 # --- 12. Valid Legitimate Authorization Path ---
 
-
 def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
     _, val_caps, prod_caps = _setup_test_capabilities(use_production=True)
     prod_boot = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -1347,16 +867,9 @@ def test_legitimate_authoritative_recovery_path(tmp_path) -> None:
     engine.start_reconciliation()
 
     query_res = _query_broker_authoritative(prod_caps["BrokerQuery"], engine.session_id)
-    report = ReconciliationEngine.reconcile_broker_wide(
-        local_intents={}, query_result=query_res, session_id=engine.session_id
-    )
+    report = ReconciliationEngine.reconcile_broker_wide(local_intents={}, query_result=query_res, session_id=engine.session_id)
 
-    evidence = _create_assembled_evidence(
-        session_id=engine.session_id,
-        recon_report=report,
-        validator_caps=val_caps,
-        producer_caps=prod_caps,
-    )
+    evidence = _create_assembled_evidence(session_id=engine.session_id, recon_report=report, validator_caps=val_caps, producer_caps=prod_caps)
 
     engine.complete_recovery_with_evidence(evidence)
 

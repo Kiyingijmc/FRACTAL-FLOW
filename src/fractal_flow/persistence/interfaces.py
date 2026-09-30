@@ -1,37 +1,40 @@
 """Persistence Interfaces for Durable Execution Intents, Risk Ledgers, and State Snapshots."""
 
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, asdict
+from typing import Optional, List, Dict, Any
+import threading
 import hashlib
 import json
 import sqlite3
-import threading
-from abc import ABC, abstractmethod
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 
-from src.fractal_flow.domain.event import AggregateVersionTracker, Event
-from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
+from src.fractal_flow.domain.event import Event, AggregateVersionTracker
+from src.fractal_flow.domain.models import ExecutionIntent, Position, OrderSide
 
 
 class IdempotencyConflictException(Exception):
     """Raised when an intent with an existing idempotency_key has materially different request parameters."""
+    pass
 
 
 class IEventStore(ABC):
     @abstractmethod
     def append_event(self, event: Event) -> None:
         """Appends event with strict aggregate-version checking."""
+        pass
 
     @abstractmethod
-    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> list[Event]:
+    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
         """Retrieves ordered event stream for an aggregate."""
+        pass
 
 
 class InMemoryEventStore(IEventStore):
     """Thread-safe event store enforcing optimistic concurrency and strict version sequence."""
 
     def __init__(self) -> None:
-        self._events: list[Event] = []
+        self._events: List[Event] = []
         self._tracker = AggregateVersionTracker()
         self._lock = threading.Lock()
 
@@ -40,19 +43,21 @@ class InMemoryEventStore(IEventStore):
             self._tracker.append_event(event)
             self._events.append(event)
 
-    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> list[Event]:
+    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
         with self._lock:
-            return [e for e in self._events if e.aggregate_type == aggregate_type and e.aggregate_id == aggregate_id]
+            return [
+                e for e in self._events if e.aggregate_type == aggregate_type and e.aggregate_id == aggregate_id
+            ]
 
 
 class DurableExecutionIntentRepository:
     """Thread-safe and restart-safe ExecutionIntent repository backed by SQLite/memory with request fingerprint verification."""
 
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(self, db_path: Optional[str] = None) -> None:
         self.db_path = Path(db_path) if db_path else None
-        self._intents: dict[str, ExecutionIntent] = {}
-        self._idempotency_map: dict[str, str] = {}
-        self._fingerprints: dict[str, str] = {}
+        self._intents: Dict[str, ExecutionIntent] = {}
+        self._idempotency_map: Dict[str, str] = {}
+        self._fingerprints: Dict[str, str] = {}
         self._lock = threading.Lock()
 
         if self.db_path:
@@ -154,14 +159,7 @@ class DurableExecutionIntentRepository:
                     with conn:
                         conn.execute(
                             "INSERT INTO execution_intents (intent_id, idempotency_key, fingerprint, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                            (
-                                intent.intent_id,
-                                key,
-                                fingerprint,
-                                json_str,
-                                intent.created_at,
-                                intent.updated_at,
-                            ),
+                            (intent.intent_id, key, fingerprint, json_str, intent.created_at, intent.updated_at)
                         )
                 finally:
                     conn.close()
@@ -170,31 +168,22 @@ class DurableExecutionIntentRepository:
             self._idempotency_map[key] = intent.intent_id
             self._fingerprints[key] = fingerprint
 
-    def get_intent(self, intent_id: str) -> ExecutionIntent | None:
+    def get_intent(self, intent_id: str) -> Optional[ExecutionIntent]:
         with self._lock:
             return self._intents.get(intent_id)
 
-    def get_by_idempotency_key(self, idempotency_key: str) -> ExecutionIntent | None:
+    def get_by_idempotency_key(self, idempotency_key: str) -> Optional[ExecutionIntent]:
         with self._lock:
             intent_id = self._idempotency_map.get(idempotency_key)
             return self._intents.get(intent_id) if intent_id else None
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative intent repository provenance."""
-        from src.fractal_flow.execution.recovery import (
-            CapabilityRole,
-            ProducerCapability,
-            RecoveryEvidenceError,
-            SealedObservation,
-        )
-
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
         if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.INTENT_REPOSITORY:
-            raise RecoveryEvidenceError(
-                "DurableExecutionIntentRepository observation requires a valid INTENT_REPOSITORY ProducerCapability."
-            )
+            raise RecoveryEvidenceError("DurableExecutionIntentRepository observation requires a valid INTENT_REPOSITORY ProducerCapability.")
 
         import time
-
         with self._lock:
             payload = {
                 "db_path": str(self.db_path) if self.db_path else "",
