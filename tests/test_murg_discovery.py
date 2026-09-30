@@ -1,18 +1,21 @@
 """Tests for MURG Instrument Discovery, Catalog, and Eligibility Engine."""
 
-import pytest
 from src.fractal_flow.domain.murg import (
     AssetClass,
-    SymbolTradeMode,
-    InstrumentIdentity,
-    InstrumentDescriptor,
-    InstrumentCatalog,
     EligibilityEngine,
+    InstrumentCatalog,
+    InstrumentDescriptor,
+    InstrumentIdentity,
+    SymbolTradeMode,
 )
 from src.fractal_flow.domain.reason_codes import ReasonCode
 
 
-def make_descriptor(canonical_id: str, broker_symbol: str, trade_mode: SymbolTradeMode = SymbolTradeMode.FULL) -> InstrumentDescriptor:
+def make_descriptor(
+    canonical_id: str,
+    broker_symbol: str,
+    trade_mode: SymbolTradeMode = SymbolTradeMode.FULL,
+) -> InstrumentDescriptor:
     identity = InstrumentIdentity(
         canonical_id=canonical_id,
         asset_class=AssetClass.FX_MAJOR,

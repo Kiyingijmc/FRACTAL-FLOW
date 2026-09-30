@@ -1,13 +1,24 @@
 """Tests for Pass 4B Conditional Execution and Simulator Lifecycle."""
 
-import pytest
-from src.fractal_flow.domain.entry import EntryPlan, EntryModel, OrderType, FillPolicy, TimeInForce
+from src.fractal_flow.domain.entry import (
+    EntryModel,
+    EntryPlan,
+    FillPolicy,
+    OrderType,
+    TimeInForce,
+)
 from src.fractal_flow.domain.models import OrderSide
 from src.fractal_flow.simulation.clock import SimulationClock
 from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 
 
-def make_sample_plan(entry_plan_id: str, order_type: OrderType, trigger_p: float, limit_p: float, news_state: str = "NEWS_NORMAL") -> EntryPlan:
+def make_sample_plan(
+    entry_plan_id: str,
+    order_type: OrderType,
+    trigger_p: float,
+    limit_p: float,
+    news_state: str = "NEWS_NORMAL",
+) -> EntryPlan:
     return EntryPlan(
         entry_plan_id=entry_plan_id,
         opportunity_id="opp_4b",
@@ -55,7 +66,9 @@ def test_conditional_limit_order_execution() -> None:
     sim = DeterministicBrokerSimulator(clock=clock)
 
     # Buy Limit @ 1.0830
-    plan = make_sample_plan("plan_lim", OrderType.BUY_LIMIT, trigger_p=1.0830, limit_p=1.0830)
+    plan = make_sample_plan(
+        "plan_lim", OrderType.BUY_LIMIT, trigger_p=1.0830, limit_p=1.0830
+    )
     sim.arm_entry_plan(plan)
     assert plan.state == "ENTRY_ARMED"
 
@@ -69,7 +82,7 @@ def test_conditional_limit_order_execution() -> None:
     assert "plan_lim" in executed
     assert plan.state == "ENTRY_FILLED"
     assert len(sim.positions) == 1
-    assert list(sim.positions.values())[0].symbol == "EURUSD"
+    assert next(iter(sim.positions.values())).symbol == "EURUSD"
 
 
 def test_conditional_stop_limit_order_progression() -> None:
@@ -77,7 +90,9 @@ def test_conditional_stop_limit_order_progression() -> None:
     sim = DeterministicBrokerSimulator(clock=clock)
 
     # Buy Stop Limit: Trigger @ 1.0860, Limit @ 1.0855
-    plan = make_sample_plan("plan_slim", OrderType.BUY_STOP_LIMIT, trigger_p=1.0860, limit_p=1.0855)
+    plan = make_sample_plan(
+        "plan_slim", OrderType.BUY_STOP_LIMIT, trigger_p=1.0860, limit_p=1.0855
+    )
     sim.arm_entry_plan(plan)
 
     # Tick @ 1.0850 -> armed
@@ -98,7 +113,9 @@ def test_news_lockdown_invalidates_armed_pending_plan() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(clock=clock)
 
-    plan = make_sample_plan("plan_news", OrderType.BUY_LIMIT, trigger_p=1.0830, limit_p=1.0830)
+    plan = make_sample_plan(
+        "plan_news", OrderType.BUY_LIMIT, trigger_p=1.0830, limit_p=1.0830
+    )
     sim.arm_entry_plan(plan)
 
     # Mutate plan news_state to NEWS_LOCKDOWN

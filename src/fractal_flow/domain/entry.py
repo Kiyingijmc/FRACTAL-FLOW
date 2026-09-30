@@ -1,14 +1,28 @@
 """Canonical Entry Model Domain Types, Authoritative State Machine, Validators, and Policy Engine for FRACTAL FLOW."""
 
 from dataclasses import dataclass, field
-from enum import Enum, unique
-from typing import Optional, List, Dict, Any
 from decimal import Decimal
+from enum import Enum, unique
+from typing import Any, ClassVar, overload
 
+from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY
 from src.fractal_flow.domain.models import Direction, OrderSide
-from src.fractal_flow.domain.reason_codes import ReasonCode
-from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY, InvalidStateTransitionException
-from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
+
+
+@overload
+def _to_decimal(val: None) -> None: ...
+
+
+@overload
+def _to_decimal(val: Decimal | float | str) -> Decimal: ...
+
+
+def _to_decimal(val: Decimal | float | str | None) -> Decimal | None:
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    return Decimal(str(val))
 
 
 @unique
@@ -69,76 +83,101 @@ class ActiveMarketContext:
     activation_state: str
     entry_analysis_enabled: bool
     is_tradable_session: bool
-    broker_constraints: Dict[str, Any]
+    broker_constraints: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class EntryTrigger:
     trigger_type: EntryTriggerType
-    target_price: float
-    secondary_price: Optional[float] = None
-    required_states: Dict[str, str] = field(default_factory=dict)
+    target_price: Decimal
+    secondary_price: Decimal | None = None
+    required_states: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_price", _to_decimal(self.target_price))
+        if self.secondary_price is not None:
+            object.__setattr__(
+                self, "secondary_price", _to_decimal(self.secondary_price)
+            )
 
 
 @dataclass
 class OpportunityRiskBudget:
     opportunity_id: str
-    total_risk_currency: float
-    total_allowed_volume: float
-    allocated_risk: float = 0.0
-    allocated_volume: float = 0.0
-    reserved_risk: float = 0.0
+    total_risk_currency: Decimal
+    total_allowed_volume: Decimal
+    allocated_risk: Decimal = field(default_factory=lambda: Decimal("0.0"))
+    allocated_volume: Decimal = field(default_factory=lambda: Decimal("0.0"))
+    reserved_risk: Decimal = field(default_factory=lambda: Decimal("0.0"))
+
+    def __post_init__(self) -> None:
+        self.total_risk_currency = _to_decimal(self.total_risk_currency)
+        self.total_allowed_volume = _to_decimal(self.total_allowed_volume)
+        self.allocated_risk = _to_decimal(self.allocated_risk)
+        self.allocated_volume = _to_decimal(self.allocated_volume)
+        self.reserved_risk = _to_decimal(self.reserved_risk)
 
     @property
-    def remaining_risk(self) -> float:
-        tot = Decimal(str(self.total_risk_currency))
-        alloc = Decimal(str(self.allocated_risk))
-        res = Decimal(str(self.reserved_risk))
-        return max(0.0, float(tot - alloc - res))
+    def remaining_risk(self) -> Decimal:
+        tot = self.total_risk_currency
+        alloc = self.allocated_risk
+        res = self.reserved_risk
+        return max(Decimal("0.0"), tot - alloc - res)
 
     @property
-    def remaining_volume(self) -> float:
-        return max(0.0, float(Decimal(str(self.total_allowed_volume)) - Decimal(str(self.allocated_volume))))
+    def remaining_volume(self) -> Decimal:
+        return max(Decimal("0.0"), self.total_allowed_volume - self.allocated_volume)
 
-    def reserve(self, amount: float) -> None:
-        if amount <= 0.0:
+    def reserve(self, amount: Decimal | float) -> None:
+        amt_dec = _to_decimal(amount)
+        if amt_dec <= Decimal("0.0"):
             raise ValueError("Reservation amount must be positive")
-        if Decimal(str(amount)) > Decimal(str(self.remaining_risk)):
-            raise ValueError(f"Cannot reserve {amount}: exceeds remaining risk {self.remaining_risk}")
-        self.reserved_risk = float(Decimal(str(self.reserved_risk)) + Decimal(str(amount)))
+        if amt_dec > self.remaining_risk:
+            raise ValueError(
+                f"Cannot reserve {amount}: exceeds remaining risk {self.remaining_risk}"
+            )
+        self.reserved_risk += amt_dec
 
-    def allocate(self, amount: float, volume: float) -> None:
-        if amount < 0.0 or volume < 0.0:
+    def allocate(self, amount: Decimal | float, volume: Decimal | float) -> None:
+        req_risk = _to_decimal(amount)
+        req_vol = _to_decimal(volume)
+        if req_risk < Decimal("0.0") or req_vol < Decimal("0.0"):
             raise ValueError("Allocation amount and volume must be non-negative")
-        req_risk = Decimal(str(amount))
-        req_vol = Decimal(str(volume))
-        if req_risk > Decimal(str(self.remaining_risk)) + Decimal(str(self.reserved_risk)):
-            raise ValueError(f"Cannot allocate risk {amount}: exceeds total risk budget {self.total_risk_currency}")
-        if req_vol > Decimal(str(self.remaining_volume)):
-            raise ValueError(f"Cannot allocate volume {volume}: exceeds total volume budget {self.total_allowed_volume}")
+        if req_risk > self.remaining_risk + self.reserved_risk:
+            raise ValueError(
+                f"Cannot allocate risk {amount}: exceeds total risk budget {self.total_risk_currency}"
+            )
+        if req_vol > self.remaining_volume:
+            raise ValueError(
+                f"Cannot allocate volume {volume}: exceeds total volume budget {self.total_allowed_volume}"
+            )
 
         # If reserved, deduct from reserved first
-        if self.reserved_risk >= amount:
-            self.reserved_risk = float(Decimal(str(self.reserved_risk)) - req_risk)
+        if self.reserved_risk >= req_risk:
+            self.reserved_risk -= req_risk
         else:
-            self.reserved_risk = 0.0
+            self.reserved_risk = Decimal("0.0")
 
-        self.allocated_risk = float(Decimal(str(self.allocated_risk)) + req_risk)
-        self.allocated_volume = float(Decimal(str(self.allocated_volume)) + req_vol)
+        self.allocated_risk += req_risk
+        self.allocated_volume += req_vol
 
-    def release(self, amount: float, volume: float) -> None:
-        rel_risk = Decimal(str(amount))
-        rel_vol = Decimal(str(volume))
-        self.allocated_risk = max(0.0, float(Decimal(str(self.allocated_risk)) - rel_risk))
-        self.allocated_volume = max(0.0, float(Decimal(str(self.allocated_volume)) - rel_vol))
+    def release(self, amount: Decimal | float, volume: Decimal | float) -> None:
+        rel_risk = _to_decimal(amount)
+        rel_vol = _to_decimal(volume)
+        self.allocated_risk = max(Decimal("0.0"), self.allocated_risk - rel_risk)
+        self.allocated_volume = max(Decimal("0.0"), self.allocated_volume - rel_vol)
 
 
 @dataclass(frozen=True)
 class EntryAllocation:
     leg_id: str
     entry_model: EntryModel
-    allocated_risk: float
-    allocated_volume: float
+    allocated_risk: Decimal
+    allocated_volume: Decimal
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "allocated_risk", _to_decimal(self.allocated_risk))
+        object.__setattr__(self, "allocated_volume", _to_decimal(self.allocated_volume))
 
 
 @dataclass
@@ -157,25 +196,25 @@ class EntryPlan:
     entry_model: EntryModel
     order_type: OrderType
     order_side: OrderSide
-    reference_price: float
-    trigger_price: Optional[float]
-    limit_price: Optional[float]
-    stop_limit_price: Optional[float]
-    entry_corridor_low: Optional[float]
-    entry_corridor_high: Optional[float]
-    requested_volume: float
-    approved_volume: float
-    risk_budget: float
-    allocated_risk: float
-    remaining_opportunity_risk: float
-    structural_sl: float
-    tp_plan: Dict[str, Any]
+    reference_price: Decimal
+    trigger_price: Decimal | None
+    limit_price: Decimal | None
+    stop_limit_price: Decimal | None
+    entry_corridor_low: Decimal | None
+    entry_corridor_high: Decimal | None
+    requested_volume: Decimal
+    approved_volume: Decimal
+    risk_budget: Decimal
+    allocated_risk: Decimal
+    remaining_opportunity_risk: Decimal
+    structural_sl: Decimal
+    tp_plan: dict[str, Any]
     fill_policy: FillPolicy
     time_in_force: TimeInForce
-    trigger_conditions: List[EntryTrigger]
-    maintenance_conditions: List[str]
-    invalidation_conditions: List[str]
-    broker_constraints_snapshot: Dict[str, Any]
+    trigger_conditions: list[EntryTrigger]
+    maintenance_conditions: list[str]
+    invalidation_conditions: list[str]
+    broker_constraints_snapshot: dict[str, Any]
     news_state: str
     tradeability_state: str
     risk_state: str
@@ -187,34 +226,65 @@ class EntryPlan:
     updated_at: int = 0
     expires_at: int = 0
 
+    def __post_init__(self) -> None:
+        self.reference_price = _to_decimal(self.reference_price)
+        self.trigger_price = _to_decimal(self.trigger_price)
+        self.limit_price = _to_decimal(self.limit_price)
+        self.stop_limit_price = _to_decimal(self.stop_limit_price)
+        self.entry_corridor_low = _to_decimal(self.entry_corridor_low)
+        self.entry_corridor_high = _to_decimal(self.entry_corridor_high)
+        self.requested_volume = _to_decimal(self.requested_volume)
+        self.approved_volume = _to_decimal(self.approved_volume)
+        self.risk_budget = _to_decimal(self.risk_budget)
+        self.allocated_risk = _to_decimal(self.allocated_risk)
+        self.remaining_opportunity_risk = _to_decimal(self.remaining_opportunity_risk)
+        self.structural_sl = _to_decimal(self.structural_sl)
+
 
 @dataclass
 class HybridEntryPlan:
     hybrid_id: str
     opportunity_id: str
     risk_budget: OpportunityRiskBudget
-    legs: List[EntryPlan]
+    legs: list[EntryPlan]
 
     def validate_budget_limits(self) -> None:
-        total_leg_risk = sum(Decimal(str(leg.allocated_risk)) for leg in self.legs)
-        total_leg_vol = sum(Decimal(str(leg.approved_volume)) for leg in self.legs)
+        total_leg_risk = sum(_to_decimal(leg.allocated_risk) for leg in self.legs)
+        total_leg_vol = sum(_to_decimal(leg.approved_volume) for leg in self.legs)
 
-        if total_leg_risk > Decimal(str(self.risk_budget.total_risk_currency)):
-            raise ValueError(f"Hybrid plan total risk {total_leg_risk} exceeds opportunity budget {self.risk_budget.total_risk_currency}")
-        if total_leg_vol > Decimal(str(self.risk_budget.total_allowed_volume)):
-            raise ValueError(f"Hybrid plan total volume {total_leg_vol} exceeds opportunity volume limit {self.risk_budget.total_allowed_volume}")
+        if total_leg_risk > self.risk_budget.total_risk_currency:
+            raise ValueError(
+                f"Hybrid plan total risk {total_leg_risk} exceeds opportunity budget {self.risk_budget.total_risk_currency}"
+            )
+        if total_leg_vol > self.risk_budget.total_allowed_volume:
+            raise ValueError(
+                f"Hybrid plan total volume {total_leg_vol} exceeds opportunity volume limit {self.risk_budget.total_allowed_volume}"
+            )
 
 
 @dataclass(frozen=True)
 class ContingentExposure:
     symbol: str
-    current_open_volume: float
-    contingent_pending_volume: float
-    risk_weighted_exposure: float = 0.0
+    current_open_volume: Decimal
+    contingent_pending_volume: Decimal
+    risk_weighted_exposure: Decimal = field(default_factory=lambda: Decimal("0.0"))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "current_open_volume", _to_decimal(self.current_open_volume)
+        )
+        object.__setattr__(
+            self,
+            "contingent_pending_volume",
+            _to_decimal(self.contingent_pending_volume),
+        )
+        object.__setattr__(
+            self, "risk_weighted_exposure", _to_decimal(self.risk_weighted_exposure)
+        )
 
     @property
-    def worst_case_contingent_volume(self) -> float:
-        return float(Decimal(str(self.current_open_volume)) + Decimal(str(self.contingent_pending_volume)))
+    def worst_case_contingent_volume(self) -> Decimal:
+        return self.current_open_volume + self.contingent_pending_volume
 
 
 class EntryStateMachine:
@@ -232,20 +302,38 @@ class EntryPlanValidator:
 
     @staticmethod
     def validate(plan: EntryPlan) -> None:
-        if not plan.entry_plan_id or not plan.opportunity_id or not plan.decision_id or not plan.root_id or not plan.parent_id:
+        if (
+            not plan.entry_plan_id
+            or not plan.opportunity_id
+            or not plan.decision_id
+            or not plan.root_id
+            or not plan.parent_id
+        ):
             raise ValueError("EntryPlan missing required structural identity fields")
 
         if plan.parent_version <= 0 or plan.lineage_version <= 0:
-            raise ValueError("EntryPlan parent_version and lineage_version must be positive integers")
+            raise ValueError(
+                "EntryPlan parent_version and lineage_version must be positive integers"
+            )
 
-        if plan.approved_volume <= 0.0 or plan.approved_volume > plan.requested_volume:
-            raise ValueError(f"Approved volume {plan.approved_volume} must be > 0 and <= requested volume {plan.requested_volume}")
+        app_vol = _to_decimal(plan.approved_volume)
+        req_vol = _to_decimal(plan.requested_volume)
+        if app_vol <= Decimal("0.0") or app_vol > req_vol:
+            raise ValueError(
+                f"Approved volume {plan.approved_volume} must be > 0 and <= requested volume {plan.requested_volume}"
+            )
 
-        if plan.allocated_risk < 0.0 or plan.allocated_risk > plan.risk_budget:
-            raise ValueError(f"Allocated risk {plan.allocated_risk} must be non-negative and <= risk_budget {plan.risk_budget}")
+        alloc_risk = _to_decimal(plan.allocated_risk)
+        risk_budg = _to_decimal(plan.risk_budget)
+        if alloc_risk < Decimal("0.0") or alloc_risk > risk_budg:
+            raise ValueError(
+                f"Allocated risk {plan.allocated_risk} must be non-negative and <= risk_budget {plan.risk_budget}"
+            )
 
         if plan.expires_at > 0 and plan.expires_at < plan.created_at:
-            raise ValueError(f"EntryPlan expires_at ({plan.expires_at}) cannot be prior to created_at ({plan.created_at})")
+            raise ValueError(
+                f"EntryPlan expires_at ({plan.expires_at}) cannot be prior to created_at ({plan.created_at})"
+            )
 
 
 class ConditionalEntryValidator:
@@ -285,9 +373,17 @@ class ConditionalEntryValidator:
 class EntryPolicyEngine:
     """Entry Policy Engine selecting entry mechanisms and constructing EntryPlans requiring ActiveMarketContext."""
 
-    PREFERRED_MODELS: Dict[str, List[EntryModel]] = {
-        "SCALPING": [EntryModel.MARKET_CONFIRMATION, EntryModel.MOMENTUM_MARKET, EntryModel.PULLBACK_LIMIT],
-        "SMART_SCALPING": [EntryModel.PULLBACK_LIMIT, EntryModel.RETEST_LIMIT, EntryModel.MARKET_CONFIRMATION],
+    PREFERRED_MODELS: ClassVar[dict[str, list[EntryModel]]] = {
+        "SCALPING": [
+            EntryModel.MARKET_CONFIRMATION,
+            EntryModel.MOMENTUM_MARKET,
+            EntryModel.PULLBACK_LIMIT,
+        ],
+        "SMART_SCALPING": [
+            EntryModel.PULLBACK_LIMIT,
+            EntryModel.RETEST_LIMIT,
+            EntryModel.MARKET_CONFIRMATION,
+        ],
         "FLIPPING": [EntryModel.RECLAIM_LIMIT, EntryModel.BREAKOUT_STOP],
         "SMART_OVERTRADING": [EntryModel.CONFIRMATION_REENTRY],
     }
@@ -296,17 +392,24 @@ class EntryPolicyEngine:
         self,
         strategy_mode: str,
         direction: Direction,
-        reference_price: float,
-        structural_sl: float,
+        reference_price: Decimal | float,
+        structural_sl: Decimal | float,
         market_context: ActiveMarketContext,
         fallback_allowed: bool = True,
     ) -> EntryModel:
         """Determines best entry model ensuring MURG entry analysis is enabled."""
-        if not market_context.entry_analysis_enabled or not market_context.is_tradable_session:
+        if (
+            not market_context.entry_analysis_enabled
+            or not market_context.is_tradable_session
+        ):
             return EntryModel.NO_ENTRY
 
-        preferred = self.PREFERRED_MODELS.get(strategy_mode, [EntryModel.MARKET_CONFIRMATION])
-        supported_orders = market_context.broker_constraints.get("supported_order_types", [])
+        preferred = self.PREFERRED_MODELS.get(
+            strategy_mode, [EntryModel.MARKET_CONFIRMATION]
+        )
+        supported_orders = market_context.broker_constraints.get(
+            "supported_order_types", []
+        )
 
         for model in preferred:
             try:
@@ -318,7 +421,9 @@ class EntryPolicyEngine:
 
         if fallback_allowed:
             try:
-                market_order = self.map_model_to_order_type(EntryModel.MARKET_CONFIRMATION, direction)
+                market_order = self.map_model_to_order_type(
+                    EntryModel.MARKET_CONFIRMATION, direction
+                )
                 if not supported_orders or market_order.value in supported_orders:
                     return EntryModel.MARKET_CONFIRMATION
             except ValueError:
@@ -327,27 +432,49 @@ class EntryPolicyEngine:
         return EntryModel.NO_ENTRY
 
     @staticmethod
-    def map_model_to_order_type(entry_model: EntryModel, direction: Direction) -> OrderType:
+    def map_model_to_order_type(
+        entry_model: EntryModel, direction: Direction
+    ) -> OrderType:
         if entry_model == EntryModel.NO_ENTRY:
-            raise ValueError("NO_ENTRY model cannot be mapped to an executable OrderType")
+            raise ValueError(
+                "NO_ENTRY model cannot be mapped to an executable OrderType"
+            )
 
         if direction == Direction.LONG:
-            if entry_model in (EntryModel.MARKET_CONFIRMATION, EntryModel.MOMENTUM_MARKET, EntryModel.CONFIRMATION_REENTRY):
+            if entry_model in (
+                EntryModel.MARKET_CONFIRMATION,
+                EntryModel.MOMENTUM_MARKET,
+                EntryModel.CONFIRMATION_REENTRY,
+            ):
                 return OrderType.MARKET_BUY
-            elif entry_model in (EntryModel.PULLBACK_LIMIT, EntryModel.RETEST_LIMIT, EntryModel.RECLAIM_LIMIT):
+            elif entry_model in (
+                EntryModel.PULLBACK_LIMIT,
+                EntryModel.RETEST_LIMIT,
+                EntryModel.RECLAIM_LIMIT,
+            ):
                 return OrderType.BUY_LIMIT
             elif entry_model == EntryModel.BREAKOUT_STOP:
                 return OrderType.BUY_STOP
             elif entry_model == EntryModel.STOP_LIMIT_BREAKOUT:
                 return OrderType.BUY_STOP_LIMIT
         else:  # SHORT
-            if entry_model in (EntryModel.MARKET_CONFIRMATION, EntryModel.MOMENTUM_MARKET, EntryModel.CONFIRMATION_REENTRY):
+            if entry_model in (
+                EntryModel.MARKET_CONFIRMATION,
+                EntryModel.MOMENTUM_MARKET,
+                EntryModel.CONFIRMATION_REENTRY,
+            ):
                 return OrderType.MARKET_SELL
-            elif entry_model in (EntryModel.PULLBACK_LIMIT, EntryModel.RETEST_LIMIT, EntryModel.RECLAIM_LIMIT):
+            elif entry_model in (
+                EntryModel.PULLBACK_LIMIT,
+                EntryModel.RETEST_LIMIT,
+                EntryModel.RECLAIM_LIMIT,
+            ):
                 return OrderType.SELL_LIMIT
             elif entry_model == EntryModel.BREAKOUT_STOP:
                 return OrderType.SELL_STOP
             elif entry_model == EntryModel.STOP_LIMIT_BREAKOUT:
                 return OrderType.SELL_STOP_LIMIT
 
-        raise ValueError(f"Unmapped entry model '{entry_model}' for direction '{direction}'")
+        raise ValueError(
+            f"Unmapped entry model '{entry_model}' for direction '{direction}'"
+        )

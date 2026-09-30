@@ -1,8 +1,8 @@
 """Unit-safe representations, exact Decimal arithmetic, and instrument-specific conversions for FRACTAL FLOW domain primitives."""
 
-from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
 import math
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 
 
 @dataclass(frozen=True)
@@ -11,7 +11,9 @@ class Price:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(f"Price must be a finite positive number, got {self.value}")
+            raise ValueError(
+                f"Price must be a finite positive number, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,9 @@ class PriceDistance:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(f"PriceDistance must be a finite non-negative number, got {self.value}")
+            raise ValueError(
+                f"PriceDistance must be a finite non-negative number, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -48,7 +52,9 @@ class Volume:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(f"Volume must be a finite positive number, got {self.value}")
+            raise ValueError(
+                f"Volume must be a finite positive number, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -57,7 +63,9 @@ class PositiveCurrencyAmount:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(f"PositiveCurrencyAmount cannot be negative or infinite, got {self.value}")
+            raise ValueError(
+                f"PositiveCurrencyAmount cannot be negative or infinite, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -66,7 +74,9 @@ class SignedCurrencyAmount:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or math.isinf(self.value):
-            raise ValueError(f"SignedCurrencyAmount cannot be NaN or Infinity, got {self.value}")
+            raise ValueError(
+                f"SignedCurrencyAmount cannot be NaN or Infinity, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -102,7 +112,9 @@ class BoundedRatio:
 
     def __post_init__(self) -> None:
         if math.isnan(self.value) or not (0.0 <= self.value <= 1.0):
-            raise ValueError(f"BoundedRatio must be between 0.0 and 1.0, got {self.value}")
+            raise ValueError(
+                f"BoundedRatio must be between 0.0 and 1.0, got {self.value}"
+            )
 
 
 @dataclass(frozen=True)
@@ -127,6 +139,7 @@ def pips_to_price(pips: float, digits: int) -> float:
     pip_scale = Decimal("0.0001") if digits in (4, 5) else Decimal("0.01")
     pips_dec = Decimal(str(pips))
     price_dist = (pips_dec * pip_scale).quantize(
-        Decimal("0.00001") if digits in (4, 5) else Decimal("0.001"), rounding=ROUND_HALF_UP
+        Decimal("0.00001") if digits in (4, 5) else Decimal("0.001"),
+        rounding=ROUND_HALF_UP,
     )
     return float(price_dist)

@@ -1,13 +1,23 @@
 """Tests for Hardened Simulator, Idempotency, Unknown Execution, Partial Fills, and Restart Recovery."""
 
+from decimal import Decimal
+
 import pytest
+
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario, IdempotencyConflictException
+from src.fractal_flow.simulation.simulator import (
+    DeterministicBrokerSimulator,
+    ExecutionScenario,
+    IdempotencyConflictException,
+    SimulationConfig,
+)
 
 
-def make_intent(intent_id: str, idempotency_key: str, volume: float = 0.1, price: float = 1.0850) -> ExecutionIntent:
+def make_intent(
+    intent_id: str, idempotency_key: str, volume: float = 0.1, price: float = 1.0850
+) -> ExecutionIntent:
     return ExecutionIntent(
         intent_id=intent_id,
         decision_id="dec_1",
@@ -16,15 +26,15 @@ def make_intent(intent_id: str, idempotency_key: str, volume: float = 0.1, price
         idempotency_key=idempotency_key,
         symbol="EURUSD",
         side=OrderSide.BUY,
-        requested_volume=volume,
-        entry_price=price,
-        sl=1.0820,
-        tp_plan={"tp1": 1.0900},
+        requested_volume=Decimal(str(volume)),
+        entry_price=Decimal(str(price)),
+        sl=Decimal("1.0820"),
+        tp_plan={"tp1": Decimal("1.0900")},
         effective_config_id="cfg_123",
         lineage_version=1,
-        broker_constraint_snapshot={"min_volume": 0.01},
+        broker_constraint_snapshot={"min_volume": Decimal("0.01")},
         quote_timestamp=1000,
-        spread_pips=1.0,
+        spread_pips=Decimal("1.0"),
         status="EXEC_READY",
         created_at=100,
         updated_at=100,
@@ -61,23 +71,27 @@ def test_idempotency_conflict_raises_exception() -> None:
 def test_partial_fill_semantics() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.PARTIAL_FILL, partial_fill_ratio=0.3)
+        clock=clock,
+        config=SimulationConfig(
+            scenario=ExecutionScenario.PARTIAL_FILL, partial_fill_ratio=Decimal("0.3")
+        ),
     )
     intent = make_intent("intent_pf", "key_pf", volume=1.0)
     status = sim.submit_intent(intent)
     assert status == ExecutionState.EXEC_PARTIAL
 
-    pos = list(sim.positions.values())[0]
-    assert pos.requested_volume == 1.0
-    assert pos.filled_volume == 0.3
-    assert pos.remaining_volume == 0.7
+    pos = next(iter(sim.positions.values()))
+    assert pos.requested_volume == Decimal("1.0")
+    assert pos.filled_volume == Decimal("0.30")
+    assert pos.remaining_volume == Decimal("0.70")
     assert len(pos.deals) == 1
 
 
 def test_restart_recovery_reconciliation() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(
-        clock=clock, config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT)
+        clock=clock,
+        config=SimulationConfig(scenario=ExecutionScenario.UNKNOWN_BEFORE_RECEIPT),
     )
     intent = make_intent("intent_restart", "key_restart")
     status = sim.submit_intent(intent)

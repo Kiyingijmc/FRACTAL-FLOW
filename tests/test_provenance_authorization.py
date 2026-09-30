@@ -1,7 +1,6 @@
 """Tests for Decision Provenance and News Lockdown Authorization Boundary."""
 
-import pytest
-from src.fractal_flow.domain.models import TradeDecision, ExecutionIntent, Position
+from src.fractal_flow.domain.models import ExecutionIntent, TradeDecision
 
 
 def test_news_lockdown_blocks_trade_decision_authorization() -> None:

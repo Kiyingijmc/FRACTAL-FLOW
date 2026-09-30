@@ -15,12 +15,34 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[tool.ruff]
+exclude = [
+    "src/fractal_flow/execution/recovery.py",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=85"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "src.fractal_flow.execution.recovery"
+disable_error_code = ["attr-defined", "no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = ["attr-defined", "union-attr", "arg-type", "misc", "no-untyped-def", "operator", "assignment", "type-arg", "import-untyped", "unused-ignore"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

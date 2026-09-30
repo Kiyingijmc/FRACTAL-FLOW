@@ -1,7 +1,6 @@
 """Execution State Machine Model and Storage State Mapping."""
 
 from enum import Enum, unique
-from src.fractal_flow.domain.envelope import InvalidStateTransitionException
 
 
 @unique
