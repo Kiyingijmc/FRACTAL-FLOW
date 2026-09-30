@@ -1,7 +1,13 @@
 """Tests for Decision Provenance and News Lockdown Authorization Boundary."""
 
-import pytest
-from src.fractal_flow.domain.models import TradeDecision, ExecutionIntent, Position
+from decimal import Decimal
+
+from src.fractal_flow.domain.models import (
+    Direction,
+    ExecutionIntent,
+    OrderSide,
+    TradeDecision,
+)
 
 
 def test_news_lockdown_blocks_trade_decision_authorization() -> None:
@@ -9,7 +15,7 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
         decision_id="dec_1",
         opportunity_id="opp_1",
         root_id="root_1",
-        direction="BUY",
+        direction=Direction.LONG,
         symbol="EURUSD",
         environment="REGIME_TREND_UP",
         role="ROLE_CONTINUATION",
@@ -22,18 +28,18 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
         news_state="NEWS_LOCKDOWN",  # Hard lockdown boundary active
         risk_state="RISK_NORMAL",
         portfolio_state="PORTFOLIO_ALLOW",
-        entry_price=1.0850,
-        structural_sl=1.0820,
+        entry_price=Decimal("1.0850"),
+        structural_sl=Decimal("1.0820"),
         tp_plan={"tp1": 1.0900},
         ttl_ns=300000000000,
-        requested_risk=100.0,
-        approved_risk=100.0,
-        position_size_lots=0.1,
+        requested_risk=Decimal("100.0"),
+        approved_risk=Decimal("100.0"),
+        position_size_lots=Decimal("0.1"),
         arbitration_result="ALLOW",
         effective_config_id="cfg_test123",
         broker_constraint_snapshot={"min_volume": 0.01},
         quote_timestamp=1000,
-        spread_pips=1.0,
+        spread_pips=Decimal("1.0"),
         authorized=True,  # Attempted manual authorization during lockdown
     )
     # NEWS_LOCKDOWN must override manual authorized=True flag
@@ -48,16 +54,16 @@ def test_provenance_snapshots_preserved() -> None:
         root_id="root_1",
         idempotency_key="key_1",
         symbol="EURUSD",
-        side="BUY",
-        requested_volume=0.1,
-        entry_price=1.0850,
-        sl=1.0820,
+        side=OrderSide.BUY,
+        requested_volume=Decimal("0.1"),
+        entry_price=Decimal("1.0850"),
+        sl=Decimal("1.0820"),
         tp_plan={"tp1": 1.0900},
         effective_config_id="cfg_test123",
         lineage_version=1,
         broker_constraint_snapshot={"stops_level": 5.0},
         quote_timestamp=1000,
-        spread_pips=1.2,
+        spread_pips=Decimal("1.2"),
         status="EXEC_READY",
         created_at=100,
         updated_at=100,

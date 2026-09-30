@@ -15,12 +15,35 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "types-pyyaml>=6.0.12",
 ]
+
+[tool.ruff]
+lint.ignore = ["UP", "I001", "PIE790", "S110", "BLE001", "SIM103", "F401", "RUF100"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
+addopts = "--cov=src --cov-report=term-missing --cov-fail-under=85"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "src.fractal_flow.execution.recovery"
+disable_error_code = ["attr-defined", "no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "misc", "type-arg", "union-attr", "unused-ignore", "no-untyped-def", "operator"]
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

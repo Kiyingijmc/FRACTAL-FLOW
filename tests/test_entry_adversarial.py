@@ -1,25 +1,34 @@
 """Adversarial Test Suite covering Entry Model EM-001 through EM-060 Scenarios."""
 
 import pytest
+
+from src.fractal_flow.domain.authority import (
+    AuthorityMatrix,
+    AuthorityViolationException,
+)
 from src.fractal_flow.domain.entry import (
     EntryModel,
-    OrderType,
-    FillPolicy,
-    TimeInForce,
     EntryPlan,
-    EntryPolicyEngine,
-    OpportunityRiskBudget,
+    FillPolicy,
     HybridEntryPlan,
+    OpportunityRiskBudget,
+    OrderType,
+    TimeInForce,
 )
-from src.fractal_flow.domain.models import Direction, OrderSide, ExecutionIntent
+from src.fractal_flow.domain.models import OrderSide
 from src.fractal_flow.domain.telemetry import EntryAuthorizationEvidence
-from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
-from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario, IdempotencyConflictException
+from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 
 
-def make_plan(plan_id: str, model: EntryModel, otype: OrderType, side: OrderSide = OrderSide.BUY, p_version: int = 1, news: str = "NEWS_NORMAL") -> EntryPlan:
+def make_plan(
+    plan_id: str,
+    model: EntryModel,
+    otype: OrderType,
+    side: OrderSide = OrderSide.BUY,
+    p_version: int = 1,
+    news: str = "NEWS_NORMAL",
+) -> EntryPlan:
     return EntryPlan(
         entry_plan_id=plan_id,
         opportunity_id="opp_em",
@@ -36,7 +45,9 @@ def make_plan(plan_id: str, model: EntryModel, otype: OrderType, side: OrderSide
         order_type=otype,
         order_side=side,
         reference_price=1.0850,
-        trigger_price=1.0830 if "LIMIT" in otype.value or "STOP" in otype.value else None,
+        trigger_price=1.0830
+        if "LIMIT" in otype.value or "STOP" in otype.value
+        else None,
         limit_price=1.0830 if "LIMIT" in otype.value else None,
         stop_limit_price=None,
         entry_corridor_low=None,
@@ -77,7 +88,9 @@ def test_em_009_011_parent_version_staleness_invalidation() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(clock=clock)
 
-    plan = make_plan("plan_stale", EntryModel.PULLBACK_LIMIT, OrderType.BUY_LIMIT, p_version=1)
+    plan = make_plan(
+        "plan_stale", EntryModel.PULLBACK_LIMIT, OrderType.BUY_LIMIT, p_version=1
+    )
     sim.arm_entry_plan(plan)
 
     # Parent version advances to 2, making plan stale
@@ -93,14 +106,21 @@ def test_em_014_news_lockdown_blocks_pending_trigger() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(clock=clock)
 
-    plan = make_plan("plan_news_em", EntryModel.PULLBACK_LIMIT, OrderType.BUY_LIMIT, news="NEWS_LOCKDOWN")
+    plan = make_plan(
+        "plan_news_em",
+        EntryModel.PULLBACK_LIMIT,
+        OrderType.BUY_LIMIT,
+        news="NEWS_LOCKDOWN",
+    )
     with pytest.raises(ValueError) as exc:
         sim.arm_entry_plan(plan)
     assert "NEWS_LOCKDOWN" in str(exc.value)
 
 
 def test_em_043_046_hybrid_risk_budget_enforcement() -> None:
-    budget = OpportunityRiskBudget("opp_hybrid", total_risk_currency=300.0, total_allowed_volume=0.5)
+    budget = OpportunityRiskBudget(
+        "opp_hybrid", total_risk_currency=300.0, total_allowed_volume=0.5
+    )
     plan1 = make_plan("leg1", EntryModel.MARKET_CONFIRMATION, OrderType.MARKET_BUY)
     plan1.allocated_risk = 150.0
     plan1.approved_volume = 0.25

@@ -1,12 +1,8 @@
 """Software-Enforced Authority Matrix."""
 
-from dataclasses import dataclass
-from typing import Set
-
 
 class AuthorityViolationException(Exception):
     """Raised when an engine attempts an unauthorized capability or an unknown engine accesses capabilities."""
-    pass
 
 
 # Capability Definitions for all core system engines
