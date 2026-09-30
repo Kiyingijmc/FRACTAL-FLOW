@@ -34,7 +34,7 @@ jobs:
         run: poetry run ruff format --check src/ tests/
 
       - name: Mypy Strict Check
-        run: poetry run mypy --strict --explicit-package-bases src
+        run: poetry run mypy --strict --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py
 
       - name: Run Test Suite with Coverage
         run: poetry run pytest

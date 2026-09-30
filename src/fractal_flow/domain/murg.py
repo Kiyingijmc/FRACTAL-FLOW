@@ -297,7 +297,7 @@ class ResourceGovernor:
             else:
                 threshold = self.deactivation_threshold if is_currently_active else self.activation_threshold
 
-                reasons: list[ReasonCode] = []
+                reasons = []
                 if score >= threshold and len(self.active_markets) < effective_active_cap:
                     self.active_markets.add(canonical_id)
                     self.leases[canonical_id] = MarketActivationLease(

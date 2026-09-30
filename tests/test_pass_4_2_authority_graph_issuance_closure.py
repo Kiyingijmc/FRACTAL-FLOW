@@ -11,19 +11,38 @@ import threading
 from typing import Any
 
 from src.fractal_flow.execution.recovery import (
+    RecoveryEngine,
+    RecoveryState,
+    RecoveryEvidence,
     RecoveryEvidenceError,
     AuthorityError,
+    RecoveryEvidenceAssembler,
     JournalRecoveryValidator,
+    SnapshotRecoveryValidator,
+    RiskLedgerRecoveryValidator,
+    IntentRecoveryValidator,
+    BrokerReconciliationValidator,
+    ConfigurationValidator,
+    ProtectiveMonitoringValidator,
     ProtectiveMonitoringSubsystem,
+    JournalRecoveryEvidence,
+    SnapshotRecoveryEvidence,
+    RiskLedgerRecoveryEvidence,
+    IntentRecoveryEvidence,
+    BrokerReconciliationEvidence,
+    ConfigurationEvidence,
+    ProtectiveMonitoringEvidence,
     AuthorityBootstrap,
     AuthorityDomain,
     TrustedRuntimeBootstrap,
     CapabilityRole,
+    SealedObservation,
     ProducerCapability,
     ValidatorCapability,
     ProducerBinding,
 )
 from src.fractal_flow.execution.reconciliation import (
+    ReconciliationEngine,
     AuthoritativeBrokerAdapter,
     BrokerQueryQuality,
 )
@@ -49,29 +68,15 @@ def _provision_full_production_authority(prod_bootstrap: TrustedRuntimeBootstrap
     config = compute_effective_config(BaseConfig(), "EURUSD")
     protective = ProtectiveMonitoringSubsystem()
 
-    b_prod = prod_bootstrap.get_producer_capability(
-        CapabilityRole.BROKER_QUERY
-    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
+    b_prod = prod_bootstrap.get_producer_capability(CapabilityRole.BROKER_QUERY) or prod_bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "BrokerAdapterSubsystem")
     adapter = AuthoritativeBrokerAdapter(capability=b_prod, authority=BrokerQueryQuality.FOUND)
 
-    prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.JOURNAL, "JournalSubsystem"
-    )
-    prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.SNAPSHOT, "SnapshotSubsystem"
-    )
-    prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem"
-    )
-    prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(
-        CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem"
-    )
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.EFFECTIVE_CONFIGURATION
-    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
-    prod_bootstrap.get_producer_capability(
-        CapabilityRole.PROTECTIVE_MONITOR
-    ) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
+    prod_bootstrap.get_producer_capability(CapabilityRole.JOURNAL) or prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
+    prod_bootstrap.get_producer_capability(CapabilityRole.SNAPSHOT) or prod_bootstrap.mint_producer_capability(CapabilityRole.SNAPSHOT, "SnapshotSubsystem")
+    prod_bootstrap.get_producer_capability(CapabilityRole.RISK_LEDGER) or prod_bootstrap.mint_producer_capability(CapabilityRole.RISK_LEDGER, "RiskLedgerSubsystem")
+    prod_bootstrap.get_producer_capability(CapabilityRole.INTENT_REPOSITORY) or prod_bootstrap.mint_producer_capability(CapabilityRole.INTENT_REPOSITORY, "IntentRepoSubsystem")
+    prod_bootstrap.get_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION) or prod_bootstrap.mint_producer_capability(CapabilityRole.EFFECTIVE_CONFIGURATION, config.effective_config_id)
+    prod_bootstrap.get_producer_capability(CapabilityRole.PROTECTIVE_MONITOR) or prod_bootstrap.mint_producer_capability(CapabilityRole.PROTECTIVE_MONITOR, protective.subsystem_id)
 
     prod_bootstrap.register_producer(CapabilityRole.JOURNAL, journal)
     prod_bootstrap.register_producer(CapabilityRole.SNAPSHOT, snap_engine)
@@ -81,35 +86,16 @@ def _provision_full_production_authority(prod_bootstrap: TrustedRuntimeBootstrap
     prod_bootstrap.register_producer(CapabilityRole.EFFECTIVE_CONFIGURATION, config)
     prod_bootstrap.register_producer(CapabilityRole.PROTECTIVE_MONITOR, protective)
 
-    prod_bootstrap.get_validator_capability("JournalRecoveryValidator") or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
-    )
-    prod_bootstrap.get_validator_capability("SnapshotRecoveryValidator") or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator"
-    )
-    prod_bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator"
-    )
-    prod_bootstrap.get_validator_capability("IntentRecoveryValidator") or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator"
-    )
-    prod_bootstrap.get_validator_capability(
-        "BrokerReconciliationValidator"
-    ) or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator"
-    )
-    prod_bootstrap.get_validator_capability("ConfigurationValidator") or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator"
-    )
-    prod_bootstrap.get_validator_capability(
-        "ProtectiveMonitoringValidator"
-    ) or prod_bootstrap.mint_validator_capability(
-        CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator"
-    )
+    prod_bootstrap.get_validator_capability("JournalRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
+    prod_bootstrap.get_validator_capability("SnapshotRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.SNAPSHOT_RECOVERY_VALIDATOR, "SnapshotRecoveryValidator")
+    prod_bootstrap.get_validator_capability("RiskLedgerRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.RISK_LEDGER_RECOVERY_VALIDATOR, "RiskLedgerRecoveryValidator")
+    prod_bootstrap.get_validator_capability("IntentRecoveryValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.INTENT_RECOVERY_VALIDATOR, "IntentRecoveryValidator")
+    prod_bootstrap.get_validator_capability("BrokerReconciliationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.BROKER_RECONCILIATION_VALIDATOR, "BrokerReconciliationValidator")
+    prod_bootstrap.get_validator_capability("ConfigurationValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.CONFIGURATION_VALIDATOR, "ConfigurationValidator")
+    prod_bootstrap.get_validator_capability("ProtectiveMonitoringValidator") or prod_bootstrap.mint_validator_capability(CapabilityRole.PROTECTIVE_MONITORING_VALIDATOR, "ProtectiveMonitoringValidator")
 
 
 # --- Scenario A: Foreign domain capability ---
-
 
 def test_scenario_a_foreign_domain_capability_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -126,19 +112,13 @@ def test_scenario_a_foreign_domain_capability_rejected() -> None:
     val_cap = prod_bootstrap.get_validator_capability("JournalRecoveryValidator")
 
     ev = JournalRecoveryValidator.validate(
-        journal,
-        "sess_123",
-        val_cap,
-        observation=foreign_obs,
-        producer_capability=foreign_cap,
-        authority_domain=prod_bootstrap.domain,
+        journal, "sess_123", val_cap, observation=foreign_obs, producer_capability=foreign_cap, authority_domain=prod_bootstrap.domain
     )
     assert ev.valid is False
     assert ev.provenance.result == "FAILED"
 
 
 # --- Scenario B: Foreign domain producer ---
-
 
 def test_scenario_b_foreign_domain_producer_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -149,26 +129,18 @@ def test_scenario_b_foreign_domain_producer_rejected() -> None:
 
     # Registering a foreign domain's producer instance without registering it in prod_bootstrap MUST fail validation
     j_cap = prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "JournalSubsystem")
-    val_cap = prod_bootstrap.mint_validator_capability(
-        CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator"
-    )
+    val_cap = prod_bootstrap.mint_validator_capability(CapabilityRole.JOURNAL_RECOVERY_VALIDATOR, "JournalRecoveryValidator")
 
     obs = foreign_journal.produce_observation("sess_123", j_cap)
 
     ev = JournalRecoveryValidator.validate(
-        foreign_journal,
-        "sess_123",
-        val_cap,
-        observation=obs,
-        producer_capability=j_cap,
-        authority_domain=prod_bootstrap.domain,
+        foreign_journal, "sess_123", val_cap, observation=obs, producer_capability=j_cap, authority_domain=prod_bootstrap.domain
     )
     assert ev.valid is False
     assert "Unregistered Journal instance" in str(ev.provenance.failure_reason)
 
 
 # --- Scenario C: Wrong role ---
-
 
 def test_scenario_c_wrong_role_registration_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -187,7 +159,6 @@ def test_scenario_c_wrong_role_registration_rejected() -> None:
 
 # --- Scenario D: Wrong producer ID ---
 
-
 def test_scenario_d_wrong_producer_id_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     prod_bootstrap.mint_producer_capability(CapabilityRole.JOURNAL, "Journal_Alpha")
@@ -202,7 +173,6 @@ def test_scenario_d_wrong_producer_id_rejected() -> None:
 
 
 # --- Scenario E: Wrong producer object ---
-
 
 def test_scenario_e_wrong_producer_object_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -220,7 +190,6 @@ def test_scenario_e_wrong_producer_object_rejected() -> None:
 
 # --- Scenario F: Forged issuance evidence ---
 
-
 def test_scenario_f_forged_issuance_evidence_rejected() -> None:
     # Direct construction attempt without going through AuthorityDomain.mint_producer_capability MUST fail
     with pytest.raises(RecoveryEvidenceError) as exc:
@@ -233,7 +202,6 @@ def test_scenario_f_forged_issuance_evidence_rejected() -> None:
 
 
 # --- Scenario G: Extracted issuance material ---
-
 
 def test_scenario_g_extracted_issuance_material_nonexistent() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -250,7 +218,6 @@ def test_scenario_g_extracted_issuance_material_nonexistent() -> None:
 
 # --- Scenario H: Post-seal mint ---
 
-
 def test_scenario_h_post_seal_mint_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -265,7 +232,6 @@ def test_scenario_h_post_seal_mint_rejected() -> None:
 
 # --- Scenario I: Post-seal registration ---
 
-
 def test_scenario_i_post_seal_registration_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -276,7 +242,6 @@ def test_scenario_i_post_seal_registration_rejected() -> None:
 
 
 # --- Scenario J: Post-seal binding replacement ---
-
 
 def test_scenario_j_post_seal_binding_replacement_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -289,7 +254,6 @@ def test_scenario_j_post_seal_binding_replacement_rejected() -> None:
 
 # --- Scenario K: Registry mutation ---
 
-
 def test_scenario_k_registry_mutation_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -300,7 +264,6 @@ def test_scenario_k_registry_mutation_rejected() -> None:
 
 
 # --- Scenario L: Registry replacement ---
-
 
 def test_scenario_l_registry_replacement_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -315,7 +278,6 @@ def test_scenario_l_registry_replacement_rejected() -> None:
 
 # --- Scenario M: Copy / deepcopy reconstruction ---
 
-
 def test_scenario_m_copy_deepcopy_reconstruction_returns_none() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     domain = prod_bootstrap.domain
@@ -327,7 +289,6 @@ def test_scenario_m_copy_deepcopy_reconstruction_returns_none() -> None:
 
 
 # --- Scenario N: Serialization reconstruction ---
-
 
 def test_scenario_n_serialization_reconstruction_prohibited() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -341,7 +302,6 @@ def test_scenario_n_serialization_reconstruction_prohibited() -> None:
 
 
 # --- Scenario O: Concurrent provisioning ---
-
 
 def test_scenario_o_concurrent_provisioning_thread_safe() -> None:
     results = []
@@ -364,7 +324,6 @@ def test_scenario_o_concurrent_provisioning_thread_safe() -> None:
 
 
 # --- Scenario P: Failed finalization recovery ---
-
 
 def test_scenario_p_failed_finalization_remains_provisionable() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -391,7 +350,6 @@ def test_scenario_p_failed_finalization_remains_provisionable() -> None:
 
 # --- Scenario Q: Retry finalization ---
 
-
 def test_scenario_q_retry_finalization_prohibited() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -407,7 +365,6 @@ def test_scenario_q_retry_finalization_prohibited() -> None:
 
 # --- Scenario R: Orphan capability ---
 
-
 def test_scenario_r_orphan_capability_blocks_finalization() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
 
@@ -420,7 +377,6 @@ def test_scenario_r_orphan_capability_blocks_finalization() -> None:
 
 
 # --- Scenario S: Orphan binding ---
-
 
 def test_scenario_s_orphan_binding_detected_at_finalization() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -440,13 +396,10 @@ def test_scenario_s_orphan_binding_detected_at_finalization() -> None:
 
     with pytest.raises(AuthorityError) as exc:
         prod_bootstrap.finalize()
-    assert "ProducerBinding producer instance mismatch" in str(exc.value) or "ProducerBinding identity mismatch" in str(
-        exc.value
-    )
+    assert "ProducerBinding producer instance mismatch" in str(exc.value) or "ProducerBinding identity mismatch" in str(exc.value)
 
 
 # --- Scenario T: Tampered binding ---
-
 
 def test_scenario_t_tampered_binding_fields_rejected_at_finalization() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
@@ -472,12 +425,9 @@ def test_scenario_t_tampered_binding_fields_rejected_at_finalization() -> None:
 
 # --- Scenario U: Fake AuthorityDomain subclass ---
 
-
 def test_scenario_u_fake_authority_domain_subclass_rejected() -> None:
     class ForgedDomain(AuthorityDomain):
-        def mint_producer_capability(
-            self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None
-        ) -> ProducerCapability:
+        def mint_producer_capability(self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None) -> ProducerCapability:
             return ProducerCapability(
                 authority_domain_id=self.domain_id,
                 role=role,
@@ -493,14 +443,11 @@ def test_scenario_u_fake_authority_domain_subclass_rejected() -> None:
 
 # --- Scenario V: Fake minting frame / stack frame spoofing ---
 
-
 def test_scenario_v_fake_minting_frame_spoofing_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
 
     class ForgedDomain(AuthorityDomain):
-        def mint_producer_capability(
-            self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None
-        ) -> ProducerCapability:
+        def mint_producer_capability(self, role: CapabilityRole, producer_id: str, _provisioning_token: Any = None) -> ProducerCapability:
             return ProducerCapability(
                 authority_domain_id=self.domain_id,
                 role=role,
@@ -517,7 +464,6 @@ def test_scenario_v_fake_minting_frame_spoofing_rejected() -> None:
 
 # --- Scenario W: Fake issuer ---
 
-
 def test_scenario_w_fake_issuer_rejected() -> None:
     # Attempting to call ProducerCapability._mint from a non-AuthorityDomain or finalized domain fails closed
     fake_domain = object()
@@ -527,7 +473,6 @@ def test_scenario_w_fake_issuer_rejected() -> None:
 
 
 # --- Scenario X: Object.__setattr__ bypass regression test ---
-
 
 def test_scenario_x_object_setattr_cannot_forge_capability_issuance() -> None:
     domain = AuthorityDomain("ATTACKER_DOMAIN")
@@ -549,7 +494,6 @@ def test_scenario_x_object_setattr_cannot_forge_capability_issuance() -> None:
 
 # --- Scenario Y: Capability reconstruction from observable state ---
 
-
 def test_scenario_y_capability_reconstruction_from_observable_fields_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -569,7 +513,6 @@ def test_scenario_y_capability_reconstruction_from_observable_fields_rejected() 
 
 # --- Scenario Z: Foreign domain / issuer substitution ---
 
-
 def test_scenario_z_foreign_domain_issuer_substitution_rejected() -> None:
     prod_bootstrap = TrustedRuntimeBootstrap.bootstrap_production_runtime()
     _provision_full_production_authority(prod_bootstrap)
@@ -583,12 +526,7 @@ def test_scenario_z_foreign_domain_issuer_substitution_rejected() -> None:
     val_cap = prod_bootstrap.get_validator_capability("JournalRecoveryValidator")
 
     ev = JournalRecoveryValidator.validate(
-        journal,
-        "sess_123",
-        val_cap,
-        observation=foreign_obs,
-        producer_capability=foreign_cap,
-        authority_domain=prod_bootstrap.domain,
+        journal, "sess_123", val_cap, observation=foreign_obs, producer_capability=foreign_cap, authority_domain=prod_bootstrap.domain
     )
     assert ev.valid is False
     assert ev.provenance.result == "FAILED"

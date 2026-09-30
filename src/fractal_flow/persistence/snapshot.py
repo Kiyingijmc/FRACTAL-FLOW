@@ -1,7 +1,7 @@
 """SnapshotEngine providing aggregate snapshot persistence, boundary/provenance validation, atomic disk writes, and deterministic journal replay."""
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 import json
 import hashlib
 import os
@@ -9,23 +9,20 @@ import threading
 from pathlib import Path
 
 from src.fractal_flow.domain.event import Event
-from src.fractal_flow.persistence.journal import DurableEventJournal
+from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
 
 
 class SnapshotCorruptionException(Exception):
     """Raised when aggregate snapshot integrity, checksum, boundary, or schema verification fails."""
-
     pass
 
 
-_INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset(
-    {
-        "_last_version",
-        "_last_seq",
-        "_snapshot_valid",
-        "_snapshot_fallback_used",
-    }
-)
+_INTERNAL_REPLAY_DIAGNOSTIC_FIELDS = frozenset({
+    "_last_version",
+    "_last_seq",
+    "_snapshot_valid",
+    "_snapshot_fallback_used",
+})
 
 
 @dataclass(frozen=True)
@@ -43,7 +40,10 @@ class AggregateSnapshot:
     @staticmethod
     def compute_state_hash(payload: Dict[str, Any]) -> str:
         """Computes deterministic SHA-256 state hash over canonical serialization of aggregate state."""
-        canonical_payload = {k: v for k, v in payload.items() if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS}
+        canonical_payload = {
+            k: v for k, v in payload.items()
+            if k not in _INTERNAL_REPLAY_DIAGNOSTIC_FIELDS
+        }
         return hashlib.sha256(json.dumps(canonical_payload, sort_keys=True).encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -84,9 +84,7 @@ class SnapshotEngine:
         self._snapshot_valid: bool = True
         self._snapshot_fallback_used: bool = False
 
-    def register_reducer(
-        self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]
-    ) -> None:
+    def register_reducer(self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]) -> None:
         """Registers an explicit semantic event reducer for state transitions during replay."""
         with self._lock:
             self._reducers[event_type] = reducer_func
@@ -172,10 +170,8 @@ class SnapshotEngine:
         state = dict(initial_state or {})
         all_records = journal.get_all_records()
         agg_records = [
-            r
-            for r in all_records
-            if r.event.aggregate_type == aggregate_type
-            and r.event.aggregate_id == aggregate_id
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             and r.sequence_number <= target_sequence
         ]
 
@@ -246,21 +242,15 @@ class SnapshotEngine:
 
             # Ensure the specific sequence number snapshot.last_sequence_number belongs to expected_type:expected_id!
             boundary_record = next((r for r in all_records if r.sequence_number == snapshot.last_sequence_number), None)
-            if (
-                not boundary_record
-                or boundary_record.event.aggregate_type != expected_type
-                or boundary_record.event.aggregate_id != expected_id
-            ):
+            if not boundary_record or boundary_record.event.aggregate_type != expected_type or boundary_record.event.aggregate_id != expected_id:
                 raise SnapshotCorruptionException(
                     f"Snapshot boundary sequence {snapshot.last_sequence_number} does not belong to aggregate '{expected_type}:{expected_id}'. Fail closed."
                 )
 
             # Find aggregate events up to the snapshot sequence boundary
             agg_records_at_boundary = [
-                r
-                for r in all_records
-                if r.event.aggregate_type == expected_type
-                and r.event.aggregate_id == expected_id
+                r for r in all_records
+                if r.event.aggregate_type == expected_type and r.event.aggregate_id == expected_id
                 and r.sequence_number <= snapshot.last_sequence_number
             ]
 
@@ -378,10 +368,8 @@ class SnapshotEngine:
 
         all_records = journal.get_all_records()
         aggregate_records = [
-            r
-            for r in all_records
-            if r.event.aggregate_type == aggregate_type
-            and r.event.aggregate_id == aggregate_id
+            r for r in all_records
+            if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             and r.sequence_number > min_seq
         ]
 
@@ -402,18 +390,11 @@ class SnapshotEngine:
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative snapshot engine provenance."""
-        from src.fractal_flow.execution.recovery import (
-            CapabilityRole,
-            SealedObservation,
-            RecoveryEvidenceError,
-            ProducerCapability,
-        )
-
+        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
         if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.SNAPSHOT:
             raise RecoveryEvidenceError("SnapshotEngine observation requires a valid SNAPSHOT ProducerCapability.")
 
         import time
-
         with self._lock:
             payload = {
                 "snapshot_valid": self._snapshot_valid,
