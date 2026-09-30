@@ -8,15 +8,11 @@ and recovery gate independent verification.
 
 import pytest
 import copy
-import json
-import time
-from decimal import Decimal
 from dataclasses import replace
 
 from src.fractal_flow.domain.models import (
     ExecutionIntent,
     Position,
-    BrokerOrder,
     BrokerDeal,
     OrderSide,
     DealEntryRole,
@@ -24,14 +20,11 @@ from src.fractal_flow.domain.models import (
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.execution.reconciliation import (
     ReconciliationEngine,
-    ReconciliationReport,
     ReconciliationMismatchType,
     BrokerQueryResult,
     BrokerQueryQuality,
-    BrokerQueryProvider,
     AuthoritativeBrokerAdapter,
     OrphanRecord,
-    OrphanStatus,
 )
 from src.fractal_flow.execution.recovery import (
     RecoveryEngine,
@@ -47,17 +40,7 @@ from src.fractal_flow.execution.recovery import (
     ConfigurationValidator,
     ProtectiveMonitoringValidator,
     ProtectiveMonitoringSubsystem,
-    EvidenceProvenance,
-    JournalRecoveryEvidence,
-    SnapshotRecoveryEvidence,
-    RiskLedgerRecoveryEvidence,
-    IntentRecoveryEvidence,
-    BrokerReconciliationEvidence,
-    ConfigurationEvidence,
-    ProtectiveMonitoringEvidence,
-    _AuthorityToken,
     _RecoveryAuthorityBundle,
-    compute_evidence_digest,
     AuthorityBootstrap,
     CapabilityRole,
     SealedObservation,
@@ -65,9 +48,9 @@ from src.fractal_flow.execution.recovery import (
     ProducerCapability,
 )
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation
-from src.fractal_flow.config.config import BaseConfig, compute_effective_config, EffectiveConfiguration
+from src.fractal_flow.config.config import BaseConfig, compute_effective_config
 from src.fractal_flow.persistence.journal import DurableEventJournal
-from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
+from src.fractal_flow.persistence.snapshot import SnapshotEngine, SnapshotCorruptionException
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository
 from src.fractal_flow.domain.event import Event
 

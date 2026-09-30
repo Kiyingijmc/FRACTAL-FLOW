@@ -8,14 +8,10 @@ import pytest
 import copy
 import pickle
 import threading
-import time
-from decimal import Decimal
 from types import MappingProxyType
 
 from src.fractal_flow.execution.recovery import (
-    RecoveryEngine,
     RecoveryState,
-    RecoveryEvidence,
     RecoveryEvidenceError,
     AuthorityError,
     RecoveryEvidenceAssembler,
@@ -27,22 +23,16 @@ from src.fractal_flow.execution.recovery import (
     ConfigurationValidator,
     ProtectiveMonitoringValidator,
     ProtectiveMonitoringSubsystem,
-    EvidenceProvenance,
-    JournalRecoveryEvidence,
     SnapshotRecoveryEvidence,
     RiskLedgerRecoveryEvidence,
     IntentRecoveryEvidence,
     BrokerReconciliationEvidence,
     ConfigurationEvidence,
     ProtectiveMonitoringEvidence,
-    _AuthorityToken,
-    compute_evidence_digest,
     AuthorityBootstrap,
     AuthorityDomain,
     TrustedRuntimeBootstrap,
-    TrustedRuntimeAuthority,
     CapabilityRole,
-    SealedObservation,
     ValidatorCapability,
     ProducerCapability,
 )

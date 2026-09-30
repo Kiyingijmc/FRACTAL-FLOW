@@ -4,20 +4,18 @@ import pytest
 import os
 import tempfile
 import threading
-from pathlib import Path
 from typing import Optional
 
-from src.fractal_flow.domain.event import Event, InvalidEventVersionException
+from src.fractal_flow.domain.event import Event
 from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
-from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerOrder, BrokerDeal, DealEntryRole
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerDeal, DealEntryRole
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
-from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState, RecoveryEvidence, RecoveryEvidenceError, RecoveryEvidenceAssembler
+from src.fractal_flow.execution.recovery import RecoveryEngine, RecoveryState, RecoveryEvidence, RecoveryEvidenceError
 from src.fractal_flow.execution.reconciliation import (
     ReconciliationEngine,
     ReconciliationMismatchType,
     BrokerQueryQuality,
-    ReconciliationReport,
 )
 from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, SnapshotCorruptionException
@@ -999,7 +997,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
 
 
 def test_forensic_broker_query_provider_authority_boundary() -> None:
-    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider, BrokerQueryQuality
+    from src.fractal_flow.execution.reconciliation import BrokerQueryProvider
 
     intent = ExecutionIntent(
         intent_id="intent_q_bound",

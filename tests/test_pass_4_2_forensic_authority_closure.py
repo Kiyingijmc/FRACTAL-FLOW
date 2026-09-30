@@ -6,11 +6,7 @@ transplant tokens across modified evidence, or pass invalid deal chains to autho
 """
 
 import pytest
-import time
-import uuid
-import json
 import copy
-import sys
 from decimal import Decimal
 from typing import Any
 from dataclasses import replace
@@ -18,7 +14,6 @@ from dataclasses import replace
 from src.fractal_flow.domain.models import (
     ExecutionIntent,
     Position,
-    BrokerOrder,
     BrokerDeal,
     OrderSide,
     DealEntryRole,
@@ -30,7 +25,6 @@ from src.fractal_flow.execution.reconciliation import (
     ReconciliationMismatchType,
     BrokerQueryResult,
     BrokerQueryQuality,
-    BrokerQueryProvider,
     AuthoritativeBrokerAdapter,
     OrphanRecord,
     OrphanStatus,
@@ -57,7 +51,6 @@ from src.fractal_flow.execution.recovery import (
     BrokerReconciliationEvidence,
     ConfigurationEvidence,
     ProtectiveMonitoringEvidence,
-    _AuthorityToken,
     compute_evidence_digest,
     AuthorityBootstrap,
     TrustedRuntimeBootstrap,
@@ -68,7 +61,7 @@ from src.fractal_flow.execution.recovery import (
 )
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger
 from src.fractal_flow.config.config import BaseConfig, compute_effective_config
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
+from src.fractal_flow.persistence.journal import DurableEventJournal
 from src.fractal_flow.persistence.snapshot import SnapshotEngine, AggregateSnapshot, SnapshotCorruptionException
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
 from src.fractal_flow.domain.event import Event

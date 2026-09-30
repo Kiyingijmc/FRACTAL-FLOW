@@ -1,7 +1,7 @@
 """Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and conservative crash-tail recovery policy."""
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Set
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Any
 import json
 import hashlib
 import os

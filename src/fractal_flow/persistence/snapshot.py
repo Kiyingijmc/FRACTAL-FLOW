@@ -1,7 +1,7 @@
 """SnapshotEngine providing aggregate snapshot persistence, boundary/provenance validation, atomic disk writes, and deterministic journal replay."""
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, List, Optional, Callable, Tuple
+from typing import Dict, Any, Optional, Callable
 import json
 import hashlib
 import os
@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 
 from src.fractal_flow.domain.event import Event
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalRecord
+from src.fractal_flow.persistence.journal import DurableEventJournal
 
 
 class SnapshotCorruptionException(Exception):

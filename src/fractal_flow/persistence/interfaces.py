@@ -1,7 +1,7 @@
 """Persistence Interfaces for Durable Execution Intents, Risk Ledgers, and State Snapshots."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict
 from typing import Optional, List, Dict, Any
 import threading
 import hashlib
@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 
 from src.fractal_flow.domain.event import Event, AggregateVersionTracker
-from src.fractal_flow.domain.models import ExecutionIntent, Position, OrderSide
+from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 
 
 class IdempotencyConflictException(Exception):

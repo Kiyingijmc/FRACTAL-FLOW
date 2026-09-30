@@ -10,12 +10,11 @@ import threading
 from decimal import Decimal
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import Dict, List, Optional, Any, TYPE_CHECKING, Mapping, Set
+from typing import Dict, Optional, Any, TYPE_CHECKING, Mapping
 from types import MappingProxyType
 
 if TYPE_CHECKING:
-    from src.fractal_flow.execution.reconciliation import ReconciliationReport
-    from src.fractal_flow.config.config import EffectiveConfiguration
+    pass
 
 
 class RecoveryEvidenceError(Exception):
