@@ -1,24 +1,22 @@
 """Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and conservative crash-tail recovery policy."""
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Set
-import json
 import hashlib
+import json
 import os
 import threading
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 
 
 class JournalCorruptionException(Exception):
     """Raised when journal record integrity, checksum, event ID uniqueness, or sequence is corrupted."""
-    pass
 
 
 class JournalDurabilityException(Exception):
     """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
-    pass
 
 
 @dataclass(frozen=True)
@@ -37,12 +35,16 @@ class JournalRecord:
 class DurableEventJournal:
     """Thread-safe, crash-safe, append-only event journal enforcing monotonic sequence numbers, event ID uniqueness, checksums, and physical append failure atomicity."""
 
-    def __init__(self, journal_file_path: Optional[str] = None, truncate_corrupted_tail: bool = False) -> None:
+    def __init__(
+        self,
+        journal_file_path: str | None = None,
+        truncate_corrupted_tail: bool = False,
+    ) -> None:
         self.journal_file_path = Path(journal_file_path) if journal_file_path else None
         self.truncate_corrupted_tail = truncate_corrupted_tail
-        self._records: List[JournalRecord] = []
-        self._aggregate_sequences: Dict[str, int] = {}
-        self._event_ids: Dict[str, int] = {}  # event_id -> global_sequence mapping
+        self._records: list[JournalRecord] = []
+        self._aggregate_sequences: dict[str, int] = {}
+        self._event_ids: dict[str, int] = {}  # event_id -> global_sequence mapping
         self._global_sequence: int = 0
         self._faulted: bool = False
         self._lock = threading.Lock()
@@ -83,14 +85,15 @@ class DurableEventJournal:
             self._global_sequence = next_global_seq
             return record
 
-    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
+    def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> list[Event]:
         with self._lock:
             return [
-                r.event for r in self._records
+                r.event
+                for r in self._records
                 if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             ]
 
-    def get_all_records(self) -> List[JournalRecord]:
+    def get_all_records(self) -> list[JournalRecord]:
         with self._lock:
             return list(self._records)
 
@@ -189,8 +192,26 @@ class DurableEventJournal:
         if open_braces > 0 or open_brackets > 0:
             pos = err.pos
             unparsed = stripped[pos:].strip()
-            if unparsed and not unparsed.startswith((",", ":", "{", "[", '"')) and unparsed not in ("true", "false", "null"):
-                if not any(unparsed.startswith(prefix) for prefix in ("t", "tr", "tru", "f", "fa", "fal", "fals", "n", "nu", "nul")):
+            if (
+                unparsed
+                and not unparsed.startswith((",", ":", "{", "[", '"'))
+                and unparsed not in ("true", "false", "null")
+            ):
+                if not any(
+                    unparsed.startswith(prefix)
+                    for prefix in (
+                        "t",
+                        "tr",
+                        "tru",
+                        "f",
+                        "fa",
+                        "fal",
+                        "fals",
+                        "n",
+                        "nu",
+                        "nul",
+                    )
+                ):
                     return False
             return True
 
@@ -202,9 +223,9 @@ class DurableEventJournal:
     def _load_from_file(self) -> None:
         assert self.journal_file_path is not None
 
-        temp_records: List[JournalRecord] = []
-        temp_aggregate_sequences: Dict[str, int] = {}
-        temp_event_ids: Dict[str, int] = {}
+        temp_records: list[JournalRecord] = []
+        temp_aggregate_sequences: dict[str, int] = {}
+        temp_event_ids: dict[str, int] = {}
         temp_global_sequence: int = 0
 
         lines_with_pos = []
@@ -225,14 +246,19 @@ class DurableEventJournal:
             if not line_str:
                 continue
 
-            is_last_line = (idx == total_lines)
+            is_last_line = idx == total_lines
 
             try:
                 # 1. Structural JSON decoding
                 data = json.loads(line_str)
 
                 # 2. Strict type & field validation
-                if not isinstance(data, dict) or "sequence_number" not in data or "event" not in data or "checksum" not in data:
+                if (
+                    not isinstance(data, dict)
+                    or "sequence_number" not in data
+                    or "event" not in data
+                    or "checksum" not in data
+                ):
                     raise json.JSONDecodeError("Missing required record schema fields", line_str, 0)
 
                 seq_num = data["sequence_number"]
@@ -262,9 +288,7 @@ class DurableEventJournal:
                 # 5. Checksum validation
                 computed_checksum = JournalRecord.compute_checksum(seq_num, evt)
                 if recorded_checksum != computed_checksum:
-                    raise JournalCorruptionException(
-                        f"Journal corruption at line {idx}: checksum mismatch."
-                    )
+                    raise JournalCorruptionException(f"Journal corruption at line {idx}: checksum mismatch.")
 
                 # 6. Aggregate version continuity check
                 key = f"{evt.aggregate_type}:{evt.aggregate_id}"
@@ -296,7 +320,9 @@ class DurableEventJournal:
                             f"EOF tail truncation recovery failed to fsync at offset {last_valid_byte_offset}: {trunc_err}"
                         ) from trunc_err
                 else:
-                    raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}") from e
+                    raise JournalCorruptionException(
+                        f"Journal corruption at line {idx}: malformed record. Error: {e}"
+                    ) from e
 
         # Commit temporary loaded structures to instance state only after full validation and tail recovery succeed
         self._records = temp_records
@@ -306,11 +332,18 @@ class DurableEventJournal:
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative journal provenance."""
-        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        from src.fractal_flow.execution.recovery import (
+            CapabilityRole,
+            ProducerCapability,
+            RecoveryEvidenceError,
+            SealedObservation,
+        )
+
         if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.JOURNAL:
             raise RecoveryEvidenceError("Journal observation requires a valid JOURNAL ProducerCapability.")
 
         import time
+
         with self._lock:
             payload = {
                 "faulted": self._faulted,
