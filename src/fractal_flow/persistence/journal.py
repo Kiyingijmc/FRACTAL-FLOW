@@ -13,11 +13,13 @@ from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 
 class JournalCorruptionException(Exception):
     """Raised when journal record integrity, checksum, event ID uniqueness, or sequence is corrupted."""
+
     pass
 
 
 class JournalDurabilityException(Exception):
     """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
+
     pass
 
 
@@ -86,7 +88,8 @@ class DurableEventJournal:
     def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
         with self._lock:
             return [
-                r.event for r in self._records
+                r.event
+                for r in self._records
                 if r.event.aggregate_type == aggregate_type and r.event.aggregate_id == aggregate_id
             ]
 
@@ -189,8 +192,15 @@ class DurableEventJournal:
         if open_braces > 0 or open_brackets > 0:
             pos = err.pos
             unparsed = stripped[pos:].strip()
-            if unparsed and not unparsed.startswith((",", ":", "{", "[", '"')) and unparsed not in ("true", "false", "null"):
-                if not any(unparsed.startswith(prefix) for prefix in ("t", "tr", "tru", "f", "fa", "fal", "fals", "n", "nu", "nul")):
+            if (
+                unparsed
+                and not unparsed.startswith((",", ":", "{", "[", '"'))
+                and unparsed not in ("true", "false", "null")
+            ):
+                if not any(
+                    unparsed.startswith(prefix)
+                    for prefix in ("t", "tr", "tru", "f", "fa", "fal", "fals", "n", "nu", "nul")
+                ):
                     return False
             return True
 
@@ -225,14 +235,19 @@ class DurableEventJournal:
             if not line_str:
                 continue
 
-            is_last_line = (idx == total_lines)
+            is_last_line = idx == total_lines
 
             try:
                 # 1. Structural JSON decoding
                 data = json.loads(line_str)
 
                 # 2. Strict type & field validation
-                if not isinstance(data, dict) or "sequence_number" not in data or "event" not in data or "checksum" not in data:
+                if (
+                    not isinstance(data, dict)
+                    or "sequence_number" not in data
+                    or "event" not in data
+                    or "checksum" not in data
+                ):
                     raise json.JSONDecodeError("Missing required record schema fields", line_str, 0)
 
                 seq_num = data["sequence_number"]
@@ -262,9 +277,7 @@ class DurableEventJournal:
                 # 5. Checksum validation
                 computed_checksum = JournalRecord.compute_checksum(seq_num, evt)
                 if recorded_checksum != computed_checksum:
-                    raise JournalCorruptionException(
-                        f"Journal corruption at line {idx}: checksum mismatch."
-                    )
+                    raise JournalCorruptionException(f"Journal corruption at line {idx}: checksum mismatch.")
 
                 # 6. Aggregate version continuity check
                 key = f"{evt.aggregate_type}:{evt.aggregate_id}"
@@ -296,7 +309,9 @@ class DurableEventJournal:
                             f"EOF tail truncation recovery failed to fsync at offset {last_valid_byte_offset}: {trunc_err}"
                         ) from trunc_err
                 else:
-                    raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}") from e
+                    raise JournalCorruptionException(
+                        f"Journal corruption at line {idx}: malformed record. Error: {e}"
+                    ) from e
 
         # Commit temporary loaded structures to instance state only after full validation and tail recovery succeed
         self._records = temp_records
@@ -306,11 +321,18 @@ class DurableEventJournal:
 
     def produce_observation(self, session_id: str, capability: Any) -> Any:
         """Produces a sealed observation proving authoritative journal provenance."""
-        from src.fractal_flow.execution.recovery import CapabilityRole, SealedObservation, RecoveryEvidenceError, ProducerCapability
+        from src.fractal_flow.execution.recovery import (
+            CapabilityRole,
+            SealedObservation,
+            RecoveryEvidenceError,
+            ProducerCapability,
+        )
+
         if not isinstance(capability, ProducerCapability) or capability.role != CapabilityRole.JOURNAL:
             raise RecoveryEvidenceError("Journal observation requires a valid JOURNAL ProducerCapability.")
 
         import time
+
         with self._lock:
             payload = {
                 "faulted": self._faulted,

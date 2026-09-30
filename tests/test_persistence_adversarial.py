@@ -7,7 +7,11 @@ import threading
 from typing import Optional
 
 from src.fractal_flow.domain.event import Event
-from src.fractal_flow.persistence.journal import DurableEventJournal, JournalCorruptionException, JournalDurabilityException
+from src.fractal_flow.persistence.journal import (
+    DurableEventJournal,
+    JournalCorruptionException,
+    JournalDurabilityException,
+)
 from src.fractal_flow.persistence.interfaces import DurableExecutionIntentRepository, IdempotencyConflictException
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide, Position, BrokerDeal, DealEntryRole
 from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
@@ -272,7 +276,9 @@ def test_journal_type_safety_validation() -> None:
     try:
         # Inject boolean sequence_number: true
         with open(path, "w", encoding="utf-8") as f:
-            f.write('{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n')
+            f.write(
+                '{"sequence_number": true, "event": {"event_id": "e1", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 1, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n'
+            )
 
         with pytest.raises(JournalCorruptionException) as exc:
             DurableEventJournal(journal_file_path=path)
@@ -574,7 +580,11 @@ def test_snapshot_journal_exact_boundary_equivalence() -> None:
     try:
         journal = DurableEventJournal(journal_file_path=journal_path)
         for i in range(1, 11):
-            journal.append(make_test_event(i, event_id=f"evt_b_{i}", aggregate_id="agg_bound", aggregate_version=i, payload={"count": i}))
+            journal.append(
+                make_test_event(
+                    i, event_id=f"evt_b_{i}", aggregate_id="agg_bound", aggregate_version=i, payload={"count": i}
+                )
+            )
 
         snap_engine = SnapshotEngine(snapshot_dir=snap_dir)
         snap_engine.save_snapshot("Opportunity", "agg_bound", version=5, last_seq=5, payload={"count": 5})
@@ -938,11 +948,21 @@ def test_p42_15_16_idempotency_fingerprint_conflict() -> None:
 
 def test_p42_27_33_risk_ledger_exact_accounting_and_corruption_rejection() -> None:
     ledger = OpportunityRiskLedger("b1", "opp_1", total_risk=500.0, total_volume=1.0)
-    ledger.record_operation("e1", LedgerOperation.RESERVE, amount=200.0, volume=0.4, reference_id="r1", causation_id="c1", timestamp=1000)
+    ledger.record_operation(
+        "e1", LedgerOperation.RESERVE, amount=200.0, volume=0.4, reference_id="r1", causation_id="c1", timestamp=1000
+    )
     assert ledger.remaining_risk == 300.0
 
     with pytest.raises(AccountingInvariantException):
-        ledger.record_operation("e2", LedgerOperation.ALLOCATE, amount=600.0, volume=1.2, reference_id="r2", causation_id="c2", timestamp=1000)
+        ledger.record_operation(
+            "e2",
+            LedgerOperation.ALLOCATE,
+            amount=600.0,
+            volume=1.2,
+            reference_id="r2",
+            causation_id="c2",
+            timestamp=1000,
+        )
 
 
 def test_p42_34_40_recovery_engine_and_reconciliation_gating() -> None:
@@ -985,10 +1005,7 @@ def test_forensic_orphan_count_blocks_recovery_authorization() -> None:
     rec_engine.start_reconciliation()
 
     # Evidence with orphaned_count = 1
-    orphan_evidence = RecoveryEvidence.create_authoritative_evidence(
-        session_id=rec_engine.session_id,
-        orphaned_count=1
-    )
+    orphan_evidence = RecoveryEvidence.create_authoritative_evidence(session_id=rec_engine.session_id, orphaned_count=1)
 
     with pytest.raises((ValueError, RecoveryEvidenceError)) as exc:
         rec_engine.complete_recovery_with_evidence(orphan_evidence)
@@ -1061,6 +1078,7 @@ def test_forensic_broker_query_provider_authority_boundary() -> None:
     # 4. Authoritative query with legitimate BROKER_QUERY capability succeeds in asserting EXEC_REJECTED
     from src.fractal_flow.execution.recovery import AuthorityBootstrap, CapabilityRole
     from src.fractal_flow.execution.reconciliation import AuthoritativeBrokerAdapter
+
     bootstrap = AuthorityBootstrap()
     b_cap = bootstrap.mint_producer_capability(CapabilityRole.BROKER_QUERY, "TestBrokerAdapter")
     bootstrap.finalize()
