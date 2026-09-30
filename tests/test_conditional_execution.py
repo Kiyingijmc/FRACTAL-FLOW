@@ -1,13 +1,24 @@
 """Tests for Pass 4B Conditional Execution and Simulator Lifecycle."""
 
-import pytest
-from src.fractal_flow.domain.entry import EntryPlan, EntryModel, OrderType, FillPolicy, TimeInForce
+from src.fractal_flow.domain.entry import (
+    EntryModel,
+    EntryPlan,
+    FillPolicy,
+    OrderType,
+    TimeInForce,
+)
 from src.fractal_flow.domain.models import OrderSide
 from src.fractal_flow.simulation.clock import SimulationClock
 from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 
 
-def make_sample_plan(entry_plan_id: str, order_type: OrderType, trigger_p: float, limit_p: float, news_state: str = "NEWS_NORMAL") -> EntryPlan:
+def make_sample_plan(
+    entry_plan_id: str,
+    order_type: OrderType,
+    trigger_p: float,
+    limit_p: float,
+    news_state: str = "NEWS_NORMAL",
+) -> EntryPlan:
     return EntryPlan(
         entry_plan_id=entry_plan_id,
         opportunity_id="opp_4b",

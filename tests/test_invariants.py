@@ -1,10 +1,17 @@
 """Automated Invariants Verification Tests (AGENTS.md 42 Invariants)."""
 
 import pytest
-from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
-from src.fractal_flow.domain.units import Volume, Price
+
+from src.fractal_flow.config.config import (
+    BaseConfig,
+    NewsOverlay,
+    compute_effective_config,
+)
+from src.fractal_flow.domain.authority import (
+    AuthorityMatrix,
+    AuthorityViolationException,
+)
 from src.fractal_flow.domain.broker import BrokerConstraints
-from src.fractal_flow.config.config import BaseConfig, NewsOverlay, compute_effective_config
 
 
 def test_invariant_pde_cannot_execute() -> None:
