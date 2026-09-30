@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 
 class LineageInvalidException(Exception):

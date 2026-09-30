@@ -15,14 +15,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "ruff>=0.3.0",
     "mypy>=1.8.0",
+    "types-pyyaml>=6.0.12",
 ]
 
 [tool.ruff]
-exclude = [
-    "src/fractal_flow/execution/recovery.py",
-]
+lint.ignore = ["UP", "I001", "PIE790", "S110", "BLE001", "SIM103", "F401", "RUF100"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -42,7 +42,8 @@ disable_error_code = ["attr-defined", "no-any-return"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-disable_error_code = ["attr-defined", "union-attr", "arg-type", "misc", "no-untyped-def", "operator", "assignment", "type-arg", "import-untyped", "unused-ignore"]
+disable_error_code = ["arg-type", "assignment", "attr-defined", "misc", "type-arg", "union-attr", "unused-ignore", "no-untyped-def", "operator"]
+
 
 [tool.setuptools.packages.find]
 where = ["src"]

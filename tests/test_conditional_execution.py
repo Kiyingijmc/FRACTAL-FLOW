@@ -1,5 +1,7 @@
 """Tests for Pass 4B Conditional Execution and Simulator Lifecycle."""
 
+from decimal import Decimal
+
 from src.fractal_flow.domain.entry import (
     EntryModel,
     EntryPlan,
@@ -34,18 +36,18 @@ def make_sample_plan(
         entry_model=EntryModel.PULLBACK_LIMIT,
         order_type=order_type,
         order_side=OrderSide.BUY,
-        reference_price=1.0850,
-        trigger_price=trigger_p,
-        limit_price=limit_p,
+        reference_price=Decimal("1.0850"),
+        trigger_price=Decimal(str(trigger_p)),
+        limit_price=Decimal(str(limit_p)),
         stop_limit_price=None,
-        entry_corridor_low=1.0820,
-        entry_corridor_high=1.0850,
-        requested_volume=0.1,
-        approved_volume=0.1,
-        risk_budget=100.0,
-        allocated_risk=100.0,
-        remaining_opportunity_risk=100.0,
-        structural_sl=1.0800,
+        entry_corridor_low=Decimal("1.0820"),
+        entry_corridor_high=Decimal("1.0850"),
+        requested_volume=Decimal("0.1"),
+        approved_volume=Decimal("0.1"),
+        risk_budget=Decimal("100.0"),
+        allocated_risk=Decimal("100.0"),
+        remaining_opportunity_risk=Decimal("100.0"),
+        structural_sl=Decimal("1.0800"),
         tp_plan={"tp1": 1.0900},
         fill_policy=FillPolicy.IOC,
         time_in_force=TimeInForce.GTC,

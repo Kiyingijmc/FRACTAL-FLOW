@@ -33,5 +33,8 @@ jobs:
       - name: Ruff Format Check
         run: poetry run ruff format --check src/ tests/
 
+      - name: Mypy Strict Type Check
+        run: poetry run mypy --strict --explicit-package-bases src tests
+
       - name: Run Test Suite
         run: poetry run pytest

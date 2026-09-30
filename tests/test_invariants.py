@@ -38,7 +38,9 @@ def test_invariant_portfolio_cannot_manufacture_direction() -> None:
 def test_invariant_news_lockdown_blocks_strategic_exposure() -> None:
     """AGENTS.md Invariant #20: No strategic new exposure during NEWS_LOCKDOWN."""
     base = BaseConfig()
-    news = NewsOverlay(news_lockdown_active=True, risk_multiplier=0.0)
+    from decimal import Decimal
+
+    news = NewsOverlay(news_lockdown_active=True, risk_multiplier=Decimal("0.0"))
     eff = compute_effective_config(base, "EURUSD", news_overlay=news)
     assert eff.news_lockdown_active is True
     assert eff.risk_per_trade_pct == 0.0

@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 
 class InvalidStateTransitionException(Exception):

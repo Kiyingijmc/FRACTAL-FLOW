@@ -484,8 +484,9 @@ class ReconciliationReport:
         default=None, repr=False, compare=False
     )
 
-    def __getitem__(self, index: Any) -> ReconciliationResult:
-        return self.results[index]
+    def __getitem__(self, index: int) -> ReconciliationResult:
+        res: ReconciliationResult = self.results[index]
+        return res
 
     def __iter__(self) -> Iterator[ReconciliationResult]:
         return iter(self.results)

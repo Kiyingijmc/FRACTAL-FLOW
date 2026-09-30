@@ -94,9 +94,13 @@ def test_state_envelope_validation() -> None:
 
 def test_effective_configuration_reproducible_identity() -> None:
     base = BaseConfig()
-    sym = SymbolOverlay(symbol="EURUSD", max_spread_pips=1.5, overlay_version=1)
+    from decimal import Decimal
+
+    sym = SymbolOverlay(
+        symbol="EURUSD", max_spread_pips=Decimal("1.5"), overlay_version=1
+    )
     news = NewsOverlay(
-        news_lockdown_active=False, risk_multiplier=0.5, overlay_version=2
+        news_lockdown_active=False, risk_multiplier=Decimal("0.5"), overlay_version=2
     )
 
     cfg1 = compute_effective_config(base, "EURUSD", sym, news)
