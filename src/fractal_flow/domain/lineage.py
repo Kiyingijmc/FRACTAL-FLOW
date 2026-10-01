@@ -2,12 +2,21 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 import yaml
 
 
 class LineageInvalidException(Exception):
     """Raised when lineage validation or parent checks fail."""
+
+
+@runtime_checkable
+class ValidatableParent(Protocol):
+    """Protocol for domain parent objects that maintain validity state."""
+
+    @property
+    def validity(self) -> bool: ...
 
 
 def load_spec_lineage_edges(
@@ -33,20 +42,38 @@ class Lineage:
     parent_version: int
     parent_tier: str
     current_tier: str
-    parent_is_valid: bool = True
 
-    def validate_child_action(self, authoritative_parent_version: int | None = None) -> None:
-        """Validates child node execution using strict version identity and parent checks."""
+    def validate_child_action(
+        self,
+        authoritative_parent_version: int | None = None,
+        authoritative_parent: Any | None = None,
+    ) -> None:
+        """Validates child node execution using strict version identity, independent parent verification, and legal edges."""
         if not self.root_id or not self.parent_id:
             raise LineageInvalidException("Lineage missing root_id or parent_id. Orphaned object cannot execute.")
 
-        if not self.parent_is_valid:
-            raise LineageInvalidException(
-                f"Parent {self.parent_id} ({self.parent_tier}) is invalid/expired. Child cannot execute."
-            )
-
         if self.parent_version <= 0:
             raise LineageInvalidException(f"Invalid parent version {self.parent_version}. Version must be positive.")
+
+        # Independent parent state & version verification
+        if authoritative_parent is not None:
+            # Verify parent object validity attribute if present
+            if hasattr(authoritative_parent, "validity") and not getattr(authoritative_parent, "validity"):
+                raise LineageInvalidException(
+                    f"Parent {self.parent_id} ({self.parent_tier}) object is marked invalid. Child cannot execute."
+                )
+            if hasattr(authoritative_parent, "is_valid") and not getattr(authoritative_parent, "is_valid"):
+                raise LineageInvalidException(
+                    f"Parent {self.parent_id} ({self.parent_tier}) object is marked invalid. Child cannot execute."
+                )
+            # Verify parent object version attribute if present
+            if hasattr(authoritative_parent, "version"):
+                parent_obj_ver = getattr(authoritative_parent, "version")
+                if self.parent_version != parent_obj_ver:
+                    raise LineageInvalidException(
+                        f"Parent version mismatch with parent object: child parent_version={self.parent_version}, "
+                        f"parent object version={parent_obj_ver}."
+                    )
 
         if authoritative_parent_version is not None:
             if self.parent_version != authoritative_parent_version:

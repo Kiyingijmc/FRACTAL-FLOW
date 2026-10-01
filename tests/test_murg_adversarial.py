@@ -1,5 +1,16 @@
-"""Adversarial Regression Test Suite covering MURG-001 through MURG-036 scenarios."""
+"""Adversarial Regression Test Suite covering MURG-001 through MURG-036 scenarios and fabricated authority closure."""
 
+from dataclasses import dataclass
+from decimal import Decimal
+import pytest
+
+from src.fractal_flow.domain.entry import (
+    ActiveMarketContext,
+    EntryPolicyEngine,
+    EntryModel,
+)
+from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
+from src.fractal_flow.domain.models import Direction
 from src.fractal_flow.domain.murg import (
     AccountResourceContext,
     AssetClass,
@@ -11,6 +22,13 @@ from src.fractal_flow.domain.murg import (
     SymbolTradeMode,
     UserMarketUniverse,
 )
+
+
+@dataclass
+class MockParentObject:
+    id: str
+    version: int
+    validity: bool = True
 
 
 def make_catalog() -> InstrumentCatalog:
@@ -138,3 +156,37 @@ def test_murg_025_026_dormant_market_protection_invariant() -> None:
     # CRITICAL INVARIANT: Monitoring obligations remain protected!
     assert decision.position_monitoring_enabled is True
     assert decision.pending_order_monitoring_enabled is True
+
+
+def test_fabricated_murg_context_cannot_authorize_entry() -> None:
+    engine = EntryPolicyEngine()
+    # Fabricated active context during closed session
+    fab_ctx = ActiveMarketContext(
+        canonical_id="EURUSD",
+        activation_state="ACTIVE",
+        entry_analysis_enabled=True,
+        is_tradable_session=False,  # Closed session
+        broker_constraints={"supported_order_types": ["MARKET_BUY"]},
+    )
+    model = engine.evaluate_entry_policy(
+        strategy_mode="SCALPING",
+        direction=Direction.LONG,
+        reference_price=Decimal("1.0850"),
+        structural_sl=Decimal("1.0820"),
+        market_context=fab_ctx,
+    )
+    assert model == EntryModel.NO_ENTRY
+
+
+def test_fabricated_lineage_cannot_authorize_execution() -> None:
+    parent_obj = MockParentObject(id="opp_100", version=1, validity=False)
+    lineage = Lineage(
+        root_id="root_1",
+        parent_id="opp_100",
+        parent_version=1,
+        parent_tier="OPPORTUNITY",
+        current_tier="SIGNAL",
+    )
+    with pytest.raises(LineageInvalidException) as exc:
+        lineage.validate_child_action(authoritative_parent=parent_obj)
+    assert "marked invalid" in str(exc.value)
