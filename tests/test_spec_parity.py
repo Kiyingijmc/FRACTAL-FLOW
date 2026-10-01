@@ -1,13 +1,13 @@
 """Semantic specification parity tests ensuring spec/*.yaml and Python runtime registries are 100% identically mapped bidirectionally."""
 
 from pathlib import Path
-import yaml
-import pytest
 
-from src.fractal_flow.domain.reason_codes import ReasonCode
+import yaml
+
+from src.fractal_flow.domain.entry import EntryModel, OrderType
 from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY
 from src.fractal_flow.domain.lineage import LEGAL_LINEAGE_EDGES
-from src.fractal_flow.domain.entry import EntryModel, OrderType, FillPolicy, TimeInForce
+from src.fractal_flow.domain.reason_codes import ReasonCode
 
 
 def test_reason_codes_exact_parity() -> None:
@@ -20,8 +20,7 @@ def test_reason_codes_exact_parity() -> None:
     python_codes = set(c.value for c in ReasonCode)
 
     assert spec_codes == python_codes, (
-        f"ReasonCode mismatch! Spec extra: {spec_codes - python_codes}, "
-        f"Python extra: {python_codes - spec_codes}"
+        f"ReasonCode mismatch! Spec extra: {spec_codes - python_codes}, Python extra: {python_codes - spec_codes}"
     )
 
 
@@ -35,8 +34,7 @@ def test_entry_models_exact_parity() -> None:
     python_models = set(m.value for m in EntryModel)
 
     assert spec_models == python_models, (
-        f"EntryModel mismatch! Spec extra: {spec_models - python_models}, "
-        f"Python extra: {python_models - spec_models}"
+        f"EntryModel mismatch! Spec extra: {spec_models - python_models}, Python extra: {python_models - spec_models}"
     )
 
 
@@ -50,8 +48,7 @@ def test_order_types_exact_parity() -> None:
     python_types = set(ot.value for ot in OrderType)
 
     assert spec_types == python_types, (
-        f"OrderType mismatch! Spec extra: {spec_types - python_types}, "
-        f"Python extra: {python_types - spec_types}"
+        f"OrderType mismatch! Spec extra: {spec_types - python_types}, Python extra: {python_types - spec_types}"
     )
 
 
@@ -66,7 +63,9 @@ def test_states_bidirectional_parity() -> None:
     for machine_name, states_list in spec_states.items():
         assert GLOBAL_STATE_REGISTRY.is_known_machine(machine_name), f"Machine {machine_name} missing in runtime"
         for st in states_list:
-            assert GLOBAL_STATE_REGISTRY.is_valid_state(machine_name, st), f"State {st} missing in machine {machine_name}"
+            assert GLOBAL_STATE_REGISTRY.is_valid_state(machine_name, st), (
+                f"State {st} missing in machine {machine_name}"
+            )
 
     # 2. Runtime -> Spec check
     runtime_machines = set(GLOBAL_STATE_REGISTRY._states.keys())
@@ -85,7 +84,9 @@ def test_transitions_destinations_are_valid_canonical_states() -> None:
     spec_transitions = trans_data["transitions"]
 
     for machine_name, trans_map in spec_transitions.items():
-        assert GLOBAL_STATE_REGISTRY.is_known_machine(machine_name), f"Transition machine '{machine_name}' missing from states spec"
+        assert GLOBAL_STATE_REGISTRY.is_known_machine(machine_name), (
+            f"Transition machine '{machine_name}' missing from states spec"
+        )
         for source_state, destinations in trans_map.items():
             assert GLOBAL_STATE_REGISTRY.is_valid_state(machine_name, source_state), (
                 f"Source state '{source_state}' in transition table is not a valid canonical state for '{machine_name}'"

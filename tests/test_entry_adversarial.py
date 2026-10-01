@@ -1,25 +1,34 @@
 """Adversarial Test Suite covering Entry Model EM-001 through EM-060 Scenarios."""
 
 import pytest
+
+from src.fractal_flow.domain.authority import (
+    AuthorityMatrix,
+    AuthorityViolationException,
+)
 from src.fractal_flow.domain.entry import (
     EntryModel,
-    OrderType,
-    FillPolicy,
-    TimeInForce,
     EntryPlan,
-    EntryPolicyEngine,
-    OpportunityRiskBudget,
+    FillPolicy,
     HybridEntryPlan,
+    OpportunityRiskBudget,
+    OrderType,
+    TimeInForce,
 )
-from src.fractal_flow.domain.models import Direction, OrderSide, ExecutionIntent
+from src.fractal_flow.domain.models import OrderSide
 from src.fractal_flow.domain.telemetry import EntryAuthorizationEvidence
-from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
-from src.fractal_flow.execution.execution_state import ExecutionState
 from src.fractal_flow.simulation.clock import SimulationClock
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario, IdempotencyConflictException
+from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator
 
 
-def make_plan(plan_id: str, model: EntryModel, otype: OrderType, side: OrderSide = OrderSide.BUY, p_version: int = 1, news: str = "NEWS_NORMAL") -> EntryPlan:
+def make_plan(
+    plan_id: str,
+    model: EntryModel,
+    otype: OrderType,
+    side: OrderSide = OrderSide.BUY,
+    p_version: int = 1,
+    news: str = "NEWS_NORMAL",
+) -> EntryPlan:
     return EntryPlan(
         entry_plan_id=plan_id,
         opportunity_id="opp_em",
@@ -93,7 +102,12 @@ def test_em_014_news_lockdown_blocks_pending_trigger() -> None:
     clock = SimulationClock(1000)
     sim = DeterministicBrokerSimulator(clock=clock)
 
-    plan = make_plan("plan_news_em", EntryModel.PULLBACK_LIMIT, OrderType.BUY_LIMIT, news="NEWS_LOCKDOWN")
+    plan = make_plan(
+        "plan_news_em",
+        EntryModel.PULLBACK_LIMIT,
+        OrderType.BUY_LIMIT,
+        news="NEWS_LOCKDOWN",
+    )
     with pytest.raises(ValueError) as exc:
         sim.arm_entry_plan(plan)
     assert "NEWS_LOCKDOWN" in str(exc.value)

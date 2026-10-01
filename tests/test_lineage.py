@@ -1,6 +1,7 @@
 """Tests for Lineage Chain Integrity, Strict Version Identity, and Legal Edge Validation."""
 
 import pytest
+
 from src.fractal_flow.domain.lineage import Lineage, LineageInvalidException
 
 
