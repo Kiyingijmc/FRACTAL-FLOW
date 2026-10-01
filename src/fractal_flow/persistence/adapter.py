@@ -1,7 +1,7 @@
-"""Canonical Persistence Adapter for Decimal-bearing domain objects.
+"""Canonical Persistence Adapter for Decimal-bearing domain objects with typed Decimal encoding.
 
-Provides lossless round-trip conversion between active Decimal-bearing domain dataclasses
-and JSON-safe primitive representations without modifying frozen persistence files.
+Provides lossless, typed, deterministic round-trip conversion between active Decimal-bearing domain dataclasses
+and JSON-safe primitive representations without modifying frozen persistence files or relying on string-shape heuristics.
 """
 
 from dataclasses import is_dataclass, fields
@@ -16,15 +16,15 @@ T = TypeVar("T")
 def domain_to_primitive(obj: Any) -> Any:
     """Recursively converts Decimal objects and dataclasses into JSON-safe primitive dicts/lists/strings.
 
-    - Decimal -> string representation (e.g. "1.08500")
+    - Decimal -> tagged dict structure {"__type__": "decimal", "value": str(obj)}
     - Dataclass -> dict with sorted keys
-    - Enum -> string value
-    - list/tuple/set/dict -> recursively converted
+    - Enum / Unit wrapper -> underlying primitive or value
+    - list/tuple/set/dict -> recursively converted with sorted keys and canonical set ordering
     """
     if obj is None:
         return None
     if isinstance(obj, Decimal):
-        return str(obj)
+        return {"__type__": "decimal", "value": str(obj)}
     if hasattr(obj, "value") and not is_dataclass(obj) and not isinstance(obj, (int, float, str, bool)):
         # Enum or Unit wrapper type
         return domain_to_primitive(obj.value)
@@ -36,24 +36,20 @@ def domain_to_primitive(obj: Any) -> Any:
         return result
     if isinstance(obj, dict):
         return {str(k): domain_to_primitive(v) for k, v in sorted(obj.items(), key=lambda item: str(item[0]))}
-    if isinstance(obj, (list, tuple, set)):
+    if isinstance(obj, (set, frozenset)):
+        # Deterministic sorting for sets/frozensets
+        converted = [domain_to_primitive(item) for item in obj]
+        return sorted(converted, key=lambda item: json.dumps(item, sort_keys=True))
+    if isinstance(obj, (list, tuple)):
         return [domain_to_primitive(item) for item in obj]
     return obj
 
 
 def primitive_to_decimal(val: Any) -> Any:
-    """Converts string/numeric values or structures containing stringified Decimals into Decimal or original types."""
-    if isinstance(val, str):
-        try:
-            # Check if valid Decimal representation
-            dec = Decimal(val)
-            # Only treat as Decimal if it has a decimal point or is formatted strictly as a numeric string
-            if "." in val or val.replace("-", "").isdigit():
-                return dec
-        except Exception:
-            pass
-        return val
+    """Recursively decodes tagged Decimal objects {"__type__": "decimal", "value": "..."} back into Decimal instances without string heuristics."""
     if isinstance(val, dict):
+        if val.get("__type__") == "decimal" and "value" in val and len(val) == 2:
+            return Decimal(str(val["value"]))
         return {k: primitive_to_decimal(v) for k, v in val.items()}
     if isinstance(val, list):
         return [primitive_to_decimal(v) for v in val]

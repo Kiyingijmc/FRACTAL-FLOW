@@ -2,6 +2,7 @@
 
 import ast
 from pathlib import Path
+import pytest
 import yaml
 
 
@@ -66,6 +67,12 @@ def test_invariant_verification_matrix_is_truthful() -> None:
             )
             assert test_symbol.startswith("test_"), (
                 f"Invariant {inv_id} reference '{test_symbol}' is not a pytest-collectible test function!"
+            )
+
+            # Mechanical pytest collection verification
+            collect_res = pytest.main(["--collect-only", "-q", ref])
+            assert collect_res == pytest.ExitCode.OK, (
+                f"Pytest failed to collect invariant {inv_id} test reference node '{ref}'!"
             )
 
         elif status == "SPECIFIED_ONLY":

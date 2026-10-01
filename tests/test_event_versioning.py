@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.fractal_flow.domain.event import Event, InvalidEventVersionException
+from src.fractal_flow.domain.event import Event, ImmutablePayloadDict, InvalidEventVersionException
 from src.fractal_flow.persistence.interfaces import InMemoryEventStore
 
 
@@ -27,7 +27,7 @@ def make_event(
         source_timestamp=src_ts,
         event_timestamp=evt_ts,
         processing_timestamp=proc_ts,
-        payload={"data": "test"},
+        payload={"data": "test", "nested": {"key": "value"}},
     )
 
 
@@ -44,6 +44,20 @@ def test_event_schema_parity_with_yaml() -> None:
     assert yaml_schema == python_fields, (
         f"Event schema mismatch! YAML extra: {yaml_schema - python_fields}, Python extra: {python_fields - yaml_schema}"
     )
+
+
+def test_event_deep_payload_immutability() -> None:
+    """Verifies that Event payloads are deeply frozen as ImmutablePayloadDict and cannot be mutated post-issuance."""
+    evt = make_event(1)
+    assert isinstance(evt.payload, ImmutablePayloadDict)
+    assert isinstance(evt.payload["nested"], ImmutablePayloadDict)
+
+    # Attempting to mutate payload raises TypeError
+    with pytest.raises(TypeError):
+        evt.payload["data"] = "mutated"  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        evt.payload["nested"]["key"] = "mutated"  # type: ignore[index]
 
 
 def test_event_temporal_ordering_validation() -> None:
