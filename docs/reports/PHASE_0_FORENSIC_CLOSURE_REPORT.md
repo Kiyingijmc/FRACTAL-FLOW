@@ -4,8 +4,8 @@
 
 - **Source Branch**: `phase-0-ruff-forensic-ci-closure-20261001-14021143054900010728`
 - **Source HEAD SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
-- **Final Branch**: `phase-0-final-green-ci-forensic-closure-20261001`
-- **Final HEAD SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
+- **Final Branch**: `phase-0-final-green-ci-forensic-closure-20261001-17790329485715096846`
+- **Final HEAD SHA**: `b1b995af310f456a043b62155c61a15a890680a0`
 - **Parent SHA**: `9fc9fb9c93d6491f44b05113445baf3ac6fc03f0`
 - **Main SHA**: `9fc9fb9c93d6491f44b05113445baf3ac6fc03f0`
 
@@ -13,13 +13,13 @@
 
 ## B. Scope
 
-The objective of this final forensic closure pass is to prove, with reproducible repository and CI evidence, that Phase 0 is closed. No frozen Pass 4.2 baseline artifacts were modified or refactored. Quality gates (`ruff`, `mypy --strict`, `pytest` with 85% coverage threshold) were verified local and in GitHub Actions CI across Python 3.12 and Python 3.13 environments.
+The objective of this final forensic closure pass is to prove, with reproducible repository and CI evidence, that Phase 0 is closed. No frozen Pass 4.2 baseline artifacts were modified or refactored. Quality gates (`ruff`, `mypy --strict`, `pytest` with 85% coverage threshold) were verified locally and in GitHub Actions CI across Python 3.12 and Python 3.13 environments.
 
 ---
 
 ## C. Protected Baseline Audit
 
-All frozen Pass 4.2 production and test artifacts were verified against `remotes/origin/phase-0-ruff-forensic-ci-closure-20261001-14021143054900010728`.
+All frozen Pass 4.2 production and test artifacts were verified against `remotes/origin/phase-0-ruff-forensic-ci-closure-20261001-14021143054900010728` and `main`.
 
 | Protected Artifact | Source Git Blob SHA | Final Git Blob SHA | Identical |
 | :--- | :--- | :--- | :---: |
@@ -61,9 +61,6 @@ All frozen Pass 4.2 production and test artifacts were verified against `remotes
   ```
 - **Excluded Historical Artifacts**: Strictly limited to the 12 frozen Pass 4.2 artifacts listed in Section C.
 - **Active Files Surface**: All remaining active Phase 0 source files in `src/fractal_flow/` and test files in `tests/`.
-- **Negative-Control Verification**:
-  1. Active Phase 0 file (`src/fractal_flow/config/config.py`): Injecting unused import `import sys` resulted in immediate Ruff failure (`E402`, `F401`).
-  2. Protected Historical file (`src/fractal_flow/execution/recovery.py`): Injecting unused import `import sys` was ignored by `extend-exclude` (`All checks passed!`).
 
 ---
 
@@ -74,7 +71,7 @@ All frozen Pass 4.2 production and test artifacts were verified against `remotes
 | **Ruff Linter** | `poetry run ruff check src/ tests/` | PASS | All checks passed! |
 | **Ruff Formatter** | `poetry run ruff format --check src/ tests/` | PASS | 44 files already formatted |
 | **Mypy Typecheck** | `poetry run mypy --strict ...` | PASS | 23 source files checked, 0 errors |
-| **Pytest Suite** | `poetry run pytest` | PASS | 256 passed in 2.72s |
+| **Pytest Suite** | `poetry run pytest` | PASS | 256 passed in 2.77s |
 | **Code Coverage** | `--cov-fail-under=85` | PASS | 86.53% coverage achieved (required >= 85%) |
 | **Decimal Integrity** | `test_decimal_guard.py`, `test_decimal_migration.py` | PASS | Decimal precision and float protection verified |
 | **Python 3.12** | Local & GitHub Actions matrix | PASS | All tests and linting passed |
@@ -86,10 +83,19 @@ All frozen Pass 4.2 production and test artifacts were verified against `remotes
 
 - **Workflow Name**: `FRACTAL FLOW Baseline CI`
 - **Run ID**: `36813165348`
+- **Run Number**: `68`
 - **Run URL**: `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/36813165348`
-- **Commit SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
+- **Source/CI Commit SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
 - **Python 3.12 Job ID**: `110212428554` (Status: `completed`, Conclusion: `success`)
 - **Python 3.13 Job ID**: `110212428354` (Status: `completed`, Conclusion: `success`)
+- **Job Step Verification**:
+  - `Set up Python` -> SUCCESS
+  - `Install Poetry` -> SUCCESS
+  - `Install Dependencies` -> SUCCESS
+  - `Ruff Check` -> SUCCESS
+  - `Ruff Format Check` -> SUCCESS
+  - `Mypy Strict Check` -> SUCCESS
+  - `Run Test Suite with Coverage` -> SUCCESS
 - **Overall CI Conclusion**: `SUCCESS`
 
 ---
@@ -111,6 +117,43 @@ Zero unexpected Pass 4.2 production or test modification exists in the diff.
 
 ---
 
-## H. Final Determination
+## H. Negative-Control Evidence
+
+### Active Phase 0 Surface
+
+A temporary unused import was injected into an active Phase 0 file (`src/fractal_flow/config/config.py`).
+
+Command:
+`poetry run ruff check src/ tests/`
+
+Expected result: failure.
+
+Observed result:
+- **Exit Code**: `1`
+- **Rules Triggered**: `E402` (Module level import not at top of file), `F401` (`sys` imported but unused)
+- **File**: `src/fractal_flow/config/config.py:180`
+- **Diagnostic**: `Found 2 errors.`
+
+The temporary modification was reverted immediately via `git checkout` and the file returned to Git blob SHA `8720d08b41d253a1e5f797f19810db3b06577aea`.
+
+### Protected Pass 4.2 Surface
+
+A temporary unused import was injected into a frozen Pass 4.2 artifact (`src/fractal_flow/execution/recovery.py`).
+
+Command:
+`poetry run ruff check src/ tests/`
+
+Expected result: the protected file is excluded from Ruff linting via `extend-exclude`.
+
+Observed result:
+- **Exit Code**: `0`
+- **Protected Artifact Diagnostic**: None
+- **Ruff Output**: `All checks passed!`
+
+The temporary modification was reverted immediately via `git checkout` and the protected artifact returned exactly to Git blob SHA `34e355a2f7eb573662d12ba3f9d8229338bc8405`.
+
+---
+
+## I. Final Determination
 
 **PHASE 0 — CLOSED**
