@@ -2,15 +2,12 @@
 Version: 1.0
 Status: Pass 4 Complete Entry Architecture Specification
 
----
+## 1. Overview and Core Purpose
 
-## 1. Executive Summary & Pipeline Position
+The Entry Model Engine translates authorized strategic trade decisions into actionable, conditionally executable entry plans. It bridges high-level direction (Opportunity, Tradeability, Risk) and low-level broker order submission.
 
-The Entry Model Engine forms Layer 4A of the FRACTAL FLOW architecture. It acts as the bridge between Opportunity authorization (Layer 3/4) and Execution Intent submission (Layer 6).
-
-Pipeline Position:
 ```
-OPPORTUNITY (What/Where)
+OPPORTUNITY / DECISION (Direction & Intent)
     ↓
 TRADEABILITY (Permission)
     ↓
@@ -19,72 +16,37 @@ ACTIVE MARKET CONTEXT (MURG Permission)
 ENTRY POLICY ENGINE (How to Enter)
     ↓
 ENTRY PLAN (Conditional Execution)
-    ↓
-RISK & PORTFOLIO (How Much)
-    ↓
-AUTHORIZATION EVIDENCE
-    ↓
-EXECUTION GATEWAY (Broker)
 ```
 
-The fundamental directive remains:
-«Entry Policy determines entry mechanisms; Execution Gateway determines broker dispatch; Broker determines execution truth.»
+## 2. Core Entry Models
 
----
+1. `MARKET_CONFIRMATION`: Immediate execution upon trigger confirmation at prevailing market price.
+2. `PULLBACK_LIMIT`: Passive limit placement waiting for intra-pullback re-pricing.
+3. `RETEST_LIMIT`: Limit order placed at broken structural support/resistance.
+4. `RECLAIM_LIMIT`: Limit order entering after a liquidity sweep reclaims level.
+5. `BREAKOUT_STOP`: Stop order triggered when price breaks beyond key level.
+6. `STOP_LIMIT_BREAKOUT`: Stop-limit order specifying price corridor limits on breakout.
+7. `MOMENTUM_MARKET`: Urgent market execution upon high-velocity flow resumption.
+8. `CONFIRMATION_REENTRY`: Secondary entry following partial scale or re-evaluation.
+9. `HYBRID`: Multi-leg entry distributing risk across limit and market triggers.
+10. `NO_ENTRY`: Fail-closed posture blocking entry submission.
 
-## 2. Canonical Entry Models
+## 3. ActiveMarketContext and Permission Rules
 
-- `MARKET_CONFIRMATION`: Instant execution upon lower-timeframe confirmation trigger.
-- `PULLBACK_LIMIT`: Pending limit order positioned at key structural retracement levels.
-- `RETEST_LIMIT`: Pending limit order placed on broken structural swing retest.
-- `RECLAIM_LIMIT`: Pending limit order positioned after structural level reclaim.
-- `BREAKOUT_STOP`: Pending stop order positioned beyond structural swing extreme.
-- `STOP_LIMIT_BREAKOUT`: Conditional stop-limit order requiring price breach before limit activation.
-- `MOMENTUM_MARKET`: Market order dispatched on directional displacement acceleration.
-- `CONFIRMATION_REENTRY`: Budgeted re-entry following structural recovery.
-- `HYBRID`: Split-leg entry plan sharing a single opportunity risk budget.
-- `NO_ENTRY`: Explicit policy decision concluding no valid entry mechanism exists.
+No entry plan may be constructed or armed without validating an `ActiveMarketContext` provided by the Market Universe & Resource Governor (MURG).
 
----
+ActiveMarketContext must satisfy:
+- `activation_state == "ACTIVE"`
+- `entry_analysis_enabled == True`
+- `is_tradable_session == True`
+- Broker constraints satisfied (e.g. `min_volume`, `supported_order_types`).
 
-## 3. Order Types & Capability Validation
+## 4. Conditional Revalidation Engine
 
-Supported Order Types:
-- `MARKET_BUY`, `MARKET_SELL`
-- `BUY_LIMIT`, `SELL_LIMIT`
-- `BUY_STOP`, `SELL_STOP`
-- `BUY_STOP_LIMIT`, `SELL_STOP_LIMIT`
+Armed entry plans are revalidated continuously prior to execution:
+- Parent version equality (`plan.parent_version == authoritative_parent_version`)
+- Expiry (`current_clock_ns < plan.expires_at`)
+- News state (`current_news_state != "NEWS_LOCKDOWN"`)
+- Tradeability state (`current_tradeability_state == "TRADEABILITY_PASS"`)
 
-Every EntryPlan validates broker capability against `BrokerConstraints.supported_order_types` prior to arming. If an order type is unsupported, EntryPolicy re-evaluates explicit fallbacks or emits `NO_ENTRY`.
-
----
-
-## 4. Conditional Order Lifecycle & State Machine
-
-Entry Plans operate under the canonical `EntryState` machine:
-`ENTRY_CREATED -> ENTRY_VALIDATING -> ENTRY_ARMED -> [STOP_TRIGGERED -> LIMIT_ACTIVATED] -> ENTRY_SUBMITTING -> PARTIAL_FILL -> ENTRY_FILLED`
-
-Continuous Invalidation Gates:
-- Parent opportunity version staleness (`parent_version != current_parent_version`)
-- Strategy entry TTL expiration (`now >= expires_at`)
-- Hard news lockdown (`NEWS_LOCKDOWN`)
-- Spread expansion beyond threshold
-- Broker freeze level breaches
-
----
-
-## 5. Risk Allocation & Hybrid Entry Mechanics
-
-- **Opportunity Risk Budget:** Single parent risk budget allocated across entry legs.
-- **Invariants Enforced:**
-  - `allocated_risk <= opportunity_risk_budget`
-  - `remaining_risk >= 0`
-  - `filled_volume <= approved_volume`
-- **Contingent Exposure:** Pending orders contribute to `WORST_CASE_CONTINGENT_EXPOSURE` without converting pending orders into open positions.
-
----
-
-## 6. Restart Recovery & Authorization Evidence
-
-- **EntryAuthorizationEvidence:** Immutable provenance snapshot holding `decision_id`, `opportunity_version`, `effective_config_id`, and timestamps required before execution gateway submission.
-- **Restart Reconciliation:** Strategic authorization is disabled upon system restart until `DeterministicBrokerSimulator.reconcile_intent()` matches pending plans against broker orders.
+Failure of any condition transitions the entry plan to `ENTRY_INVALIDATED`, `ENTRY_EXPIRED`, or `ENTRY_STALE`.

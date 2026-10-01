@@ -1,19 +1,11 @@
 """Tests for Entry Domain Foundation and EntryPolicyEngine with MURG ActiveMarketContext Integration."""
 
-import pytest
 from src.fractal_flow.domain.entry import (
-    EntryModel,
-    OrderType,
-    FillPolicy,
-    TimeInForce,
-    EntryTrigger,
-    EntryTriggerType,
-    EntryPlan,
-    EntryPolicyEngine,
     ActiveMarketContext,
+    EntryModel,
+    EntryPolicyEngine,
 )
-from src.fractal_flow.domain.models import Direction, OrderSide
-from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
+from src.fractal_flow.domain.models import Direction
 
 
 def test_entry_policy_engine_with_active_murg_context() -> None:

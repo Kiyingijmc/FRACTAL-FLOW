@@ -1,27 +1,40 @@
-name: FRACTAL FLOW Foundation CI
+name: FRACTAL FLOW Baseline CI
 
 on:
   push:
-    branches: [ "main", "foundation-implementation-1126786977244471853" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest pyyaml .
+      - name: Install Poetry
+        run: pip install poetry
 
-      - name: Run Test Suite & Invariant Verification
-        run: |
-          pytest
+      - name: Install Dependencies
+        run: poetry install --all-extras
+
+      - name: Ruff Check
+        run: poetry run ruff check src/ tests/
+
+      - name: Ruff Format Check
+        run: poetry run ruff format --check src/ tests/
+
+      - name: Mypy Strict Check
+        run: poetry run mypy --strict --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py
+
+      - name: Run Test Suite with Coverage
+        run: poetry run pytest
