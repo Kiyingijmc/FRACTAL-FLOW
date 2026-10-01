@@ -1,8 +1,8 @@
 """Automated Invariants Verification Tests and Truthful Verification Matrix Validator for all 42 Non-Negotiable Invariants."""
 
 from pathlib import Path
+
 import yaml
-import pytest
 
 
 def test_invariant_verification_matrix_is_truthful() -> None:
@@ -25,7 +25,9 @@ def test_invariant_verification_matrix_is_truthful() -> None:
     for inv in invariants:
         assert "title" in inv and "rule" in inv and "status" in inv
         status = inv["status"]
-        assert status in ("ENFORCED", "INTEGRATION_VERIFIED", "SPECIFIED_ONLY"), f"Invalid status '{status}' for invariant {inv['id']}"
+        assert status in ("ENFORCED", "INTEGRATION_VERIFIED", "SPECIFIED_ONLY"), (
+            f"Invalid status '{status}' for invariant {inv['id']}"
+        )
 
         if status == "ENFORCED":
             enforced_count += 1

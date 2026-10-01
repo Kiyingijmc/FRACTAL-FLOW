@@ -1,18 +1,16 @@
 """Adversarial Regression Test Suite covering MURG-001 through MURG-036 scenarios."""
 
-import pytest
 from src.fractal_flow.domain.murg import (
-    AssetClass,
-    SymbolTradeMode,
-    InstrumentIdentity,
-    InstrumentDescriptor,
-    InstrumentCatalog,
-    UserMarketUniverse,
-    MarketSessionContext,
     AccountResourceContext,
+    AssetClass,
+    InstrumentCatalog,
+    InstrumentDescriptor,
+    InstrumentIdentity,
+    MarketSessionContext,
     ResourceGovernor,
+    SymbolTradeMode,
+    UserMarketUniverse,
 )
-from src.fractal_flow.domain.reason_codes import ReasonCode
 
 
 def make_catalog() -> InstrumentCatalog:
@@ -58,9 +56,32 @@ def test_murg_001_003_instrument_discovery_and_alias_mapping() -> None:
 
 def test_murg_011_012_hard_active_symbol_limit() -> None:
     catalog = make_catalog()
-    universe = UserMarketUniverse(pinned_canonical_ids={"EURUSD", "GBPUSD", "USDJPY", "XAUUSD", "BTCUSD", "NAS100"})
-    account = AccountResourceContext(equity=10000.0, balance=10000.0, free_margin=8000.0, used_margin=2000.0, margin_utilization_pct=10.0, drawdown_pct=1.0, open_position_count=0, pending_order_count=0)
-    session = MarketSessionContext(session_state="OPEN", broker_server_time_ns=1000, time_to_close_ns=10000, is_tradable_session=True)
+    universe = UserMarketUniverse(
+        pinned_canonical_ids={
+            "EURUSD",
+            "GBPUSD",
+            "USDJPY",
+            "XAUUSD",
+            "BTCUSD",
+            "NAS100",
+        }
+    )
+    account = AccountResourceContext(
+        equity=10000.0,
+        balance=10000.0,
+        free_margin=8000.0,
+        used_margin=2000.0,
+        margin_utilization_pct=10.0,
+        drawdown_pct=1.0,
+        open_position_count=0,
+        pending_order_count=0,
+    )
+    session = MarketSessionContext(
+        session_state="OPEN",
+        broker_server_time_ns=1000,
+        time_to_close_ns=10000,
+        is_tradable_session=True,
+    )
 
     # Active cap = 3
     governor = ResourceGovernor(max_active_symbols=3)
@@ -72,7 +93,15 @@ def test_murg_011_012_hard_active_symbol_limit() -> None:
 
 def test_murg_019_021_drawdown_constrained_capacity_multiplier() -> None:
     account_constrained = AccountResourceContext(
-        equity=8000.0, balance=10000.0, free_margin=4000.0, used_margin=4000.0, margin_utilization_pct=50.0, drawdown_pct=20.0, open_position_count=1, pending_order_count=0, resource_mode="CONSTRAINED"
+        equity=8000.0,
+        balance=10000.0,
+        free_margin=4000.0,
+        used_margin=4000.0,
+        margin_utilization_pct=50.0,
+        drawdown_pct=20.0,
+        open_position_count=1,
+        pending_order_count=0,
+        resource_mode="CONSTRAINED",
     )
     assert account_constrained.capacity_multiplier == 0.5
 
@@ -80,8 +109,22 @@ def test_murg_019_021_drawdown_constrained_capacity_multiplier() -> None:
 def test_murg_025_026_dormant_market_protection_invariant() -> None:
     catalog = make_catalog()
     universe = UserMarketUniverse()
-    account = AccountResourceContext(equity=10000.0, balance=10000.0, free_margin=8000.0, used_margin=2000.0, margin_utilization_pct=20.0, drawdown_pct=2.0, open_position_count=1, pending_order_count=1)
-    session = MarketSessionContext(session_state="CLOSED", broker_server_time_ns=1000, time_to_close_ns=0, is_tradable_session=False)
+    account = AccountResourceContext(
+        equity=10000.0,
+        balance=10000.0,
+        free_margin=8000.0,
+        used_margin=2000.0,
+        margin_utilization_pct=20.0,
+        drawdown_pct=2.0,
+        open_position_count=1,
+        pending_order_count=1,
+    )
+    session = MarketSessionContext(
+        session_state="CLOSED",
+        broker_server_time_ns=1000,
+        time_to_close_ns=0,
+        is_tradable_session=False,
+    )
 
     governor = ResourceGovernor(max_active_symbols=3)
     has_pos = {"EURUSD": True}

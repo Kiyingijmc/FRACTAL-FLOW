@@ -1,9 +1,16 @@
 """Integration Tests for DeterministicBrokerSimulator."""
 
+from decimal import Decimal
+
 import pytest
+
 from src.fractal_flow.domain.models import ExecutionIntent, OrderSide
 from src.fractal_flow.execution.execution_state import ExecutionState
-from src.fractal_flow.simulation.simulator import DeterministicBrokerSimulator, SimulationConfig, ExecutionScenario
+from src.fractal_flow.simulation.simulator import (
+    DeterministicBrokerSimulator,
+    ExecutionScenario,
+    SimulationConfig,
+)
 
 
 def test_broker_simulator_successful_fill() -> None:
@@ -16,15 +23,15 @@ def test_broker_simulator_successful_fill() -> None:
         idempotency_key="key_1",
         symbol="EURUSD",
         side=OrderSide.BUY,
-        requested_volume=0.1,
-        entry_price=1.0850,
-        sl=1.0820,
-        tp_plan={"tp1": 1.0900},
+        requested_volume=Decimal("0.1"),
+        entry_price=Decimal("1.0850"),
+        sl=Decimal("1.0820"),
+        tp_plan={"tp1": Decimal("1.0900")},
         effective_config_id="cfg_123",
         lineage_version=1,
-        broker_constraint_snapshot={"min_volume": 0.01},
+        broker_constraint_snapshot={"min_volume": Decimal("0.01")},
         quote_timestamp=1000,
-        spread_pips=1.0,
+        spread_pips=Decimal("1.0"),
         status="EXEC_READY",
         created_at=100,
         updated_at=100,
@@ -34,7 +41,7 @@ def test_broker_simulator_successful_fill() -> None:
     assert len(sim.positions) == 1
     pos = list(sim.positions.values())[0]
     assert pos.symbol == "EURUSD"
-    assert pos.current_sl == 1.0820
+    assert pos.current_sl == Decimal("1.0820")
 
 
 def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
@@ -47,15 +54,15 @@ def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
         idempotency_key="key_2",
         symbol="EURUSD",
         side=OrderSide.BUY,
-        requested_volume=0.1,
-        entry_price=1.0850,
-        sl=1.0820,
+        requested_volume=Decimal("0.1"),
+        entry_price=Decimal("1.0850"),
+        sl=Decimal("1.0820"),
         tp_plan={},
         effective_config_id="cfg_123",
         lineage_version=1,
-        broker_constraint_snapshot={"min_volume": 0.01},
+        broker_constraint_snapshot={"min_volume": Decimal("0.01")},
         quote_timestamp=1000,
-        spread_pips=1.0,
+        spread_pips=Decimal("1.0"),
         status="EXEC_READY",
         created_at=100,
         updated_at=100,
@@ -78,15 +85,15 @@ def test_broker_simulator_stop_loss_tighten_ratchet() -> None:
         idempotency_key="key_3",
         symbol="EURUSD",
         side=OrderSide.BUY,
-        requested_volume=0.1,
-        entry_price=1.0850,
-        sl=1.0820,
+        requested_volume=Decimal("0.1"),
+        entry_price=Decimal("1.0850"),
+        sl=Decimal("1.0820"),
         tp_plan={},
         effective_config_id="cfg_123",
         lineage_version=1,
-        broker_constraint_snapshot={"min_volume": 0.01},
+        broker_constraint_snapshot={"min_volume": Decimal("0.01")},
         quote_timestamp=1000,
-        spread_pips=1.0,
+        spread_pips=Decimal("1.0"),
         status="EXEC_READY",
         created_at=100,
         updated_at=100,
@@ -95,9 +102,9 @@ def test_broker_simulator_stop_loss_tighten_ratchet() -> None:
     pos_id = list(sim.positions.keys())[0]
 
     # Valid stop tightening for Long (move SL higher)
-    assert sim.modify_stop_loss(pos_id, 1.0830) is True
+    assert sim.modify_stop_loss(pos_id, Decimal("1.0830")) is True
 
     # Invalid stop loosening for Long (attempt to move SL lower) raises ValueError
     with pytest.raises(ValueError) as exc_info:
-        sim.modify_stop_loss(pos_id, 1.0810)
+        sim.modify_stop_loss(pos_id, Decimal("1.0810"))
     assert "Cannot loosen stop loss" in str(exc_info.value)

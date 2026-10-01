@@ -1,8 +1,8 @@
 """Unit-safe representations, exact Decimal arithmetic, and instrument-specific conversions for FRACTAL FLOW domain primitives."""
 
-from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
 import math
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 
 
 @dataclass(frozen=True)
@@ -127,6 +127,7 @@ def pips_to_price(pips: float, digits: int) -> float:
     pip_scale = Decimal("0.0001") if digits in (4, 5) else Decimal("0.01")
     pips_dec = Decimal(str(pips))
     price_dist = (pips_dec * pip_scale).quantize(
-        Decimal("0.00001") if digits in (4, 5) else Decimal("0.001"), rounding=ROUND_HALF_UP
+        Decimal("0.00001") if digits in (4, 5) else Decimal("0.001"),
+        rounding=ROUND_HALF_UP,
     )
     return float(price_dist)
