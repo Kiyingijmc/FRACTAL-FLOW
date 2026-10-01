@@ -5,9 +5,9 @@
 - **Source Branch**: `phase-0-ruff-forensic-ci-closure-20261001-14021143054900010728`
 - **Source HEAD SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
 - **Final Branch**: `phase-0-final-green-ci-forensic-closure-20261001-17790329485715096846`
-- **Final HEAD SHA**: `b1b995af310f456a043b62155c61a15a890680a0`
-- **Parent SHA**: `9fc9fb9c93d6491f44b05113445baf3ac6fc03f0`
-- **Main SHA**: `9fc9fb9c93d6491f44b05113445baf3ac6fc03f0`
+- **Final HEAD SHA**: `ed750faf6a088f024cb9d21fbca2203f3cd951df`
+- **Parent SHA**: `b1b995af310f456a043b62155c61a15a890680a0`
+- **Main SHA**: `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
 
 ---
 
@@ -82,12 +82,12 @@ All frozen Pass 4.2 production and test artifacts were verified against `remotes
 ## F. GitHub Actions CI Evidence
 
 - **Workflow Name**: `FRACTAL FLOW Baseline CI`
-- **Run ID**: `36813165348`
-- **Run Number**: `68`
-- **Run URL**: `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/36813165348`
-- **Source/CI Commit SHA**: `afd73f4f7da9e3f2a7d829a5beba281197362225`
-- **Python 3.12 Job ID**: `110212428554` (Status: `completed`, Conclusion: `success`)
-- **Python 3.13 Job ID**: `110212428354` (Status: `completed`, Conclusion: `success`)
+- **Run ID**: `36825547300`
+- **Run Number**: `70`
+- **Run URL**: `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/36825547300`
+- **CI Commit SHA**: `ed750faf6a088f024cb9d21fbca2203f3cd951df`
+- **Python 3.12 Job ID**: `110250312140` (Status: `completed`, Conclusion: `success`)
+- **Python 3.13 Job ID**: `110250312347` (Status: `completed`, Conclusion: `success`)
 - **Job Step Verification**:
   - `Set up Python` -> SUCCESS
   - `Install Poetry` -> SUCCESS
@@ -105,7 +105,7 @@ All frozen Pass 4.2 production and test artifacts were verified against `remotes
 ### Diff against Source Branch (`phase-0-ruff-forensic-ci-closure-20261001-14021143054900010728`)
 - `docs/reports/PHASE_0_FORENSIC_CLOSURE_REPORT.md` — Category D (Documentation/evidence)
 
-### Diff against `main` (`9fc9fb9c93d6491f44b05113445baf3ac6fc03f0`)
+### Diff against `main` (`c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`)
 - `.github/workflows/ci.yml` — Category A (CI configuration)
 - `pyproject.toml` — Category A (Ruff configuration & dependency groups)
 - `poetry.lock` — Category E (Dependency lock updates)
