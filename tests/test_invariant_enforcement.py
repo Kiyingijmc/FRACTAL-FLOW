@@ -1,9 +1,12 @@
 """Executable Invariant Enforcement Tests verifying genuine architectural enforcement for non-negotiable invariants."""
 
 import pytest
-from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
-from src.fractal_flow.domain.models import TradeDecision, Direction
-from src.fractal_flow.domain.envelope import StateEnvelope, InvalidStateTransitionException, GLOBAL_STATE_REGISTRY
+
+from src.fractal_flow.domain.authority import (
+    AuthorityMatrix,
+    AuthorityViolationException,
+)
+from src.fractal_flow.domain.models import Direction, TradeDecision
 
 
 def test_invariant_4_flow_cannot_open_position() -> None:
