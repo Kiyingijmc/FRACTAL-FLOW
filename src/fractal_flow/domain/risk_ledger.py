@@ -138,7 +138,12 @@ class OpportunityRiskLedger:
                 raise AccountingInvariantException(f"Reserve {amount} exceeds remaining risk {self.remaining_risk}")
             self.reserved_risk += amt_dec
             if reference_id in self._active_reservations:
-                if self._active_reservations[reference_id]["state"] in ("RELEASED", "EXPIRED", "CANCELLED", "COMMITTED"):
+                if self._active_reservations[reference_id]["state"] in (
+                    "RELEASED",
+                    "EXPIRED",
+                    "CANCELLED",
+                    "COMMITTED",
+                ):
                     raise AccountingInvariantException(
                         f"Cannot reserve on terminal/inactive reservation '{reference_id}' in state {self._active_reservations[reference_id]['state']}"
                     )

@@ -212,7 +212,10 @@ class TradeDecision:
             return False
 
         # 4. Portfolio State & Arbitration Veto
-        if self.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW") or self.arbitration_result not in ("ALLOW", "PORTFOLIO_ALLOW"):
+        if self.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW") or self.arbitration_result not in (
+            "ALLOW",
+            "PORTFOLIO_ALLOW",
+        ):
             return False
 
         # 5. Tradeability Assessment Veto
@@ -228,7 +231,9 @@ class TradeDecision:
                 return False
 
         # 7. Risk / Size Sanity Check
-        if Decimal(str(self.approved_risk)) <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal("0.0"):
+        if Decimal(str(self.approved_risk)) <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal(
+            "0.0"
+        ):
             return False
 
         return True

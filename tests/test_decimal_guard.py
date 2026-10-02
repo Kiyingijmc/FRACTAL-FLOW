@@ -171,6 +171,9 @@ def test_units_decimal_instantiation_and_arithmetic() -> None:
     assert p1.value < p2.value
     assert p2.value - p1.value == Decimal("0.00050")
 
+    pips_direct = PricePips("5.00")
+    assert pips_direct.value == Decimal("5.00")
+
     pips = price_to_pips("0.00050", digits=5)
     assert pips.value == Decimal("5.00")
 
