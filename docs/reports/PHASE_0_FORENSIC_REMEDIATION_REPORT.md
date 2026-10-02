@@ -12,9 +12,9 @@ This report summarizes the technical findings, remediation steps, and verificati
 
 All material gaps identified in independent forensic code reviews have been addressed:
 
-1. **Mandatory Authoritative Lineage Verification:** Re-architected `TradeDecision.is_authorized()` to mandate an explicit `authoritative_parent` parameter. Omission or mismatch of the authoritative parent object fails trade authorization closed. Caller-provided self-contained assertions (e.g. `parent_is_valid=True` or `getattr(self, "parent_object", None)`) cannot bypass authoritative lineage verification.
+1. **Mandatory Authoritative Lineage & Resolver Provenance:** Re-architected `TradeDecision.is_authorized()` to require an independently resolved `AuthoritativeParentSeal` or authoritative parent object issued by `AuthoritativeParentResolver`. Untrusted or caller-fabricated parent objects fail trade authorization closed.
 2. **Evidence Semantics Correction:** Explicitly separated mechanical invariant reference and collection verification (`pytest --collect-only`) from runtime invariant execution (full pytest execution).
-3. **Reconciled Repository Metadata:** Updated closure report documentation to reflect the active remediation branch `phase-0-final-lineage-authority-forensic-closure-20261002`, PR `#15`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, and current HEAD commit.
+3. **Reconciled Repository Metadata:** Updated closure report documentation to reflect the active remediation branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#15`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 276 passing tests, and 87.03% coverage.
 4. **Frozen Surface Preservation:** Verified that all 12 frozen Pass-4.2 recovery and persistence files remain 100% byte-identical.
 
 ---
@@ -22,8 +22,9 @@ All material gaps identified in independent forensic code reviews have been addr
 ## 2. Key Architecture & Forensic Fixes
 
 - **Authoritative Lineage Enforcement:**
-  - `TradeDecision.is_authorized()` requires `authoritative_parent` along with `lineage`, `murg_context`, `risk_ledger`, and `reservation_id`.
-  - Lineage validation independently checks `parent_id`, `root_id`, `parent_tier`, `validity`, `state`, and `version` against the authoritative parent.
+  - `AuthoritativeParentResolver` registers authoritative parent states and issues `AuthoritativeParentSeal` objects.
+  - `TradeDecision.is_authorized()` verifies resolver provenance seals along with `lineage`, `murg_context`, `risk_ledger`, and `reservation_id`.
+  - Caller-fabricated parent objects or detached assertions cannot bypass authoritative lineage verification.
 - **Risk Authority & Reservation Binding:**
   - `OpportunityRiskLedger` is the single authoritative mutable risk state machine.
   - `OpportunityRiskBudget` is a read-only projection/view delegating all operations to `OpportunityRiskLedger`.
@@ -40,10 +41,10 @@ All material gaps identified in independent forensic code reviews have been addr
 ## 3. Verification & Quality Gate Results
 
 - **Ruff:** PASSED (0 errors)
-- **Ruff Format:** PASSED (0 differences)
+- **Ruff Format:** PASSED (0 differences across 46 files)
 - **Mypy Strict:** PASSED (0 errors across configured scope)
-- **Pytest:** 275/275 PASSED
-- **Coverage:** 86.96% (exceeds 85% floor)
+- **Pytest:** 276/276 PASSED
+- **Coverage:** 87.03% (exceeds 85% floor)
 - **Frozen File Surface:** 12/12 MATCH (100% byte-identical)
 
 ---

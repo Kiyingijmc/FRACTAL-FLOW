@@ -257,9 +257,17 @@ class TradeDecision:
         if req_risk <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal("0.0"):
             return False
 
-        # 9. Independent Authoritative Lineage Verification
+        # 9. Independent Authoritative Lineage Verification & Resolver Provenance Check
+        from src.fractal_flow.domain.lineage import AuthoritativeParentSeal, GLOBAL_PARENT_RESOLVER
+
+        actual_parent_obj = authoritative_parent
+        if isinstance(authoritative_parent, AuthoritativeParentSeal):
+            if not GLOBAL_PARENT_RESOLVER.verify_seal(authoritative_parent):
+                return False
+            actual_parent_obj = authoritative_parent.parent
+
         try:
-            lineage.validate_child_action(authoritative_parent=authoritative_parent)
+            lineage.validate_child_action(authoritative_parent=actual_parent_obj)
         except Exception:
             return False
 

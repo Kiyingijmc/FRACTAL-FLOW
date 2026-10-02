@@ -35,6 +35,66 @@ def load_spec_lineage_edges(
 LEGAL_LINEAGE_EDGES: dict[str, set[str]] = load_spec_lineage_edges()
 
 
+@dataclass(frozen=True)
+class AuthoritativeParentSeal:
+    """Immutable provenance seal wrapping an authoritative parent object resolved from an authoritative registry."""
+
+    parent: Any
+    resolver_id: str
+    resolved_at_version: int
+
+
+class AuthoritativeParentResolver:
+    """Authoritative Parent Resolver maintaining registered parent states and issuing provenance seals."""
+
+    def __init__(self, resolver_id: str = "GLOBAL_AUTHORITATIVE_PARENT_RESOLVER") -> None:
+        self.resolver_id = resolver_id
+        self._registry: dict[tuple[str, int], Any] = {}
+
+    def register_parent(self, parent_id: str, version: int, parent_obj: Any) -> None:
+        """Registers an authoritative parent object at a specific version."""
+        self._registry[(parent_id, version)] = parent_obj
+
+    def resolve_authoritative_parent(self, parent_id: str, version: int) -> AuthoritativeParentSeal:
+        """Resolves an authoritative parent from registry and returns a sealed AuthoritativeParentSeal.
+
+        Raises LineageInvalidException if parent cannot be resolved.
+        """
+        key = (parent_id, version)
+        if key not in self._registry:
+            raise LineageInvalidException(
+                f"Authoritative parent '{parent_id}' version {version} cannot be resolved by {self.resolver_id}."
+            )
+        return AuthoritativeParentSeal(
+            parent=self._registry[key],
+            resolver_id=self.resolver_id,
+            resolved_at_version=version,
+        )
+
+    def verify_seal(self, seal: Any) -> bool:
+        """Verifies that an AuthoritativeParentSeal originated from this resolver instance."""
+        if not isinstance(seal, AuthoritativeParentSeal):
+            return False
+        if seal.resolver_id != self.resolver_id:
+            return False
+        parent_id_attr = (
+            getattr(seal.parent, "id", None)
+            or getattr(seal.parent, "parent_id", None)
+            or getattr(seal.parent, "canonical_id", None)
+            or getattr(seal.parent, "decision_id", None)
+            or getattr(seal.parent, "opportunity_id", None)
+            or getattr(seal.parent, "signal_id", None)
+        )
+        if parent_id_attr is None:
+            return False
+        key = (str(parent_id_attr), seal.resolved_at_version)
+        return key in self._registry and self._registry[key] is seal.parent
+
+
+# Global singleton instance for system-wide authoritative parent resolution
+GLOBAL_PARENT_RESOLVER = AuthoritativeParentResolver()
+
+
 @dataclass
 class Lineage:
     root_id: str
@@ -105,7 +165,8 @@ class Lineage:
                 )
             if hasattr(authoritative_parent, "state"):
                 parent_state = str(getattr(authoritative_parent, "state"))
-                if "INVALID" in parent_state or "EXPIRED" in parent_state or "STALE" in parent_state:
+                invalid_keywords = ("INVALID", "EXPIRED", "STALE", "CANCELLED", "REVOKED")
+                if any(kw in parent_state for kw in invalid_keywords):
                     raise LineageInvalidException(f"Parent {self.parent_id} is in invalid state '{parent_state}'.")
 
             # Verify parent object version attribute if present
