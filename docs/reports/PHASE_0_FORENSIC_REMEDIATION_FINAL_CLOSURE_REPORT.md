@@ -10,10 +10,10 @@
 
 A comprehensive, production-grade forensic closure pass has been executed on the `FRACTAL-FLOW` repository. This closure pass resolves all remaining authority, provenance, and metadata gaps identified during independent forensic audits:
 
-1. **Mandatory Authoritative Lineage & Seal Provenance:** `TradeDecision.is_authorized()` now strictly mandates an `AuthoritativeParentSeal` credential issued exclusively by `AuthoritativeParentResolver`. Raw caller-provided parent objects, fake duck-typed seals, forged seals, or unregistered parent objects are strictly rejected (fail closed).
-2. **Comprehensive Adversarial Matrix (Scenarios A–P):** Implemented and verified an explicit 16-scenario test matrix in `tests/test_lineage.py` covering all lineage failure and attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parents, caller assertion attacks, seal forgery, registry substitution attacks, version races, and cross-opportunity/root substitutions).
+1. **Mandatory Authoritative Lineage & Seal Provenance:** `TradeDecision.is_authorized()` strictly mandates an `AuthoritativeParentSeal` credential issued exclusively by `AuthoritativeParentResolver`. Raw caller-provided parent objects, fake duck-typed seals, forged seals, or unregistered parent objects are strictly rejected (fail closed).
+2. **Comprehensive Adversarial Matrix (Scenarios A–P):** Implemented and verified an explicit 16-scenario test matrix in `tests/test_lineage.py` covering all lineage failure and attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, seal forgery, registry substitution, version race, cross-opportunity/root substitution, and scenario P proving fail-closed behavior when resolution/verification is unavailable at the trade authorization boundary).
 3. **Explicit Evidence Semantics:** Structural invariant mapping (`pytest --collect-only`) is explicitly distinguished from runtime execution evidence. Node collection proves test reference collectibility; runtime correctness is established independently by running the full test suite (277 passed, 86.75% coverage).
-4. **Reconciled Repository Metadata:** Documentation reports have been regenerated from actual repository state, referencing branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#15`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 277 passing tests, and 86.75% code coverage.
+4. **Reconciled Repository Metadata:** Documentation reports have been regenerated from actual repository state, referencing branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#16`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 277 passing tests, and 86.75% code coverage.
 5. **100% Frozen Surface Preservation:** All 12 frozen Pass-4.2 recovery, persistence, and test files remain 100% byte-identical to base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
 
 ---
@@ -23,8 +23,8 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 - **Repository:** `Kiyingijmc/FRACTAL-FLOW`
 - **Branch:** `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`
 - **Base SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
-- **Current HEAD SHA:** `9a945c9c07f3d5f29c8f1bccaf95b640a2335a09`
-- **PR Base / Target:** `main` (Pull Request `#15`)
+- **Current HEAD SHA:** `1199249687b629ccb536a7541f5a20f756534407`
+- **PR Base / Target:** `main` (Pull Request `#16`)
 - **Python Runtime Environments:** Python 3.12.13 and Python 3.13 Matrix CI
 
 ---
@@ -61,7 +61,7 @@ All 12 frozen Pass-4.2 artifacts were independently verified against base SHA `c
 | **Reservation Binding** | **CLOSED** | `src/fractal_flow/domain/models.py`, `tests/test_entry_adversarial.py` | Decision bound to active `RESERVED` risk state, opportunity ID, and capacity. |
 | **Central Authorization** | **CLOSED** | `src/fractal_flow/domain/models.py`, `tests/test_provenance_authorization.py` | Fail-closed `TradeDecision.is_authorized()` evaluating all core security dependencies. |
 | **Authoritative Lineage** | **CLOSED** | `src/fractal_flow/domain/lineage.py`, `tests/test_lineage.py` | `AuthoritativeParentResolver` issues `AuthoritativeParentSeal`. Raw parent bypass eliminated. |
-| **Adversarial Matrix A–P** | **CLOSED** | `tests/test_lineage.py` | 16 dedicated test cases covering all failure/attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, seal forgery, registry substitution, version race, cross-opportunity/root substitution). |
+| **Adversarial Matrix A–P** | **CLOSED** | `tests/test_lineage.py` | 16 dedicated test cases covering all failure/attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, seal forgery, registry substitution, version race, cross-opportunity/root substitution, and scenario P proving fail-closed behavior at the authorization boundary when resolution/verification is unavailable). |
 | **MURG Provenance** | **CLOSED** | `src/fractal_flow/domain/murg.py`, `tests/test_murg_adversarial.py` | HMAC-SHA256 signed `ActiveMarketContext` issued strictly by `AuthoritativeMURGIssuer`. |
 | **Event Immutability** | **CLOSED** | `src/fractal_flow/domain/event.py`, `tests/test_event_versioning.py` | Deep recursive freezing (`_deep_freeze`) blocks nested payload mutations. |
 | **Invariant Mapping** | **CLOSED** | `spec/invariants.yaml`, `tests/test_42_invariants.py` | AST parsing and `pytest --collect-only` verify all 42 invariant test symbols exist and map cleanly. |

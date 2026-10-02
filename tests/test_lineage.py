@@ -436,9 +436,16 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
     seal_root2 = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_root2", 1)
     assert not decision.is_authorized(lineage, seal_root2, murg_ctx, ledger, "res_ap", 1000)
 
-    # P. Missing resolver / unresolvable parent -> False
+    # P. Missing resolver / unresolvable parent at authorization boundary -> False
+    # Attempting authorization with an unresolvable seal or when resolution fails fails closed at trade authorization boundary
     with pytest.raises(Exception):
         GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("NONEXISTENT", 1)
+
+    # Prove TradeDecision.is_authorized() fails closed (returns False) when given an unresolvable or invalid seal reference
+    unresolved_seal = AuthoritativeParentSeal(
+        parent=parent_opp_a, resolver_id="NONEXISTENT_RESOLVER", resolved_at_version=1
+    )
+    assert decision.is_authorized(lineage, unresolved_seal, murg_ctx, ledger, "res_ap", 1000) is False
 
 
 def test_duck_typed_fake_seal_and_seal_forgery_rejection() -> None:
