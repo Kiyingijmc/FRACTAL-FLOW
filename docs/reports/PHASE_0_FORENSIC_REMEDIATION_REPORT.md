@@ -12,10 +12,10 @@ This report summarizes the technical findings, remediation steps, and verificati
 
 All material gaps identified in independent forensic code reviews have been addressed:
 
-1. **Mandatory Authoritative Lineage & Resolver Provenance:** Re-architected `TradeDecision.is_authorized()` to require an independently resolved `AuthoritativeParentSeal` or authoritative parent object issued by `AuthoritativeParentResolver`. Untrusted or caller-fabricated parent objects fail trade authorization closed.
+1. **Mandatory Authoritative Lineage & Resolver Provenance:** Re-architected `TradeDecision.is_authorized()` to require an independently resolved `AuthoritativeParentSeal` credential issued by `AuthoritativeParentResolver`. Untrusted or caller-fabricated parent objects fail trade authorization closed.
 2. **Evidence Semantics Correction:** Explicitly separated mechanical invariant reference and collection verification (`pytest --collect-only`) from runtime invariant execution (full pytest execution).
-3. **Reconciled Repository Metadata:** Updated closure report documentation to reflect the active remediation branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#16`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 277 passing tests, and 86.75% coverage.
-4. **Frozen Surface Preservation:** Verified that all 12 frozen Pass-4.2 recovery and persistence files remain 100% byte-identical.
+3. **Reconciled Repository Metadata & Multi-SHA Model:** Updated closure report documentation using an immutable multi-SHA provenance model to reflect the active remediation branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#16`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, Evidence Target commit `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02`, 277 passing tests, and 86.75% coverage.
+4. **Frozen Surface Preservation:** Verified that all 12 frozen Pass-4.2 recovery and persistence files remain 100% byte-identical to base `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
 
 ---
 
@@ -40,6 +40,7 @@ All material gaps identified in independent forensic code reviews have been addr
 
 ## 3. Verification & Quality Gate Results
 
+- **Compileall:** PASSED
 - **Ruff:** PASSED (0 errors)
 - **Ruff Format:** PASSED (0 differences across 46 files)
 - **Mypy Strict:** PASSED (0 errors across configured scope)
