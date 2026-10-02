@@ -3,38 +3,57 @@
 import math
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Union
+
+
+def _to_decimal(val: Union[Decimal, float, int, str]) -> Decimal:
+    if isinstance(val, Decimal):
+        return val
+    return Decimal(str(val))
 
 
 @dataclass(frozen=True)
 class Price:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(f"Price must be a finite positive number, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite() or dec_val <= Decimal("0.0"):
+            raise ValueError(f"Price must be a finite positive number, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
 class PricePips:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value):
-            raise ValueError(f"PricePips cannot be NaN or Infinity, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite():
+            raise ValueError(f"PricePips cannot be NaN or Infinity, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
 class PriceDistance:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(f"PriceDistance must be a finite non-negative number, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite() or dec_val < Decimal("0.0"):
+            raise ValueError(f"PriceDistance must be a finite non-negative number, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
 class Points:
-    value: float
+    value: Decimal
+
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite():
+            raise ValueError(f"Points cannot be NaN or Infinity, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
@@ -44,29 +63,35 @@ class Ticks:
 
 @dataclass(frozen=True)
 class Volume:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value) or self.value <= 0.0:
-            raise ValueError(f"Volume must be a finite positive number, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite() or dec_val <= Decimal("0.0"):
+            raise ValueError(f"Volume must be a finite positive number, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
 class PositiveCurrencyAmount:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value) or self.value < 0.0:
-            raise ValueError(f"PositiveCurrencyAmount cannot be negative or infinite, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite() or dec_val < Decimal("0.0"):
+            raise ValueError(f"PositiveCurrencyAmount cannot be negative or infinite, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
 class SignedCurrencyAmount:
-    value: float
+    value: Decimal
 
-    def __post_init__(self) -> None:
-        if math.isnan(self.value) or math.isinf(self.value):
-            raise ValueError(f"SignedCurrencyAmount cannot be NaN or Infinity, got {self.value}")
+    def __init__(self, value: Union[Decimal, float, int, str]) -> None:
+        dec_val = _to_decimal(value)
+        if dec_val.is_nan() or dec_val.is_infinite():
+            raise ValueError(f"SignedCurrencyAmount cannot be NaN or Infinity, got {value}")
+        object.__setattr__(self, "value", dec_val)
 
 
 @dataclass(frozen=True)
@@ -114,20 +139,20 @@ class Score:
             raise ValueError(f"Score must be between 0.0 and 1.0, got {self.value}")
 
 
-def price_to_pips(distance: float, digits: int) -> PricePips:
+def price_to_pips(distance: Union[Decimal, float, str], digits: int) -> PricePips:
     """Converts price distance to pips using exact Decimal arithmetic based on symbol digits."""
     pip_scale = Decimal("0.0001") if digits in (4, 5) else Decimal("0.01")
-    dist_dec = Decimal(str(distance))
+    dist_dec = _to_decimal(distance)
     pips = (dist_dec / pip_scale).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return PricePips(value=float(pips))
+    return PricePips(value=pips)
 
 
-def pips_to_price(pips: float, digits: int) -> float:
+def pips_to_price(pips: Union[Decimal, float, str], digits: int) -> Decimal:
     """Converts pips to absolute price distance using exact Decimal arithmetic."""
     pip_scale = Decimal("0.0001") if digits in (4, 5) else Decimal("0.01")
-    pips_dec = Decimal(str(pips))
+    pips_dec = _to_decimal(pips)
     price_dist = (pips_dec * pip_scale).quantize(
         Decimal("0.00001") if digits in (4, 5) else Decimal("0.001"),
         rounding=ROUND_HALF_UP,
     )
-    return float(price_dist)
+    return price_dist

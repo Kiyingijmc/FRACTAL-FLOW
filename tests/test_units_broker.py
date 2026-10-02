@@ -1,5 +1,6 @@
 """Tests for StateEnvelope validation, BrokerConstraints, Units, and Configuration Identity."""
 
+from decimal import Decimal
 import pytest
 
 from src.fractal_flow.config.config import (
@@ -31,7 +32,7 @@ def test_units_validation() -> None:
 
     # SignedCurrencyAmount permits negative money (PnL)
     pnl = SignedCurrencyAmount(-150.50)
-    assert pnl.value == -150.50
+    assert pnl.value == Decimal("-150.50")
 
     with pytest.raises(ValueError):
         Score(1.5)
@@ -40,10 +41,10 @@ def test_units_validation() -> None:
 def test_price_pip_conversions_exact_jpy() -> None:
     # 3-digit JPY symbol (1 pip = 0.01)
     pips = price_to_pips(0.50, digits=3)
-    assert pips.value == 50.0
+    assert pips.value == Decimal("50.0")
 
     dist = pips_to_price(50.0, digits=3)
-    assert dist == 0.50
+    assert dist == Decimal("0.50")
 
 
 def test_broker_constraints_decimal_validation() -> None:
@@ -52,18 +53,18 @@ def test_broker_constraints_decimal_validation() -> None:
         base_currency="EUR",
         quote_currency="USD",
         account_currency="USD",
-        contract_size=100000.0,
-        tick_size=0.00001,
-        tick_value=1.0,
+        contract_size=Decimal("100000.0"),
+        tick_size=Decimal("0.00001"),
+        tick_value=Decimal("1.0"),
         digits=5,
-        min_volume=0.01,
-        max_volume=100.0,
-        volume_step=0.01,
-        stops_level=5.0,
-        freeze_level=2.0,
+        min_volume=Decimal("0.01"),
+        max_volume=Decimal("100.0"),
+        volume_step=Decimal("0.01"),
+        stops_level=Decimal("5.0"),
+        freeze_level=Decimal("2.0"),
     )
     vol = broker.validate_volume(0.05)
-    assert vol.value == 0.05
+    assert vol.value == Decimal("0.05")
 
     with pytest.raises(ValueError) as exc:
         broker.validate_volume(0.015)  # Invalid fractional step
@@ -94,8 +95,8 @@ def test_state_envelope_validation() -> None:
 
 def test_effective_configuration_reproducible_identity() -> None:
     base = BaseConfig()
-    sym = SymbolOverlay(symbol="EURUSD", max_spread_pips=1.5, overlay_version=1)
-    news = NewsOverlay(news_lockdown_active=False, risk_multiplier=0.5, overlay_version=2)
+    sym = SymbolOverlay(symbol="EURUSD", max_spread_pips=Decimal("1.5"), overlay_version=1)
+    news = NewsOverlay(news_lockdown_active=False, risk_multiplier=Decimal("0.5"), overlay_version=2)
 
     cfg1 = compute_effective_config(base, "EURUSD", sym, news)
     cfg2 = compute_effective_config(base, "EURUSD", sym, news)

@@ -12,7 +12,7 @@ invariants:
     rule: "Strategy engines must not directly place MT5 orders."
     status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix forbids PDE/Flow/Strategy from creating execution intents"
-    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    test_reference: tests/test_invariants.py::test_invariant_2_strategy_engines_no_direct_orders
     failure_mode: "AuthorityViolationException raised on order submission attempt"
 
   - id: 3
@@ -20,7 +20,7 @@ invariants:
     rule: "PDE cannot call OrderSend."
     status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix.verify_capability('PDE', 'CREATE_EXECUTION_INTENT')"
-    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    test_reference: tests/test_invariants.py::test_invariant_3_pde_cannot_call_ordersend
     failure_mode: "AuthorityViolationException"
 
   - id: 4
@@ -92,7 +92,7 @@ invariants:
     rule: "Every child object carries parent_id, parent_version, and root_id."
     status: ENFORCED
     enforcement_mechanism: "Lineage constructor fields"
-    test_reference: tests/test_lineage.py::test_lineage_exact_version_accepted
+    test_reference: tests/test_lineage.py::test_child_carries_lineage_ids
     failure_mode: "LineageInvalidException"
 
   - id: 13
@@ -316,7 +316,7 @@ invariants:
     rule: "Reconciliation must complete before strategy authorization after restart/disconnect."
     status: ENFORCED
     enforcement_mechanism: "RecoveryEngine.complete_recovery_with_evidence evidence gate validation"
-    test_reference: tests/test_persistence_adversarial.py::test_p42_34_40_recovery_engine_and_reconciliation_gating
+    test_reference: tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
     failure_mode: "RecoveryEngine transitions to SAFE state and strategic authorization remains disabled"
 
   - id: 41
@@ -332,5 +332,5 @@ invariants:
     rule: "Constitutional rules are never optimized away."
     status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix fail-closed checks"
-    test_reference: tests/test_invariants.py::test_invariant_pde_cannot_execute
+    test_reference: tests/test_invariants.py::test_invariant_42_constitutional_rules_never_optimized
     failure_mode: "AuthorityViolationException"

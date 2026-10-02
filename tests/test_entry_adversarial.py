@@ -148,3 +148,147 @@ def test_em_provenance_evidence() -> None:
     )
     assert ev.decision_id == "dec_1"
     assert ev.news_state == "NEWS_NORMAL"
+
+
+def test_mandatory_authorization_context_and_reservation_binding() -> None:
+    """Adversarial test proving authorization fails closed when mandatory dependencies are missing or mismatched."""
+    from decimal import Decimal
+    from src.fractal_flow.domain.lineage import Lineage
+    from src.fractal_flow.domain.models import TradeDecision
+    from src.fractal_flow.domain.murg import (
+        AssetClass,
+        GLOBAL_MURG_ISSUER,
+        InstrumentDescriptor,
+        InstrumentIdentity,
+        MarketActivationDecision,
+        MarketSessionContext,
+        SymbolTradeMode,
+    )
+    from src.fractal_flow.domain.risk_ledger import LedgerOperation, OpportunityRiskLedger
+
+    decision = TradeDecision(
+        decision_id="dec_adv_1",
+        opportunity_id="opp_adv_1",
+        root_id="root_1",
+        direction="BUY",
+        symbol="EURUSD",
+        environment="REGIME_TREND_UP",
+        role="ROLE_CONTINUATION",
+        setup="FF-01",
+        pullback_id="pb_1",
+        resumption_state="RESUMPTION_CONFIRMED",
+        location="LOC_FAVORABLE",
+        opportunity_space=0.8,
+        tradeability="TRADEABILITY_PASS",
+        news_state="NEWS_NORMAL",
+        risk_state="RISK_NORMAL",
+        portfolio_state="PORTFOLIO_ALLOW",
+        entry_price=Decimal("1.0850"),
+        structural_sl=Decimal("1.0820"),
+        tp_plan={"tp1": Decimal("1.0900")},
+        ttl_ns=300000000000,
+        requested_risk=Decimal("100.0"),
+        approved_risk=Decimal("100.0"),
+        position_size_lots=Decimal("0.1"),
+        arbitration_result="ALLOW",
+        effective_config_id="cfg_test123",
+        broker_constraint_snapshot={"min_volume": 0.01},
+        quote_timestamp=1000,
+        spread_pips=Decimal("1.0"),
+        authorized=True,
+    )
+
+    lineage = Lineage(
+        root_id="root_1", parent_id="opp_adv_1", parent_version=1, parent_tier="OPPORTUNITY", current_tier="SIGNAL"
+    )
+    desc = InstrumentDescriptor(
+        identity=InstrumentIdentity("EURUSD", AssetClass.FX_MAJOR, "EUR", "USD", "BROKER", "EURUSD"),
+        trade_mode=SymbolTradeMode.FULL,
+        execution_mode="MARKET",
+        supported_order_types=["MARKET_BUY"],
+        supported_fill_policies=["IOC"],
+        supported_time_in_force=["GTC"],
+        tick_size=0.00001,
+        point_size=0.00001,
+        pip_size=0.0001,
+        tick_value=1.0,
+        contract_size=100000.0,
+        digits=5,
+        min_volume=0.01,
+        max_volume=100.0,
+        volume_step=0.01,
+        stops_level=5.0,
+        freeze_level=2.0,
+    )
+    sess = MarketSessionContext("OPEN", 1000, 10000, True)
+    act_dec = MarketActivationDecision("EURUSD", "ACTIVE", [], 90.0, True, True, True)
+    murg_ctx = GLOBAL_MURG_ISSUER.issue_context(act_dec, desc, sess, current_time_ns=1000)
+
+    ledger = OpportunityRiskLedger("budget_1", "opp_adv_1", Decimal("500.0"), Decimal("2.0"))
+    ledger.record_operation(
+        "res_tx_1", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_valid", "cause_1", 1000
+    )
+
+    parent_obj = type(
+        "Parent", (), {"id": "opp_adv_1", "root_id": "root_1", "tier": "OPPORTUNITY", "version": 1, "validity": True}
+    )()
+
+    # 1. Valid authorization passes
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent=parent_obj,
+            murg_context=murg_ctx,
+            risk_ledger=ledger,
+            reservation_id="res_valid",
+            current_time_ns=1000,
+        )
+        is True
+    )
+
+    # 2. Missing reservation fails closed
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent=parent_obj,
+            murg_context=murg_ctx,
+            risk_ledger=ledger,
+            reservation_id="res_nonexistent",
+            current_time_ns=1000,
+        )
+        is False
+    )
+
+    # 3. Insufficient reservation amount fails closed
+    ledger_small = OpportunityRiskLedger("budget_2", "opp_adv_1", Decimal("500.0"), Decimal("2.0"))
+    ledger_small.record_operation(
+        "res_tx_small", LedgerOperation.RESERVE, Decimal("50.0"), Decimal("0.0"), "res_small", "cause_1", 1000
+    )
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent=parent_obj,
+            murg_context=murg_ctx,
+            risk_ledger=ledger_small,
+            reservation_id="res_small",
+            current_time_ns=1000,
+        )
+        is False
+    )
+
+    # 4. Opportunity ID mismatch on risk ledger fails closed
+    ledger_wrong_opp = OpportunityRiskLedger("budget_3", "opp_WRONG", Decimal("500.0"), Decimal("2.0"))
+    ledger_wrong_opp.record_operation(
+        "res_tx_wrong", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_wrong", "cause_1", 1000
+    )
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent=parent_obj,
+            murg_context=murg_ctx,
+            risk_ledger=ledger_wrong_opp,
+            reservation_id="res_wrong",
+            current_time_ns=1000,
+        )
+        is False
+    )
