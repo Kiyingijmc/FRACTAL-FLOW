@@ -196,13 +196,42 @@ class TradeDecision:
     lineage_version: int = 1
     authorized: bool = False
 
-    def is_authorized(self) -> bool:
-        """NEWS_LOCKDOWN is a hard authorization boundary that blocks trade authorization."""
-        if self.news_state == "NEWS_LOCKDOWN":
+    def is_authorized(self, current_time_ns: int | None = None) -> bool:
+        """Evaluates trade decision authorization in a fail-closed manner checking all required prerequisites."""
+
+        # 1. Base explicit authorization flag
+        if not self.authorized:
             return False
-        return (
-            self.authorized and self.tradeability == "TRADEABILITY_PASS" and self.portfolio_state == "PORTFOLIO_ALLOW"
-        )
+
+        # 2. News Lockdown Veto
+        if self.news_state in ("NEWS_LOCKDOWN", "LOCKDOWN"):
+            return False
+
+        # 3. Risk State Veto
+        if self.risk_state not in ("RISK_NORMAL", "NORMAL", "RISK_PASS"):
+            return False
+
+        # 4. Portfolio State & Arbitration Veto
+        if self.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW") or self.arbitration_result not in ("ALLOW", "PORTFOLIO_ALLOW"):
+            return False
+
+        # 5. Tradeability Assessment Veto
+        if self.tradeability not in ("TRADEABILITY_PASS", "PASS"):
+            return False
+
+        # 6. TTL / Expiration Check
+        if self.ttl_ns <= 0:
+            return False
+        if current_time_ns is not None:
+            expires_at = self.quote_timestamp + self.ttl_ns
+            if current_time_ns >= expires_at:
+                return False
+
+        # 7. Risk / Size Sanity Check
+        if Decimal(str(self.approved_risk)) <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal("0.0"):
+            return False
+
+        return True
 
 
 @dataclass
