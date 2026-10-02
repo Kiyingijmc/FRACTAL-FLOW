@@ -8,6 +8,16 @@ class InvalidEventVersionException(Exception):
     """Raised when an event version is invalid, non-sequential, or represents a gap/duplicate/future version."""
 
 
+def _deep_freeze(v: Any) -> Any:
+    if isinstance(v, dict) and not isinstance(v, ImmutablePayloadDict):
+        return ImmutablePayloadDict(v)
+    elif isinstance(v, (list, tuple)):
+        return tuple(_deep_freeze(x) for x in v)
+    elif isinstance(v, (set, frozenset)):
+        return frozenset(_deep_freeze(x) for x in v)
+    return v
+
+
 class ImmutablePayloadDict(dict[str, Any]):
     """Dict subclass that prevents item assignment and deletion after initialization, enforcing event payload immutability while supporting deepcopy/serialization."""
 
@@ -15,12 +25,7 @@ class ImmutablePayloadDict(dict[str, Any]):
         super().__init__()
         temp = dict(*args, **kwargs)
         for k, v in temp.items():
-            if isinstance(v, dict) and not isinstance(v, ImmutablePayloadDict):
-                super().__setitem__(k, ImmutablePayloadDict(v))
-            elif isinstance(v, (list, set)):
-                super().__setitem__(k, tuple(v))
-            else:
-                super().__setitem__(k, v)
+            super().__setitem__(k, _deep_freeze(v))
         self._frozen = True
 
     def __setitem__(self, key: Any, value: Any) -> None:
@@ -89,9 +94,11 @@ class Event:
                 f"<= event_timestamp ({self.event_timestamp}) <= processing_timestamp ({self.processing_timestamp}) required."
             )
 
-        # Freeze payload into ImmutablePayloadDict
+        # Deep freeze payload into ImmutablePayloadDict
         if not isinstance(self.payload, ImmutablePayloadDict):
             object.__setattr__(self, "payload", ImmutablePayloadDict(self.payload))
+        if not isinstance(self.reason_codes, tuple):
+            object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
 
 
 class AggregateVersionTracker:

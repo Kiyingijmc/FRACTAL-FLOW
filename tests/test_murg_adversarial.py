@@ -159,6 +159,8 @@ def test_murg_025_026_dormant_market_protection_invariant() -> None:
 
 
 def test_fabricated_murg_context_cannot_authorize_entry() -> None:
+    from src.fractal_flow.domain.murg import GLOBAL_MURG_ISSUER
+
     engine = EntryPolicyEngine()
     # Fabricated active context during closed session
     fab_ctx = ActiveMarketContext(
@@ -176,6 +178,52 @@ def test_fabricated_murg_context_cannot_authorize_entry() -> None:
         market_context=fab_ctx,
     )
     assert model == EntryModel.NO_ENTRY
+
+    # Fabricated context with forged provenance token fails validation
+    forged_ctx = ActiveMarketContext(
+        canonical_id="EURUSD",
+        activation_state="ACTIVE",
+        entry_analysis_enabled=True,
+        is_tradable_session=True,
+        broker_constraints={"supported_order_types": ["MARKET_BUY"]},
+        producer_id="FAKE_PRODUCER",
+        provenance_token="BAD_TOKEN",
+    )
+    assert GLOBAL_MURG_ISSUER.validate_context(forged_ctx) is False
+
+
+def test_authoritative_murg_issuer_issuance_and_validation() -> None:
+    from src.fractal_flow.domain.murg import (
+        AuthoritativeMURGIssuer,
+        MarketActivationDecision,
+    )
+
+    catalog = make_catalog()
+    desc = catalog.get_descriptor("EURUSD")
+    assert desc is not None
+
+    issuer = AuthoritativeMURGIssuer()
+    session = MarketSessionContext(
+        session_state="OPEN",
+        broker_server_time_ns=1000,
+        time_to_close_ns=10000,
+        is_tradable_session=True,
+    )
+    decision = MarketActivationDecision(
+        canonical_id="EURUSD",
+        activation_state="ACTIVE",
+        reason_codes=[],
+        priority_score=90.0,
+        entry_analysis_enabled=True,
+        position_monitoring_enabled=True,
+        pending_order_monitoring_enabled=True,
+    )
+
+    valid_ctx = issuer.issue_context(decision, desc, session, current_time_ns=1000)
+    assert issuer.validate_context(valid_ctx, current_time_ns=1000) is True
+
+    # Expired context fails validation
+    assert issuer.validate_context(valid_ctx, current_time_ns=400_000_000_000) is False
 
 
 def test_fabricated_lineage_cannot_authorize_execution() -> None:

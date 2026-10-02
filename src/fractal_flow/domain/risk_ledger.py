@@ -136,19 +136,14 @@ class OpportunityRiskLedger:
         if operation == LedgerOperation.RESERVE:
             if amt_dec > self.remaining_risk:
                 raise AccountingInvariantException(f"Reserve {amount} exceeds remaining risk {self.remaining_risk}")
-            self.reserved_risk += amt_dec
             if reference_id in self._active_reservations:
-                if self._active_reservations[reference_id]["state"] in (
-                    "RELEASED",
-                    "EXPIRED",
-                    "CANCELLED",
-                    "COMMITTED",
-                ):
+                res_info = self._active_reservations[reference_id]
+                if res_info["state"] != "RESERVED":
                     raise AccountingInvariantException(
-                        f"Cannot reserve on terminal/inactive reservation '{reference_id}' in state {self._active_reservations[reference_id]['state']}"
+                        f"Cannot reserve on reservation '{reference_id}' in state {res_info['state']}"
                     )
-                self._active_reservations[reference_id]["amount"] += amt_dec
-                self._active_reservations[reference_id]["volume"] += vol_dec
+                res_info["amount"] += amt_dec
+                res_info["volume"] += vol_dec
             else:
                 self._active_reservations[reference_id] = {
                     "amount": amt_dec,
@@ -156,44 +151,58 @@ class OpportunityRiskLedger:
                     "state": "RESERVED",
                     "causation_id": causation_id,
                 }
+            self.reserved_risk += amt_dec
 
         elif operation == LedgerOperation.ALLOCATE:
-            if amt_dec > self.remaining_risk + self.reserved_risk:
-                raise AccountingInvariantException(
-                    f"Allocate {amount} exceeds available risk {self.remaining_risk + self.reserved_risk}"
-                )
-            if vol_dec > self.remaining_volume:
-                raise AccountingInvariantException(
-                    f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
-                )
-
-            # Deduct from specific reservation if tracked
             if reference_id in self._active_reservations:
                 res_info = self._active_reservations[reference_id]
-                if res_info["state"] in ("RELEASED", "EXPIRED", "CANCELLED"):
+                if res_info["state"] != "RESERVED":
                     raise AccountingInvariantException(
-                        f"Cannot allocate from inactive reservation '{reference_id}' in state {res_info['state']}"
+                        f"Cannot ALLOCATE from reservation '{reference_id}' in non-RESERVED state {res_info['state']}"
                     )
-                res_amt = res_info["amount"]
-                deduct = min(res_amt, amt_dec)
-                res_info["amount"] -= deduct
+                if amt_dec > res_info["amount"]:
+                    raise AccountingInvariantException(
+                        f"Allocate amount {amount} exceeds reserved amount {res_info['amount']}"
+                    )
+                if vol_dec > self.remaining_volume:
+                    raise AccountingInvariantException(
+                        f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
+                    )
+                res_info["amount"] -= amt_dec
                 res_info["state"] = "ALLOCATED"
-                self.reserved_risk -= deduct
-            elif self.reserved_risk >= amt_dec:
                 self.reserved_risk -= amt_dec
+                self.allocated_risk += amt_dec
+                self.allocated_volume += vol_dec
             else:
-                self.reserved_risk = Decimal("0.0")
-
-            self.allocated_risk += amt_dec
-            self.allocated_volume += vol_dec
+                if amt_dec > self.remaining_risk:
+                    raise AccountingInvariantException(
+                        f"Allocate {amount} exceeds remaining risk {self.remaining_risk}"
+                    )
+                if vol_dec > self.remaining_volume:
+                    raise AccountingInvariantException(
+                        f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
+                    )
+                self.allocated_risk += amt_dec
+                self.allocated_volume += vol_dec
+                self._active_reservations[reference_id] = {
+                    "amount": amt_dec,
+                    "volume": vol_dec,
+                    "state": "ALLOCATED",
+                    "causation_id": causation_id,
+                }
 
         elif operation in (LedgerOperation.CONSUME, LedgerOperation.COMMIT):
+            if reference_id in self._active_reservations:
+                res_info = self._active_reservations[reference_id]
+                if res_info["state"] != "ALLOCATED":
+                    raise AccountingInvariantException(
+                        f"Cannot {operation.value} reservation '{reference_id}' in state {res_info['state']}"
+                    )
+                res_info["state"] = "COMMITTED"
             if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
                 raise AccountingInvariantException(
                     f"Consume/Commit {amount}/{volume} exceeds allocated risk {self.allocated_risk} / vol {self.allocated_volume}"
                 )
-            if reference_id in self._active_reservations:
-                self._active_reservations[reference_id]["state"] = "COMMITTED"
             self.allocated_risk -= amt_dec
             self.allocated_volume -= vol_dec
             self.consumed_risk += amt_dec
@@ -205,39 +214,33 @@ class OpportunityRiskLedger:
             LedgerOperation.EXPIRE,
             LedgerOperation.CANCEL,
         ):
-            # Check if releasing/expiring/cancelling an active reservation
             if reference_id in self._active_reservations:
                 res_info = self._active_reservations[reference_id]
-                if res_info["state"] in ("RELEASED", "EXPIRED", "CANCELLED"):
+                cur_state = res_info["state"]
+                if cur_state in ("RELEASED", "EXPIRED", "CANCELLED", "COMMITTED", "ROLLED_BACK"):
                     raise AccountingInvariantException(
-                        f"Cannot {operation.value} already terminal reservation '{reference_id}' in state {res_info['state']}"
-                    )
-                if res_info["state"] == "COMMITTED":
-                    raise AccountingInvariantException(
-                        f"Cannot {operation.value} committed reservation '{reference_id}'"
+                        f"Cannot {operation.value} terminal reservation '{reference_id}' in state {cur_state}"
                     )
 
-                res_amt = res_info["amount"]
-                if amt_dec > res_amt and res_info["state"] == "RESERVED":
-                    raise AccountingInvariantException(
-                        f"Cannot {operation.value} {amt_dec} for reservation '{reference_id}': exceeds active reservation amount {res_amt}"
-                    )
-
-                if res_info["state"] == "RESERVED":
+                if cur_state == "RESERVED":
+                    if amt_dec > res_info["amount"]:
+                        raise AccountingInvariantException(
+                            f"Cannot {operation.value} {amt_dec} for reservation '{reference_id}': exceeds active reserved amount {res_info['amount']}"
+                        )
                     self.reserved_risk -= amt_dec
-                elif res_info["state"] == "ALLOCATED":
+                    res_info["amount"] -= amt_dec
+                    if res_info["amount"] == Decimal("0.0"):
+                        res_info["state"] = operation.value
+
+                elif cur_state == "ALLOCATED":
                     if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
                         raise AccountingInvariantException(
                             f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"
                         )
                     self.allocated_risk -= amt_dec
                     self.allocated_volume -= vol_dec
-
-                res_info["amount"] -= min(res_info["amount"], amt_dec)
-                if res_info["amount"] == Decimal("0.0"):
-                    res_info["state"] = operation.value
+                    res_info["state"] = operation.value if operation != LedgerOperation.ROLLBACK else "ROLLED_BACK"
             else:
-                # Otherwise releasing allocated risk
                 if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
                     raise AccountingInvariantException(
                         f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"

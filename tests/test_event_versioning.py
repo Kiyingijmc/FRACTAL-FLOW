@@ -48,9 +48,26 @@ def test_event_schema_parity_with_yaml() -> None:
 
 def test_event_deep_payload_immutability() -> None:
     """Verifies that Event payloads are deeply frozen as ImmutablePayloadDict and cannot be mutated post-issuance."""
-    evt = make_event(1)
+    evt = Event(
+        event_id="evt_1",
+        event_type="TEST_EVENT",
+        aggregate_type="Opportunity",
+        aggregate_id="agg_1",
+        root_id="root_1",
+        parent_id="parent_1",
+        aggregate_version=1,
+        source_timestamp=100,
+        event_timestamp=100,
+        processing_timestamp=100,
+        payload={"data": "test", "nested": {"key": "value", "list": [1, {"deep": 2}], "set": {3, 4}}},
+        reason_codes=["REASON_1"],
+    )
     assert isinstance(evt.payload, ImmutablePayloadDict)
     assert isinstance(evt.payload["nested"], ImmutablePayloadDict)
+    assert isinstance(evt.payload["nested"]["list"], tuple)
+    assert isinstance(evt.payload["nested"]["list"][1], ImmutablePayloadDict)
+    assert isinstance(evt.payload["nested"]["set"], frozenset)
+    assert isinstance(evt.reason_codes, tuple)
 
     # Attempting to mutate payload raises TypeError
     with pytest.raises(TypeError):
@@ -58,6 +75,9 @@ def test_event_deep_payload_immutability() -> None:
 
     with pytest.raises(TypeError):
         evt.payload["nested"]["key"] = "mutated"  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        evt.payload["nested"]["list"][1]["deep"] = 99  # type: ignore[index]
 
 
 def test_event_temporal_ordering_validation() -> None:

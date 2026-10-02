@@ -57,15 +57,53 @@ class Lineage:
 
         # Independent parent state & version verification
         if authoritative_parent is not None:
+            # Verify parent identity matching if parent ID attribute is present
+            parent_id_attr = (
+                getattr(authoritative_parent, "id", None)
+                or getattr(authoritative_parent, "parent_id", None)
+                or getattr(authoritative_parent, "canonical_id", None)
+                or getattr(authoritative_parent, "decision_id", None)
+                or getattr(authoritative_parent, "opportunity_id", None)
+                or getattr(authoritative_parent, "signal_id", None)
+            )
+            if parent_id_attr is not None and str(parent_id_attr) != self.parent_id:
+                raise LineageInvalidException(
+                    f"Parent ID mismatch: lineage parent_id='{self.parent_id}', "
+                    f"authoritative parent ID='{parent_id_attr}'."
+                )
+
+            # Verify root identity matching if root ID attribute is present
+            root_id_attr = getattr(authoritative_parent, "root_id", None)
+            if root_id_attr is not None and str(root_id_attr) != self.root_id:
+                raise LineageInvalidException(
+                    f"Root ID mismatch: lineage root_id='{self.root_id}', "
+                    f"authoritative parent root_id='{root_id_attr}'."
+                )
+
+            # Verify parent tier matching if tier attribute is present
+            tier_attr = getattr(authoritative_parent, "tier", None) or getattr(
+                authoritative_parent, "parent_tier", None
+            )
+            if tier_attr is not None and str(tier_attr) != self.parent_tier:
+                raise LineageInvalidException(
+                    f"Parent tier mismatch: lineage parent_tier='{self.parent_tier}', "
+                    f"authoritative parent tier='{tier_attr}'."
+                )
+
             # Verify parent object validity attribute if present
-            if hasattr(authoritative_parent, "validity") and not getattr(authoritative_parent, "validity"):
+            if hasattr(authoritative_parent, "validity") and not bool(getattr(authoritative_parent, "validity")):
                 raise LineageInvalidException(
                     f"Parent {self.parent_id} ({self.parent_tier}) object is marked invalid. Child cannot execute."
                 )
-            if hasattr(authoritative_parent, "is_valid") and not getattr(authoritative_parent, "is_valid"):
+            if hasattr(authoritative_parent, "is_valid") and not bool(getattr(authoritative_parent, "is_valid")):
                 raise LineageInvalidException(
                     f"Parent {self.parent_id} ({self.parent_tier}) object is marked invalid. Child cannot execute."
                 )
+            if hasattr(authoritative_parent, "state"):
+                parent_state = str(getattr(authoritative_parent, "state"))
+                if "INVALID" in parent_state or "EXPIRED" in parent_state or "STALE" in parent_state:
+                    raise LineageInvalidException(f"Parent {self.parent_id} is in invalid state '{parent_state}'.")
+
             # Verify parent object version attribute if present
             if hasattr(authoritative_parent, "version"):
                 parent_obj_ver = getattr(authoritative_parent, "version")

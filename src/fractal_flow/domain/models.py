@@ -196,7 +196,13 @@ class TradeDecision:
     lineage_version: int = 1
     authorized: bool = False
 
-    def is_authorized(self, current_time_ns: int | None = None) -> bool:
+    def is_authorized(
+        self,
+        current_time_ns: int | None = None,
+        lineage: Any | None = None,
+        murg_context: Any | None = None,
+        risk_ledger: Any | None = None,
+    ) -> bool:
         """Evaluates trade decision authorization in a fail-closed manner checking all required prerequisites."""
 
         # 1. Base explicit authorization flag
@@ -235,6 +241,25 @@ class TradeDecision:
             "0.0"
         ):
             return False
+
+        # 8. Independent Lineage Validation
+        if lineage is not None:
+            try:
+                lineage.validate_child_action()
+            except Exception:
+                return False
+
+        # 9. Authoritative MURG Context Validation
+        if murg_context is not None:
+            from src.fractal_flow.domain.murg import GLOBAL_MURG_ISSUER
+
+            if not GLOBAL_MURG_ISSUER.validate_context(murg_context, current_time_ns=current_time_ns or 0):
+                return False
+
+        # 10. Risk Ledger Active Reservation Check
+        if risk_ledger is not None:
+            if getattr(risk_ledger, "remaining_risk", Decimal("0.0")) < Decimal("0.0"):
+                return False
 
         return True
 
