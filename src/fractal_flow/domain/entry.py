@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from src.fractal_flow.domain.models import Direction, OrderSide
 from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY
+from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
 
 
 @overload
@@ -84,6 +85,12 @@ class ActiveMarketContext:
     entry_analysis_enabled: bool
     is_tradable_session: bool
     broker_constraints: Dict[str, Any]
+    producer_id: str = "MURG_AUTHORITY_ROOT"
+    broker: str = "GENERIC_BROKER"
+    generation: int = 1
+    issued_at_ns: int = 0
+    expires_at_ns: int = 0
+    provenance_token: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,67 +106,157 @@ class EntryTrigger:
             object.__setattr__(self, "secondary_price", _to_decimal(self.secondary_price))
 
 
-@dataclass
 class OpportunityRiskBudget:
-    opportunity_id: str
-    total_risk_currency: Decimal
-    total_allowed_volume: Decimal
-    allocated_risk: Decimal = field(default_factory=lambda: Decimal("0.0"))
-    allocated_volume: Decimal = field(default_factory=lambda: Decimal("0.0"))
-    reserved_risk: Decimal = field(default_factory=lambda: Decimal("0.0"))
+    """Read-only projection and state-delegating view over OpportunityRiskLedger.
 
-    def __post_init__(self) -> None:
-        self.total_risk_currency = _to_decimal(self.total_risk_currency)
-        self.total_allowed_volume = _to_decimal(self.total_allowed_volume)
-        self.allocated_risk = _to_decimal(self.allocated_risk)
-        self.allocated_volume = _to_decimal(self.allocated_volume)
-        self.reserved_risk = _to_decimal(self.reserved_risk)
+    Ensures OpportunityRiskLedger remains the single authoritative mutable risk state machine.
+    """
+
+    def __init__(
+        self,
+        opportunity_id: str,
+        total_risk_currency: Union[Decimal, float, int, str],
+        total_allowed_volume: Union[Decimal, float, int, str],
+        allocated_risk: Union[Decimal, float, int, str] = Decimal("0.0"),
+        allocated_volume: Union[Decimal, float, int, str] = Decimal("0.0"),
+        reserved_risk: Union[Decimal, float, int, str] = Decimal("0.0"),
+        ledger: Optional[OpportunityRiskLedger] = None,
+    ) -> None:
+        self.opportunity_id = opportunity_id
+        self.total_risk_currency = _to_decimal(total_risk_currency) or Decimal("0.0")
+        self.total_allowed_volume = _to_decimal(total_allowed_volume) or Decimal("0.0")
+
+        if ledger is not None:
+            self._ledger = ledger
+        else:
+            self._ledger = OpportunityRiskLedger(
+                budget_id=opportunity_id,
+                opportunity_id=opportunity_id,
+                total_risk=self.total_risk_currency,
+                total_volume=self.total_allowed_volume,
+            )
+            init_res = _to_decimal(reserved_risk) or Decimal("0.0")
+            init_alloc_risk = _to_decimal(allocated_risk) or Decimal("0.0")
+            init_alloc_vol = _to_decimal(allocated_volume) or Decimal("0.0")
+
+            if init_res > Decimal("0.0"):
+                self._ledger.record_operation(
+                    entry_id=f"init_res_{opportunity_id}",
+                    operation=LedgerOperation.RESERVE,
+                    amount=init_res,
+                    volume=Decimal("0.0"),
+                    reference_id=f"res_{opportunity_id}",
+                    causation_id="init",
+                    timestamp=0,
+                )
+            if init_alloc_risk > Decimal("0.0") or init_alloc_vol > Decimal("0.0"):
+                ref = f"res_{opportunity_id}" if init_res > Decimal("0.0") else f"alloc_{opportunity_id}"
+                self._ledger.record_operation(
+                    entry_id=f"init_alloc_{opportunity_id}",
+                    operation=LedgerOperation.ALLOCATE,
+                    amount=init_alloc_risk,
+                    volume=init_alloc_vol,
+                    reference_id=ref,
+                    causation_id="init",
+                    timestamp=0,
+                )
+
+    @property
+    def ledger(self) -> OpportunityRiskLedger:
+        return self._ledger
+
+    @property
+    def allocated_risk(self) -> Decimal:
+        return self._ledger.allocated_risk
+
+    @property
+    def allocated_volume(self) -> Decimal:
+        return self._ledger.allocated_volume
+
+    @property
+    def reserved_risk(self) -> Decimal:
+        return self._ledger.reserved_risk
 
     @property
     def remaining_risk(self) -> Decimal:
-        tot = self.total_risk_currency
-        alloc = self.allocated_risk
-        res = self.reserved_risk
-        return max(Decimal("0.0"), tot - alloc - res)
+        return self._ledger.remaining_risk
 
     @property
     def remaining_volume(self) -> Decimal:
-        return max(Decimal("0.0"), self.total_allowed_volume - self.allocated_volume)
+        return self._ledger.remaining_volume
 
-    def reserve(self, amount: Union[Decimal, float]) -> None:
-        amt_dec = _to_decimal(amount)
+    def reserve(self, amount: Union[Decimal, float, int, str], reference_id: Optional[str] = None) -> None:
+        amt_dec = _to_decimal(amount) or Decimal("0.0")
         if amt_dec <= Decimal("0.0"):
             raise ValueError("Reservation amount must be positive")
-        if amt_dec > self.remaining_risk:
-            raise ValueError(f"Cannot reserve {amount}: exceeds remaining risk {self.remaining_risk}")
-        self.reserved_risk += amt_dec
+        ref_id = reference_id or f"res_{self.opportunity_id}_{len(self._ledger.entries) + 1}"
+        import time
 
-    def allocate(self, amount: Union[Decimal, float], volume: Union[Decimal, float]) -> None:
-        req_risk = _to_decimal(amount)
-        req_vol = _to_decimal(volume)
-        if req_risk < Decimal("0.0") or req_vol < Decimal("0.0"):
-            raise ValueError("Allocation amount and volume must be non-negative")
-        if req_risk > self.remaining_risk + self.reserved_risk:
-            raise ValueError(f"Cannot allocate risk {amount}: exceeds total risk budget {self.total_risk_currency}")
-        if req_vol > self.remaining_volume:
-            raise ValueError(
-                f"Cannot allocate volume {volume}: exceeds total volume budget {self.total_allowed_volume}"
+        ts = int(time.time())
+        try:
+            self._ledger.record_operation(
+                entry_id=f"entry_{ref_id}_{ts}_{len(self._ledger.entries)}",
+                operation=LedgerOperation.RESERVE,
+                amount=amt_dec,
+                volume=Decimal("0.0"),
+                reference_id=ref_id,
+                causation_id="budget_reserve",
+                timestamp=ts,
             )
+        except AccountingInvariantException as e:
+            raise ValueError(str(e)) from e
 
-        # If reserved, deduct from reserved first
-        if self.reserved_risk >= req_risk:
-            self.reserved_risk -= req_risk
-        else:
-            self.reserved_risk = Decimal("0.0")
+    def allocate(
+        self,
+        amount: Union[Decimal, float, int, str],
+        volume: Union[Decimal, float, int, str],
+        reference_id: Optional[str] = None,
+    ) -> None:
+        amt_dec = _to_decimal(amount) or Decimal("0.0")
+        vol_dec = _to_decimal(volume) or Decimal("0.0")
+        if amt_dec < Decimal("0.0") or vol_dec < Decimal("0.0"):
+            raise ValueError("Allocation amount and volume must be non-negative")
+        ref_id = reference_id or f"alloc_{self.opportunity_id}_{len(self._ledger.entries) + 1}"
+        import time
 
-        self.allocated_risk += req_risk
-        self.allocated_volume += req_vol
+        ts = int(time.time())
+        try:
+            self._ledger.record_operation(
+                entry_id=f"entry_{ref_id}_{ts}_{len(self._ledger.entries)}",
+                operation=LedgerOperation.ALLOCATE,
+                amount=amt_dec,
+                volume=vol_dec,
+                reference_id=ref_id,
+                causation_id="budget_allocate",
+                timestamp=ts,
+            )
+        except AccountingInvariantException as e:
+            raise ValueError(str(e)) from e
 
-    def release(self, amount: Union[Decimal, float], volume: Union[Decimal, float]) -> None:
-        rel_risk = _to_decimal(amount)
-        rel_vol = _to_decimal(volume)
-        self.allocated_risk = max(Decimal("0.0"), self.allocated_risk - rel_risk)
-        self.allocated_volume = max(Decimal("0.0"), self.allocated_volume - rel_vol)
+    def release(
+        self,
+        amount: Union[Decimal, float, int, str],
+        volume: Union[Decimal, float, int, str],
+        reference_id: Optional[str] = None,
+    ) -> None:
+        amt_dec = _to_decimal(amount) or Decimal("0.0")
+        vol_dec = _to_decimal(volume) or Decimal("0.0")
+        ref_id = reference_id or f"rel_{self.opportunity_id}_{len(self._ledger.entries) + 1}"
+        import time
+
+        ts = int(time.time())
+        try:
+            self._ledger.record_operation(
+                entry_id=f"entry_{ref_id}_{ts}_{len(self._ledger.entries)}",
+                operation=LedgerOperation.RELEASE,
+                amount=amt_dec,
+                volume=vol_dec,
+                reference_id=ref_id,
+                causation_id="budget_release",
+                timestamp=ts,
+            )
+        except AccountingInvariantException as e:
+            raise ValueError(str(e)) from e
 
 
 @dataclass(frozen=True)

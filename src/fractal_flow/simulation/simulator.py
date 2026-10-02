@@ -102,10 +102,20 @@ class DeterministicBrokerSimulator:
         return side_obj.value if hasattr(side_obj, "value") else str(side_obj)
 
     def arm_entry_plan(self, plan: EntryPlan) -> str:
-        """Arms a conditional pending entry plan for continuous evaluation."""
+        """Arms a conditional pending entry plan for continuous evaluation with production authorization alignment."""
         if plan.news_state == "NEWS_LOCKDOWN":
             plan.state = "ENTRY_INVALIDATED"
             raise ValueError("Cannot arm entry plan during NEWS_LOCKDOWN")
+        if plan.risk_state in ("RISK_HALT", "HALT", "RISK_REJECT"):
+            plan.state = "ENTRY_INVALIDATED"
+            raise ValueError(f"Cannot arm entry plan during {plan.risk_state}")
+        if plan.tradeability_state not in ("TRADEABILITY_PASS", "PASS"):
+            plan.state = "ENTRY_INVALIDATED"
+            raise ValueError(f"Cannot arm entry plan with tradeability state {plan.tradeability_state}")
+        if plan.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW"):
+            plan.state = "ENTRY_INVALIDATED"
+            raise ValueError(f"Cannot arm entry plan with portfolio state {plan.portfolio_state}")
+
         plan.state = "ENTRY_ARMED"
         self.pending_entry_plans[plan.entry_plan_id] = plan
         return plan.state
@@ -120,6 +130,18 @@ class DeterministicBrokerSimulator:
 
             # Continuous Conditional Validation Checks
             if plan.news_state == "NEWS_LOCKDOWN":
+                plan.state = "ENTRY_INVALIDATED"
+                continue
+
+            if plan.risk_state in ("RISK_HALT", "HALT", "RISK_REJECT"):
+                plan.state = "ENTRY_INVALIDATED"
+                continue
+
+            if plan.tradeability_state not in ("TRADEABILITY_PASS", "PASS"):
+                plan.state = "ENTRY_INVALIDATED"
+                continue
+
+            if plan.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW"):
                 plan.state = "ENTRY_INVALIDATED"
                 continue
 

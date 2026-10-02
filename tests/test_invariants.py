@@ -14,7 +14,22 @@ from src.fractal_flow.domain.authority import (
 from src.fractal_flow.domain.broker import BrokerConstraints
 
 
-def test_invariant_pde_cannot_execute() -> None:
+def test_invariant_1_pipeline_data_flow_layers() -> None:
+    """AGENTS.md Invariant #1: Raw market data flows strictly Layer 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6."""
+    # Verify that layering violations (e.g. unknown engine or unapproved cross-layer action) fail closed
+    with pytest.raises(AuthorityViolationException) as exc_info:
+        AuthorityMatrix.verify_capability("Layer0_Unknown", "WRITE_PDE_STATE")
+    assert "Authority Violation" in str(exc_info.value)
+
+
+def test_invariant_2_strategy_engines_no_direct_orders() -> None:
+    """AGENTS.md Invariant #2: Strategy engines must not directly place MT5 orders."""
+    with pytest.raises(AuthorityViolationException) as exc_info:
+        AuthorityMatrix.verify_capability("PDE", "SUBMIT_ORDER")
+    assert "Authority Violation" in str(exc_info.value)
+
+
+def test_invariant_3_pde_cannot_call_ordersend() -> None:
     """AGENTS.md Invariant #3: PDE cannot call OrderSend / create execution intent."""
     with pytest.raises(AuthorityViolationException) as exc_info:
         AuthorityMatrix.verify_capability("PDE", "CREATE_EXECUTION_INTENT")
@@ -64,3 +79,14 @@ def test_invariant_broker_constraints_stops_level() -> None:
     with pytest.raises(ValueError) as exc_info:
         broker.validate_stop_distance(sl_distance_pips=3.0)  # Below 5.0 pips
     assert "below broker stops_level" in str(exc_info.value)
+
+
+def test_invariant_42_constitutional_rules_never_optimized() -> None:
+    """AGENTS.md Invariant #42: Constitutional rules are never optimized away."""
+    with pytest.raises(AuthorityViolationException) as exc_info:
+        AuthorityMatrix.verify_capability("PDE", "ALTER_RISK_PARAMETERS")
+    assert "Authority Violation" in str(exc_info.value)
+
+
+def test_invariant_pde_cannot_execute() -> None:
+    test_invariant_3_pde_cannot_call_ordersend()

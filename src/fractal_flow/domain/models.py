@@ -196,13 +196,92 @@ class TradeDecision:
     lineage_version: int = 1
     authorized: bool = False
 
-    def is_authorized(self) -> bool:
-        """NEWS_LOCKDOWN is a hard authorization boundary that blocks trade authorization."""
-        if self.news_state == "NEWS_LOCKDOWN":
+    def is_authorized(
+        self,
+        lineage: Any = None,
+        murg_context: Any = None,
+        risk_ledger: Any = None,
+        reservation_id: str = "",
+        current_time_ns: int | None = None,
+    ) -> bool:
+        """Evaluates trade decision authorization in a fail-closed manner requiring all core security dependencies.
+
+        - lineage, murg_context, risk_ledger, and reservation_id are required parameters.
+        - Omission or invalidity of any security dependency fails authorization closed (returns False).
+        """
+
+        # 1. Mandatory Context Presence Checks - Fail closed if any required security context is omitted
+        if lineage is None or murg_context is None or risk_ledger is None or not reservation_id:
             return False
-        return (
-            self.authorized and self.tradeability == "TRADEABILITY_PASS" and self.portfolio_state == "PORTFOLIO_ALLOW"
-        )
+
+        # 2. Base explicit authorization flag
+        if not self.authorized:
+            return False
+
+        # 3. News Lockdown Veto
+        if self.news_state in ("NEWS_LOCKDOWN", "LOCKDOWN"):
+            return False
+
+        # 4. Risk State Veto
+        if self.risk_state not in ("RISK_NORMAL", "NORMAL", "RISK_PASS"):
+            return False
+
+        # 5. Portfolio State & Arbitration Veto
+        if self.portfolio_state not in ("PORTFOLIO_ALLOW", "ALLOW") or self.arbitration_result not in (
+            "ALLOW",
+            "PORTFOLIO_ALLOW",
+        ):
+            return False
+
+        # 6. Tradeability Assessment Veto
+        if self.tradeability not in ("TRADEABILITY_PASS", "PASS"):
+            return False
+
+        # 7. TTL / Expiration Check
+        if self.ttl_ns <= 0:
+            return False
+        if current_time_ns is not None:
+            expires_at = self.quote_timestamp + self.ttl_ns
+            if current_time_ns >= expires_at:
+                return False
+
+        # 8. Risk / Size Sanity Check
+        req_risk = Decimal(str(self.approved_risk))
+        if req_risk <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal("0.0"):
+            return False
+
+        # 9. Independent Lineage Validation
+        try:
+            lineage.validate_child_action(authoritative_parent=getattr(self, "parent_object", None))
+        except Exception:
+            return False
+
+        # 10. Authoritative MURG Context Validation
+        from src.fractal_flow.domain.murg import GLOBAL_MURG_ISSUER
+
+        if not GLOBAL_MURG_ISSUER.validate_context(murg_context, current_time_ns=current_time_ns or 0):
+            return False
+
+        # 11. Explicit Reservation-to-Decision Binding Validation
+        active_reservations = getattr(risk_ledger, "_active_reservations", {})
+        if reservation_id not in active_reservations:
+            return False
+
+        res_info = active_reservations[reservation_id]
+        if res_info.get("state") != "RESERVED":
+            return False
+
+        # Verify opportunity identity match on risk ledger
+        ledger_opp_id = getattr(risk_ledger, "opportunity_id", None)
+        if ledger_opp_id is not None and ledger_opp_id != self.opportunity_id:
+            return False
+
+        # Verify reserved amount is sufficient for requested decision risk
+        reserved_amt = res_info.get("amount", Decimal("0.0"))
+        if reserved_amt < req_risk:
+            return False
+
+        return True
 
 
 @dataclass

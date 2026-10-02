@@ -1,8 +1,11 @@
 """User Market Universe, Session Context, Account Resource Context, and Resource Governor for FRACTAL FLOW MURG."""
 
+import hashlib
+import hmac
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum, unique
+from typing import Any
 
 from src.fractal_flow.domain.reason_codes import ReasonCode
 
@@ -201,6 +204,109 @@ class MarketProcessingCost:
         return float(
             Decimal(str(self.base_cost)) + Decimal(str(self.active_timeframes_cost)) + Decimal(str(self.indicator_cost))
         )
+
+
+class AuthoritativeMURGIssuer:
+    """Authoritative MURG Context Issuer producing provenance-signed ActiveMarketContext objects."""
+
+    def __init__(
+        self,
+        issuer_id: str = "MURG_AUTHORITY_ROOT",
+        secret_key: bytes = b"FRACTAL_FLOW_MURG_PROVENANCE_KEY_2026",
+    ) -> None:
+        self.issuer_id = issuer_id
+        self._secret_key = secret_key
+
+    def _compute_provenance_token(
+        self,
+        canonical_id: str,
+        broker: str,
+        activation_state: str,
+        generation: int,
+        issued_at_ns: int,
+        expires_at_ns: int,
+    ) -> str:
+        msg = f"{self.issuer_id}|{canonical_id}|{broker}|{activation_state}|{generation}|{issued_at_ns}|{expires_at_ns}"
+        return hmac.new(self._secret_key, msg.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def issue_context(
+        self,
+        decision: MarketActivationDecision,
+        descriptor: InstrumentDescriptor,
+        session: MarketSessionContext,
+        current_time_ns: int,
+        generation: int = 1,
+        ttl_ns: int = 300_000_000_000,
+    ) -> Any:
+        from src.fractal_flow.domain.entry import ActiveMarketContext
+
+        issued_at_ns = current_time_ns
+        expires_at_ns = current_time_ns + ttl_ns
+        broker = descriptor.identity.broker
+        canonical_id = descriptor.identity.canonical_id
+
+        token = self._compute_provenance_token(
+            canonical_id=canonical_id,
+            broker=broker,
+            activation_state=decision.activation_state,
+            generation=generation,
+            issued_at_ns=issued_at_ns,
+            expires_at_ns=expires_at_ns,
+        )
+
+        return ActiveMarketContext(
+            canonical_id=canonical_id,
+            activation_state=decision.activation_state,
+            entry_analysis_enabled=decision.entry_analysis_enabled,
+            is_tradable_session=session.is_tradable_session,
+            broker_constraints={
+                "supported_order_types": descriptor.supported_order_types,
+                "supported_fill_policies": descriptor.supported_fill_policies,
+                "tick_size": descriptor.tick_size,
+                "min_volume": descriptor.min_volume,
+                "max_volume": descriptor.max_volume,
+                "volume_step": descriptor.volume_step,
+                "stops_level": descriptor.stops_level,
+                "freeze_level": descriptor.freeze_level,
+            },
+            producer_id=self.issuer_id,
+            broker=broker,
+            generation=generation,
+            issued_at_ns=issued_at_ns,
+            expires_at_ns=expires_at_ns,
+            provenance_token=token,
+        )
+
+    def validate_context(self, context: Any, current_time_ns: int = 0) -> bool:
+        if not getattr(context, "provenance_token", "") or not getattr(context, "producer_id", ""):
+            return False
+        if context.producer_id != self.issuer_id:
+            return False
+        if current_time_ns > 0 and current_time_ns > context.expires_at_ns:
+            return False
+
+        expected_token = self._compute_provenance_token(
+            canonical_id=context.canonical_id,
+            broker=context.broker,
+            activation_state=context.activation_state,
+            generation=context.generation,
+            issued_at_ns=context.issued_at_ns,
+            expires_at_ns=context.expires_at_ns,
+        )
+        if not hmac.compare_digest(expected_token, context.provenance_token):
+            return False
+
+        if (
+            context.activation_state != "ACTIVE"
+            or not context.entry_analysis_enabled
+            or not context.is_tradable_session
+        ):
+            return False
+
+        return True
+
+
+GLOBAL_MURG_ISSUER = AuthoritativeMURGIssuer()
 
 
 class ResourceGovernor:
