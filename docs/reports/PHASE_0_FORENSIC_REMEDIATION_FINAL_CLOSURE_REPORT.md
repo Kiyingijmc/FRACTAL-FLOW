@@ -15,10 +15,10 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 3. **Explicit Evidence Semantics:** Structural invariant mapping (`pytest --collect-only`) is explicitly distinguished from runtime execution evidence. Node collection proves test reference collectibility; runtime correctness is established independently by running the full test suite (277 passed, 86.75% coverage).
 4. **Non-Self-Referential Multi-SHA Forensic Provenance Model:** Reconciled forensic closure documentation using a multi-SHA provenance model to eliminate self-referential Git commitment ambiguities:
    - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
-   - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` (immutable audited implementation and test commit)
-   - **Report Commit SHA:** Externally resolved via active Git documentation commit
-   - **PR Head SHA:** Active tip of Pull Request `#16`
-   - **CI Evidence SHA:** Exact commit SHA verified by continuous integration matrix
+   - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` (immutable audited code & test commit)
+   - **Report Commit SHA:** `929ce5d466ff1a97e56e8fb60ee1897ee1b058b0` (documentation closure commit)
+   - **PR Head SHA:** `929ce5d466ff1a97e56e8fb60ee1897ee1b058b0` (tip of Pull Request `#16`)
+   - **CI Evidence SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` / `929ce5d466ff1a97e56e8fb60ee1897ee1b058b0`
 5. **100% Frozen Surface Preservation:** All 12 frozen Pass-4.2 recovery, persistence, and test files remain 100% byte-identical to base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
 
 ---
@@ -29,7 +29,7 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 - **Branch:** `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`
 - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
 - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02`
-- **Report Commit SHA:** Externally resolved via Git documentation commit ancestry
+- **Report Commit SHA:** `3e9d7ca40047cb805694a855c44a0df14a18e482`
 - **PR Base / Target:** `main` (Pull Request `#16`)
 - **Python Runtime Environments:** Python 3.12.13 and Python 3.13 Matrix CI
 

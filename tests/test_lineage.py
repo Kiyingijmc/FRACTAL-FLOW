@@ -251,6 +251,7 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
     from src.fractal_flow.domain.lineage import (
         AuthoritativeParentResolver,
         AuthoritativeParentSeal,
+        GLOBAL_PARENT_RESOLVER,
         Lineage,
     )
     from src.fractal_flow.domain.models import TradeDecision
@@ -363,42 +364,56 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
     wrong_id_parent = MockParent("opp_WRONG", 1, True)
     setattr(wrong_id_parent, "root_id", "root_1")
     setattr(wrong_id_parent, "tier", "OPPORTUNITY")
-    assert not decision.is_authorized(lineage, wrong_id_parent, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_WRONG", 1, wrong_id_parent)
+    seal_wrong_id = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_WRONG", 1)
+    assert not decision.is_authorized(lineage, seal_wrong_id, murg_ctx, ledger, "res_ap", 1000)
 
     # D. Wrong root ID -> False
-    assert not decision.is_authorized(lineage, parent_root_2, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_root2", 1, parent_root_2)
+    seal_wrong_root = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_root2", 1)
+    assert not decision.is_authorized(lineage, seal_wrong_root, murg_ctx, ledger, "res_ap", 1000)
 
     # E. Wrong tier -> False
-    wrong_tier_p = MockParent("opp_A", 1, True)
+    wrong_tier_p = MockParent("opp_A_tier", 1, True)
     setattr(wrong_tier_p, "root_id", "root_1")
     setattr(wrong_tier_p, "tier", "PRIMARY_PULLBACK")
-    assert not decision.is_authorized(lineage, wrong_tier_p, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_tier", 1, wrong_tier_p)
+    seal_wrong_tier = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_tier", 1)
+    assert not decision.is_authorized(lineage, seal_wrong_tier, murg_ctx, ledger, "res_ap", 1000)
 
     # F. Wrong version -> False
-    wrong_ver_p = MockParent("opp_A", 2, True)
+    wrong_ver_p = MockParent("opp_A_ver2", 2, True)
     setattr(wrong_ver_p, "root_id", "root_1")
     setattr(wrong_ver_p, "tier", "OPPORTUNITY")
-    assert not decision.is_authorized(lineage, wrong_ver_p, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_ver2", 2, wrong_ver_p)
+    seal_wrong_ver = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_ver2", 2)
+    assert not decision.is_authorized(lineage, seal_wrong_ver, murg_ctx, ledger, "res_ap", 1000)
 
     # G. Invalid authoritative parent -> False
-    invalid_p = MockParent("opp_A", 1, False)
+    invalid_p = MockParent("opp_A_invalid", 1, False)
     setattr(invalid_p, "root_id", "root_1")
     setattr(invalid_p, "tier", "OPPORTUNITY")
-    assert not decision.is_authorized(lineage, invalid_p, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_invalid", 1, invalid_p)
+    seal_invalid = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_invalid", 1)
+    assert not decision.is_authorized(lineage, seal_invalid, murg_ctx, ledger, "res_ap", 1000)
 
     # H. Expired / stale parent state -> False
-    stale_p = MockParent("opp_A", 1, True)
+    stale_p = MockParent("opp_A_stale", 1, True)
     setattr(stale_p, "root_id", "root_1")
     setattr(stale_p, "tier", "OPPORTUNITY")
     setattr(stale_p, "state", "EXPIRED")
-    assert not decision.is_authorized(lineage, stale_p, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_stale", 1, stale_p)
+    seal_stale = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_stale", 1)
+    assert not decision.is_authorized(lineage, seal_stale, murg_ctx, ledger, "res_ap", 1000)
 
     # I. Revoked / cancelled parent -> False
-    cancelled_p = MockParent("opp_A", 1, True)
+    cancelled_p = MockParent("opp_A_cancelled", 1, True)
     setattr(cancelled_p, "root_id", "root_1")
     setattr(cancelled_p, "tier", "OPPORTUNITY")
     setattr(cancelled_p, "state", "CANCELLED")
-    assert not decision.is_authorized(lineage, cancelled_p, murg_ctx, ledger, "res_ap", 1000)
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_A_cancelled", 1, cancelled_p)
+    seal_cancelled = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A_cancelled", 1)
+    assert not decision.is_authorized(lineage, seal_cancelled, murg_ctx, ledger, "res_ap", 1000)
 
     # J. Caller-controlled validity assertion bypass attempt -> False
     assert not decision.is_authorized(lineage, None, murg_ctx, ledger, "res_ap", 1000)
