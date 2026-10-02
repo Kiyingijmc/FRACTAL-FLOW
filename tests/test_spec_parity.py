@@ -52,7 +52,8 @@ def test_order_types_exact_parity() -> None:
     )
 
 
-def test_states_bidirectional_parity() -> None:
+def test_states_exact_parity() -> None:
+    """Canonical test symbol verifying state registry parity against spec/states.yaml."""
     yaml_path = Path("spec/states.yaml")
     assert yaml_path.exists()
     with open(yaml_path) as f:
@@ -74,6 +75,10 @@ def test_states_bidirectional_parity() -> None:
         f"State machine mismatch! Spec extra: {spec_machines - runtime_machines}, "
         f"Runtime extra: {runtime_machines - spec_machines}"
     )
+
+
+def test_states_bidirectional_parity() -> None:
+    test_states_exact_parity()
 
 
 def test_transitions_destinations_are_valid_canonical_states() -> None:
