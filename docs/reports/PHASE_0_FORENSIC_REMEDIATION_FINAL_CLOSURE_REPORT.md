@@ -13,9 +13,9 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 1. **Mandatory Authoritative Lineage & Seal Provenance:** `TradeDecision.is_authorized()` strictly mandates an `AuthoritativeParentSeal` credential issued exclusively by `AuthoritativeParentResolver`. Raw caller-provided parent objects, fake duck-typed seals, forged seals, or unregistered parent objects are strictly rejected (fail closed).
 2. **Comprehensive Adversarial Matrix (Scenarios A–P):** Implemented and verified an explicit 16-scenario test matrix in `tests/test_lineage.py` covering all lineage failure and attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, seal forgery, registry substitution, version race, cross-opportunity/root substitution, and scenario P proving fail-closed behavior at the trade authorization boundary when resolution/verification is unavailable).
 3. **Explicit Evidence Semantics:** Structural invariant mapping (`pytest --collect-only`) is explicitly distinguished from runtime execution evidence. Node collection proves test reference collectibility; runtime correctness is established independently by running the full test suite (277 passed, 86.88% coverage).
-4. **Non-Self-Referential Multi-SHA Forensic Provenance Model:** Reconciled forensic closure documentation using a multi-SHA provenance model to eliminate self-referential Git commitment ambiguities:
+4. **Non-Self-Referential Multi-SHA Forensic Provenance Model:** Reconciled forensic closure documentation using an immutable multi-SHA provenance model to eliminate self-referential Git commitment ambiguities:
    - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
-   - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` (immutable audited implementation and test commit)
+   - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` (immutable audited code & test commit)
    - **Report Commit SHA:** Externally resolved via active Git documentation commit ancestry
    - **PR Head SHA:** Active tip of Pull Request `#16`
    - **CI Evidence SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` / `b51d29b6d8c5fb51dfb5fdec297e5d702074ef31`
@@ -29,7 +29,7 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 - **Branch:** `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`
 - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
 - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02`
-- **Report Commit SHA:** Externally resolved via Git commit history
+- **Report Commit SHA:** Externally resolved via Git documentation commit ancestry
 - **PR Base / Target:** `main` (Pull Request `#16`)
 - **Python Runtime Environments:** Python 3.12.13 and Python 3.13 Matrix CI
 
