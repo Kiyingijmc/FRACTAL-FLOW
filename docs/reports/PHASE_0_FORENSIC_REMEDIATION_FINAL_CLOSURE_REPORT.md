@@ -8,12 +8,13 @@
 
 ## 1. Executive Summary
 
-A comprehensive, production-grade forensic closure pass has been executed on the `FRACTAL-FLOW` repository. This closure pass resolves all material gaps identified during independent forensic audits:
+A comprehensive, production-grade forensic closure pass has been executed on the `FRACTAL-FLOW` repository. This closure pass resolves all remaining authority, provenance, and metadata gaps identified during independent forensic audits:
 
-1. **Mandatory Authoritative Lineage & Parent Provenance:** `TradeDecision.is_authorized()` now requires an independently resolved `AuthoritativeParentSeal` or authoritative parent object issued by `AuthoritativeParentResolver`. Untrusted or caller-fabricated parent objects fail authorization closed.
-2. **Correct Evidence Semantics:** Structural invariant mapping (`pytest --collect-only`) is explicitly distinguished from runtime execution evidence. Node collection proves test reference collectibility; runtime correctness is established independently by running the full test suite.
-3. **Reconciled Repository Metadata:** Documentation reports have been regenerated from actual repository state, referencing branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#15`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 276 passing tests, and 87.03% code coverage.
-4. **100% Frozen Surface Preservation:** All 12 frozen Pass-4.2 recovery, persistence, and test files remain 100% byte-identical to base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
+1. **Mandatory Authoritative Lineage & Seal Provenance:** `TradeDecision.is_authorized()` now strictly mandates an `AuthoritativeParentSeal` credential issued exclusively by `AuthoritativeParentResolver`. Raw caller-provided parent objects, fake duck-typed seals, forged seals, or unregistered parent objects are strictly rejected (fail closed).
+2. **Comprehensive Adversarial Matrix (Scenarios A–P):** Implemented and verified an explicit 16-scenario test matrix in `tests/test_lineage.py` covering all lineage failure and attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parents, caller assertion attacks, seal forgery, registry substitution attacks, version races, and cross-opportunity/root substitutions).
+3. **Explicit Evidence Semantics:** Structural invariant mapping (`pytest --collect-only`) is explicitly distinguished from runtime execution evidence. Node collection proves test reference collectibility; runtime correctness is established independently by running the full test suite (277 passed, 86.75% coverage).
+4. **Reconciled Repository Metadata:** Documentation reports have been regenerated from actual repository state, referencing branch `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`, PR `#15`, base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`, current HEAD commit, 277 passing tests, and 86.75% code coverage.
+5. **100% Frozen Surface Preservation:** All 12 frozen Pass-4.2 recovery, persistence, and test files remain 100% byte-identical to base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
 
 ---
 
@@ -59,8 +60,8 @@ All 12 frozen Pass-4.2 artifacts were independently verified against base SHA `c
 | **Risk Authority Split** | **CLOSED** | `src/fractal_flow/domain/entry.py`, `tests/test_contingent_risk.py` | `OpportunityRiskBudget` refactored as a delegating view over `OpportunityRiskLedger`. |
 | **Reservation Binding** | **CLOSED** | `src/fractal_flow/domain/models.py`, `tests/test_entry_adversarial.py` | Decision bound to active `RESERVED` risk state, opportunity ID, and capacity. |
 | **Central Authorization** | **CLOSED** | `src/fractal_flow/domain/models.py`, `tests/test_provenance_authorization.py` | Fail-closed `TradeDecision.is_authorized()` evaluating all core security dependencies. |
-| **Authoritative Lineage** | **CLOSED** | `src/fractal_flow/domain/lineage.py`, `tests/test_lineage.py` | `AuthoritativeParentResolver` issues `AuthoritativeParentSeal`. Caller-fabricated objects rejected. |
-| **Adversarial Matrix A–P** | **CLOSED** | `tests/test_lineage.py` | 16 dedicated test cases covering all failure and success modes (missing authority, fabricated parent, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, substitution attack, version race, cross-opportunity/root substitution). |
+| **Authoritative Lineage** | **CLOSED** | `src/fractal_flow/domain/lineage.py`, `tests/test_lineage.py` | `AuthoritativeParentResolver` issues `AuthoritativeParentSeal`. Raw parent bypass eliminated. |
+| **Adversarial Matrix A–P** | **CLOSED** | `tests/test_lineage.py` | 16 dedicated test cases covering all failure/attack modes (missing seal, raw parent bypass, wrong parent ID/root/tier/version, invalid/expired/cancelled parent, caller assertion attacks, seal forgery, registry substitution, version race, cross-opportunity/root substitution). |
 | **MURG Provenance** | **CLOSED** | `src/fractal_flow/domain/murg.py`, `tests/test_murg_adversarial.py` | HMAC-SHA256 signed `ActiveMarketContext` issued strictly by `AuthoritativeMURGIssuer`. |
 | **Event Immutability** | **CLOSED** | `src/fractal_flow/domain/event.py`, `tests/test_event_versioning.py` | Deep recursive freezing (`_deep_freeze`) blocks nested payload mutations. |
 | **Invariant Mapping** | **CLOSED** | `spec/invariants.yaml`, `tests/test_42_invariants.py` | AST parsing and `pytest --collect-only` verify all 42 invariant test symbols exist and map cleanly. |
@@ -79,8 +80,8 @@ Repository quality checks executed natively via Poetry:
 - **Ruff Check:** `poetry run ruff check src/ tests/` → **PASSED** (0 errors)
 - **Ruff Format Check:** `poetry run ruff format --check src/ tests/` → **PASSED** (0 formatting differences across 46 files)
 - **Mypy Strict Check:** `poetry run mypy --strict --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py` → **PASSED** (0 errors across 24 source files)
-- **Pytest:** `poetry run pytest` → **PASSED** (276 passed, 0 failed, 0 skipped, 0 xfailed in 40.89s)
-- **Coverage:** **87.03%** (Exceeds repository floor of 85.00%)
+- **Pytest:** `poetry run pytest` → **PASSED** (277 passed, 0 failed, 0 skipped, 0 xfailed in 40.62s)
+- **Coverage:** **86.75%** (Exceeds repository floor of 85.00%)
 
 ---
 

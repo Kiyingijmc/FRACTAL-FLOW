@@ -199,7 +199,7 @@ class TradeDecision:
     def is_authorized(
         self,
         lineage: Any = None,
-        authoritative_parent: Any = None,
+        authoritative_parent_seal: Any = None,
         murg_context: Any = None,
         risk_ledger: Any = None,
         reservation_id: str = "",
@@ -207,14 +207,16 @@ class TradeDecision:
     ) -> bool:
         """Evaluates trade decision authorization in a fail-closed manner requiring all core security dependencies.
 
-        - lineage, authoritative_parent, murg_context, risk_ledger, and reservation_id are mandatory.
-        - Omission or invalidity of any security dependency (including authoritative parent state) fails authorization closed (returns False).
+        - lineage, authoritative_parent_seal (an AuthoritativeParentSeal issued by AuthoritativeParentResolver),
+          murg_context, risk_ledger, and reservation_id are mandatory.
+        - Raw parent objects are strictly rejected. Omission, forgery, or invalidity of any security dependency
+          fails authorization closed (returns False).
         """
 
         # 1. Mandatory Context Presence Checks - Fail closed if any required security context is omitted
         if (
             lineage is None
-            or authoritative_parent is None
+            or authoritative_parent_seal is None
             or murg_context is None
             or risk_ledger is None
             or not reservation_id
@@ -257,14 +259,17 @@ class TradeDecision:
         if req_risk <= Decimal("0.0") or Decimal(str(self.position_size_lots)) <= Decimal("0.0"):
             return False
 
-        # 9. Independent Authoritative Lineage Verification & Resolver Provenance Check
+        # 9. Independent Authoritative Lineage Verification & Resolver Seal Provenance Check
         from src.fractal_flow.domain.lineage import AuthoritativeParentSeal, GLOBAL_PARENT_RESOLVER
 
-        actual_parent_obj = authoritative_parent
-        if isinstance(authoritative_parent, AuthoritativeParentSeal):
-            if not GLOBAL_PARENT_RESOLVER.verify_seal(authoritative_parent):
-                return False
-            actual_parent_obj = authoritative_parent.parent
+        # Mandate AuthoritativeParentSeal credential - Raw parent objects or forged credentials strictly fail closed
+        if not isinstance(authoritative_parent_seal, AuthoritativeParentSeal):
+            return False
+
+        if not GLOBAL_PARENT_RESOLVER.verify_seal(authoritative_parent_seal):
+            return False
+
+        actual_parent_obj = authoritative_parent_seal.parent
 
         try:
             lineage.validate_child_action(authoritative_parent=actual_parent_obj)

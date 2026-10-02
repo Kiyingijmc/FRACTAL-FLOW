@@ -229,15 +229,19 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
         "res_tx_1", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_valid", "cause_1", 1000
     )
 
+    from src.fractal_flow.domain.lineage import GLOBAL_PARENT_RESOLVER
+
     parent_obj = type(
         "Parent", (), {"id": "opp_adv_1", "root_id": "root_1", "tier": "OPPORTUNITY", "version": 1, "validity": True}
     )()
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_adv_1", 1, parent_obj)
+    seal = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_adv_1", 1)
 
     # 1. Valid authorization passes
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=parent_obj,
+            authoritative_parent_seal=seal,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_valid",
@@ -250,7 +254,7 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=parent_obj,
+            authoritative_parent_seal=seal,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_nonexistent",
@@ -267,7 +271,7 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=parent_obj,
+            authoritative_parent_seal=seal,
             murg_context=murg_ctx,
             risk_ledger=ledger_small,
             reservation_id="res_small",
@@ -284,7 +288,7 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=parent_obj,
+            authoritative_parent_seal=seal,
             murg_context=murg_ctx,
             risk_ledger=ledger_wrong_opp,
             reservation_id="res_wrong",

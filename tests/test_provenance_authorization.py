@@ -80,15 +80,19 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
         "res_entry_1", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_1", "cause_1", 1000
     )
 
+    from src.fractal_flow.domain.lineage import GLOBAL_PARENT_RESOLVER
+
     parent_obj = type(
         "Parent", (), {"id": "opp_1", "root_id": "root_1", "tier": "OPPORTUNITY", "version": 1, "validity": True}
     )()
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_1", 1, parent_obj)
+    seal = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_1", 1)
 
     # NEWS_LOCKDOWN must override manual authorized=True flag even when all mandatory context is provided
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=parent_obj,
+            authoritative_parent_seal=seal,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_1",

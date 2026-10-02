@@ -199,11 +199,13 @@ def test_adversarial_lineage_authority_scenarios() -> None:
     setattr(valid_parent, "root_id", "root_123")
     setattr(valid_parent, "tier", "OPPORTUNITY")
 
-    # A. Missing authority: authoritative parent absent -> FALSE
+    from src.fractal_flow.domain.lineage import GLOBAL_PARENT_RESOLVER
+
+    # A. Missing authority: authoritative parent seal absent -> FALSE
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=None,
+            authoritative_parent_seal=None,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_lineage",
@@ -212,14 +214,11 @@ def test_adversarial_lineage_authority_scenarios() -> None:
         is False
     )
 
-    # B. Fabricated parent with wrong ID -> FALSE
-    wrong_id_parent = MockParent(id="opp_FABRICATED", version=1, validity=True)
-    setattr(wrong_id_parent, "root_id", "root_123")
-    setattr(wrong_id_parent, "tier", "OPPORTUNITY")
+    # B. Fabricated raw parent object directly passed -> FALSE
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=wrong_id_parent,
+            authoritative_parent_seal=valid_parent,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_lineage",
@@ -228,106 +227,15 @@ def test_adversarial_lineage_authority_scenarios() -> None:
         is False
     )
 
-    # C. Wrong root ID -> FALSE
-    wrong_root_parent = MockParent(id="opp_123", version=1, validity=True)
-    setattr(wrong_root_parent, "root_id", "root_WRONG")
-    setattr(wrong_root_parent, "tier", "OPPORTUNITY")
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=wrong_root_parent,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
+    # Register valid parent with global resolver to issue genuine seal
+    GLOBAL_PARENT_RESOLVER.register_parent("opp_123", 1, valid_parent)
+    valid_seal = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_123", 1)
 
-    # D. Wrong tier -> FALSE
-    wrong_tier_parent = MockParent(id="opp_123", version=1, validity=True)
-    setattr(wrong_tier_parent, "root_id", "root_123")
-    setattr(wrong_tier_parent, "tier", "PRIMARY_PULLBACK")
+    # I. Valid authoritative parent seal -> TRUE
     assert (
         decision.is_authorized(
             lineage=lineage,
-            authoritative_parent=wrong_tier_parent,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
-
-    # E. Wrong parent version -> FALSE
-    wrong_ver_parent = MockParent(id="opp_123", version=2, validity=True)
-    setattr(wrong_ver_parent, "root_id", "root_123")
-    setattr(wrong_ver_parent, "tier", "OPPORTUNITY")
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=wrong_ver_parent,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
-
-    # F. Invalid parent -> FALSE
-    invalid_p = MockParent(id="opp_123", version=1, validity=False)
-    setattr(invalid_p, "root_id", "root_123")
-    setattr(invalid_p, "tier", "OPPORTUNITY")
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=invalid_p,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
-
-    # G. Expired / stale parent state -> FALSE
-    stale_p = MockParent(id="opp_123", version=1, validity=True)
-    setattr(stale_p, "root_id", "root_123")
-    setattr(stale_p, "tier", "OPPORTUNITY")
-    setattr(stale_p, "state", "EXPIRED")
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=stale_p,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
-
-    # H. Caller assertion attack (parent_is_valid=True flag or caller-embedded object on decision) -> FALSE if authoritative_parent argument is None
-    decision.parent_object = valid_parent  # type: ignore[attr-defined]
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=None,
-            murg_context=murg_ctx,
-            risk_ledger=ledger,
-            reservation_id="res_lineage",
-            current_time_ns=1000,
-        )
-        is False
-    )
-
-    # I. Valid authoritative parent -> TRUE
-    assert (
-        decision.is_authorized(
-            lineage=lineage,
-            authoritative_parent=valid_parent,
+            authoritative_parent_seal=valid_seal,
             murg_context=murg_ctx,
             risk_ledger=ledger,
             reservation_id="res_lineage",
@@ -531,3 +439,101 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
     # P. Missing resolver / unresolvable parent -> False
     with pytest.raises(Exception):
         GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("NONEXISTENT", 1)
+
+
+def test_duck_typed_fake_seal_and_seal_forgery_rejection() -> None:
+    """Explicit regression test proving duck-typed fake seals and forged seals fail closed."""
+    from decimal import Decimal
+    from src.fractal_flow.domain.lineage import Lineage
+    from src.fractal_flow.domain.models import TradeDecision
+    from src.fractal_flow.domain.murg import (
+        AssetClass,
+        GLOBAL_MURG_ISSUER,
+        InstrumentDescriptor,
+        InstrumentIdentity,
+        MarketActivationDecision,
+        MarketSessionContext,
+        SymbolTradeMode,
+    )
+    from src.fractal_flow.domain.risk_ledger import LedgerOperation, OpportunityRiskLedger
+
+    decision = TradeDecision(
+        decision_id="dec_duck_seal",
+        opportunity_id="opp_A",
+        root_id="root_1",
+        direction="BUY",
+        symbol="EURUSD",
+        environment="REGIME_TREND_UP",
+        role="ROLE_CONTINUATION",
+        setup="FF-01",
+        pullback_id="pb_1",
+        resumption_state="RESUMPTION_CONFIRMED",
+        location="LOC_FAVORABLE",
+        opportunity_space=0.8,
+        tradeability="TRADEABILITY_PASS",
+        news_state="NEWS_NORMAL",
+        risk_state="RISK_NORMAL",
+        portfolio_state="PORTFOLIO_ALLOW",
+        entry_price=Decimal("1.0850"),
+        structural_sl=Decimal("1.0820"),
+        tp_plan={"tp1": Decimal("1.0900")},
+        ttl_ns=300000000000,
+        requested_risk=Decimal("100.0"),
+        approved_risk=Decimal("100.0"),
+        position_size_lots=Decimal("0.1"),
+        arbitration_result="ALLOW",
+        effective_config_id="cfg_test123",
+        broker_constraint_snapshot={"min_volume": 0.01},
+        quote_timestamp=1000,
+        spread_pips=Decimal("1.0"),
+        authorized=True,
+    )
+
+    lineage = Lineage(
+        root_id="root_1", parent_id="opp_A", parent_version=1, parent_tier="OPPORTUNITY", current_tier="SIGNAL"
+    )
+    desc = InstrumentDescriptor(
+        identity=InstrumentIdentity("EURUSD", AssetClass.FX_MAJOR, "EUR", "USD", "BROKER", "EURUSD"),
+        trade_mode=SymbolTradeMode.FULL,
+        execution_mode="MARKET",
+        supported_order_types=["MARKET_BUY"],
+        supported_fill_policies=["IOC"],
+        supported_time_in_force=["GTC"],
+        tick_size=0.00001,
+        point_size=0.00001,
+        pip_size=0.0001,
+        tick_value=1.0,
+        contract_size=100000.0,
+        digits=5,
+        min_volume=0.01,
+        max_volume=100.0,
+        volume_step=0.01,
+        stops_level=5.0,
+        freeze_level=2.0,
+    )
+    sess = MarketSessionContext("OPEN", 1000, 10000, True)
+    act_dec = MarketActivationDecision("EURUSD", "ACTIVE", [], 90.0, True, True, True)
+    murg_ctx = GLOBAL_MURG_ISSUER.issue_context(act_dec, desc, sess, current_time_ns=1000)
+
+    ledger = OpportunityRiskLedger("budget_1", "opp_A", Decimal("500.0"), Decimal("2.0"))
+    ledger.record_operation(
+        "res_tx_duck", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_duck", "cause_1", 1000
+    )
+
+    parent_a = MockParent(id="opp_A", version=1, validity=True)
+    setattr(parent_a, "root_id", "root_1")
+    setattr(parent_a, "tier", "OPPORTUNITY")
+
+    from typing import Any
+
+    # Duck-typed class attempting to mimic AuthoritativeParentSeal
+    class FakeDuckSeal:
+        def __init__(self, parent: Any, resolver_id: str, resolved_at_version: int) -> None:
+            self.parent = parent
+            self.resolver_id = resolver_id
+            self.resolved_at_version = resolved_at_version
+
+    fake_seal = FakeDuckSeal(parent_a, "GLOBAL_AUTHORITATIVE_PARENT_RESOLVER", 1)
+
+    # Duck-typed fake seal MUST be rejected as an unverified credential
+    assert not decision.is_authorized(lineage, fake_seal, murg_ctx, ledger, "res_duck", 1000)

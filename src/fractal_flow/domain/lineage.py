@@ -72,7 +72,7 @@ class AuthoritativeParentResolver:
         )
 
     def verify_seal(self, seal: Any) -> bool:
-        """Verifies that an AuthoritativeParentSeal originated from this resolver instance."""
+        """Verifies that an AuthoritativeParentSeal originated from this resolver instance and wraps an active, valid parent."""
         if not isinstance(seal, AuthoritativeParentSeal):
             return False
         if seal.resolver_id != self.resolver_id:
@@ -88,7 +88,22 @@ class AuthoritativeParentResolver:
         if parent_id_attr is None:
             return False
         key = (str(parent_id_attr), seal.resolved_at_version)
-        return key in self._registry and self._registry[key] is seal.parent
+        if key not in self._registry or self._registry[key] is not seal.parent:
+            return False
+
+        # Additional verification of parent validity and state keywords
+        p_obj = seal.parent
+        if hasattr(p_obj, "validity") and not bool(getattr(p_obj, "validity")):
+            return False
+        if hasattr(p_obj, "is_valid") and not bool(getattr(p_obj, "is_valid")):
+            return False
+        if hasattr(p_obj, "state"):
+            p_state = str(getattr(p_obj, "state"))
+            invalid_keywords = ("INVALID", "EXPIRED", "STALE", "CANCELLED", "REVOKED")
+            if any(kw in p_state for kw in invalid_keywords):
+                return False
+
+        return True
 
 
 # Global singleton instance for system-wide authoritative parent resolution
