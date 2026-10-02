@@ -8,9 +8,9 @@
 
 ## 1. Executive Summary
 
-A comprehensive, production-grade forensic remediation pass has been completed on the `FRACTAL-FLOW` repository. The remediation closed all remaining correctness, numerical integrity, risk authority split, reservation lifecycle, market context issuance, lineage validation, central authorization, persistence integration, event payload immutability, mechanical invariant collection, and simulator parity gaps identified during independent forensic audits.
+A comprehensive, production-grade forensic remediation pass has been completed on the `FRACTAL-FLOW` repository. The remediation closed all remaining correctness, numerical integrity, risk authority split, reservation lifecycle, market context authority, lineage validation, central authorization, persistence integration, event payload immutability, mechanical invariant collection, and simulator parity gaps identified during independent forensic audits.
 
-All 12 frozen Pass-4.2 authority and persistence files remain 100% byte-identical to the base commit `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`. All continuous integration quality gates (Ruff, Ruff Format, Strict Mypy across 24 source files, Pytest 273/273 tests passing, and 86.22% coverage) are fully green.
+All 12 frozen Pass-4.2 authority and persistence files remain 100% byte-identical to the base commit `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`. All continuous integration quality gates (Ruff, Ruff Format, Strict Mypy across 24 source files, Pytest 274/274 tests passing, and 86.73% coverage) are fully green.
 
 ---
 
@@ -19,7 +19,7 @@ All 12 frozen Pass-4.2 authority and persistence files remain 100% byte-identica
 - **Repository:** `Kiyingijmc/FRACTAL-FLOW`
 - **Branch:** `phase-0-forensic-remediation-20261001-c23ceeb4`
 - **Base SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
-- **Final HEAD SHA:** `1d38ea1385bab45b9531971b576fd257ad2eb456`
+- **Final HEAD SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
 - **Pull Request:** `#15`
 - **Python Runtime Environments:** Python 3.12.13 and Python 3.13
 
@@ -80,7 +80,7 @@ The remediation pass modified or added the following production files:
 - `Lineage.validate_child_action()` requires an authoritative parent object or version.
 - Parent identity (`parent_id`), root identity (`root_id`), parent tier (`parent_tier`), validity (`validity`/`is_valid`), state, and version (`version`) are independently verified. Caller validity assertions are ignored.
 
-### D. Central Entry Authorization Boundary (WP-5 & WP-6)
+### D. Central Entry Authorization Boundary & Reservation Binding (WP-5 & WP-6)
 - `TradeDecision.is_authorized()` acts as the singular fail-closed gate.
 - Evaluates:
   1. Base `authorized` flag;
@@ -90,13 +90,13 @@ The remediation pass modified or added the following production files:
   5. Tradeability assessment veto (`TRADEABILITY_PASS`/`PASS`);
   6. TTL / Quote expiration check;
   7. Approved risk and lot size sanity (> 0.0);
-  8. Independent parent lineage validation;
-  9. Authoritative MURG context provenance validation;
-  10. Active risk ledger reservation status.
+  8. Mandatory independent parent lineage validation;
+  9. Mandatory authoritative MURG context provenance validation;
+  10. Mandatory active risk ledger reservation status and reservation-to-decision binding matching opportunity ID, reservation ID, active `RESERVED` state, and sufficient reserved risk amount.
 
 ### E. Persistence Adapter & Deep Event Immutability (WP-7 & WP-8)
 - `src/fractal_flow/persistence/adapter.py` provides lossless tagged Decimal encoding (`{"__type__": "decimal", "value": "..."}`) and deterministic key/set member sorting without modifying frozen persistence files.
-- `Event` payload freezing (`src/fractal_flow/domain/event.py`) uses `_deep_freeze` to recursively convert nested dicts into `ImmutablePayloadDict`, lists into tuples, and sets into frozensets, blocking post-issuance mutation at any nesting level.
+- `Event` payload freezing (`src/fractal_flow/domain/event.py`) uses `_deep_freeze` to recursively convert nested dicts into `ImmutablePayloadDict`, lists into tuples, and sets into frozensets, blocking post-issuance mutation at any nesting level (including `.pop()`, `.clear()`, and `.update()`).
 
 ### F. Mechanical Invariant Evidence (WP-9)
 - `tests/test_42_invariants.py` verifies all 42 non-negotiable invariants defined in `spec/invariants.yaml`.
@@ -116,7 +116,7 @@ The remediation pass modified or added the following production files:
 | **FF-RISK-001** | Reservation Lifecycle & Accounting | **CLOSED** | `risk_ledger.py` | `test_contingent_risk.py` | Full state machine enforced with terminal transition protection and idempotency checks. |
 | **FF-RISK-002** | Split Risk Authority | **CLOSED** | `risk_ledger.py`, `entry.py` | `test_contingent_risk.py` | `OpportunityRiskBudget` refactored as a view delegating to `OpportunityRiskLedger`. |
 | **FF-RISK-003** | Risk Ledger Concurrency / Atomicity | **CLOSED** | `risk_ledger.py` | `test_contingent_risk.py` | Idempotent transaction recording with conflicting entry ID detection. |
-| **FF-AUTH-001** | Trade Authorization Gate Hardening | **CLOSED** | `models.py` | `test_entry_adversarial.py` | `TradeDecision.is_authorized()` fail-closed across all 10 authority prerequisites. |
+| **FF-AUTH-001** | Trade Authorization Gate Hardening | **CLOSED** | `models.py` | `test_entry_adversarial.py` | `TradeDecision.is_authorized()` fail-closed across all mandatory security prerequisites and reservation bindings. |
 | **FF-AUTH-002** | Execution Boundary Enforcement | **CLOSED** | `models.py`, `entry.py` | `test_conditional_execution.py` | Central authorization path mandatory for entry plan construction and execution. |
 | **FF-LINEAGE-001** | Caller-Asserted Lineage Validity | **CLOSED** | `lineage.py` | `test_lineage.py` | Independent verification of parent ID, root ID, tier, state, and version. |
 | **FF-MURG-001** | Fabricated Market Context Authority | **CLOSED** | `murg.py` | `test_murg_adversarial.py` | HMAC-SHA256 signed `ActiveMarketContext` issued exclusively by `AuthoritativeMURGIssuer`. |
@@ -135,8 +135,8 @@ The remediation pass modified or added the following production files:
 Ruff Linter:            PASSED (0 errors across src/ and tests/)
 Ruff Format Check:      PASSED (All 46 files formatted cleanly)
 Mypy Strict Check:      PASSED (Success: no issues found in 24 source files)
-Pytest Test Suite:     273 passed, 0 failed, 0 skipped, 0 xfailed
-Code Coverage:          86.22% (exceeds mandatory 85.00% coverage floor)
+Pytest Test Suite:     274 passed, 0 failed, 0 skipped, 0 xfailed
+Code Coverage:          86.73% (exceeds mandatory 85.00% coverage floor)
 Frozen File Hashes:     12/12 byte-identical to base commit c23ceeb4
 ```
 

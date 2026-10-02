@@ -79,6 +79,19 @@ def test_event_deep_payload_immutability() -> None:
     with pytest.raises(TypeError):
         evt.payload["nested"]["list"][1]["deep"] = 99  # type: ignore[index]
 
+    # Additional deep mutation attempts: pop, clear, update
+    with pytest.raises(TypeError):
+        evt.payload.pop("data")
+
+    with pytest.raises(TypeError):
+        evt.payload.clear()
+
+    with pytest.raises(TypeError):
+        evt.payload.update({"new_key": "val"})
+
+    with pytest.raises(TypeError):
+        evt.payload["nested"].pop("key")
+
 
 def test_event_temporal_ordering_validation() -> None:
     # Valid ordering
