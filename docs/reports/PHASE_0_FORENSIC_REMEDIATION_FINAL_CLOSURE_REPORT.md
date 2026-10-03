@@ -16,9 +16,9 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 4. **Non-Self-Referential Multi-SHA Forensic Provenance Model:** Reconciled forensic closure documentation using an immutable multi-SHA provenance model to eliminate self-referential Git commitment ambiguities:
    - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
    - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02` (immutable audited code & test commit)
-   - **Report Commit SHA:** `7bb3891661f9415219285332c259af0b80cc667c` (documentation closure commit)
-   - **PR Head SHA:** `7bb3891661f9415219285332c259af0b80cc667c` (tip of Pull Request `#16`)
-   - **CI Evidence SHA:** `7bb3891661f9415219285332c259af0b80cc667c`
+   - **Report Commit SHA:** `f28e54a13b2295e4cc9ac4ac66f0505c805a0251` (documentation closure commit)
+   - **PR Head SHA:** `f28e54a13b2295e4cc9ac4ac66f0505c805a0251` (tip of Pull Request `#16`)
+   - **CI Evidence SHA:** `f28e54a13b2295e4cc9ac4ac66f0505c805a0251`
 5. **100% Frozen Surface Preservation:** All 12 frozen Pass-4.2 recovery, persistence, and test files remain 100% byte-identical to base SHA `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`.
 
 ---
@@ -29,7 +29,7 @@ A comprehensive, production-grade forensic closure pass has been executed on the
 - **Branch:** `phase-0-final-lineage-authority-forensic-closure-20261002-1742901115419791778`
 - **Base Commit SHA:** `c23ceeb4be1ca67a72dfaee4e2a0d035e6af2ca1`
 - **Evidence Target Commit SHA:** `459499b9e6f0e2f0a7e9b36d049ed3cdc815ef02`
-- **Report Commit SHA:** `7bb3891661f9415219285332c259af0b80cc667c`
+- **Report Commit SHA:** `f28e54a13b2295e4cc9ac4ac66f0505c805a0251`
 - **PR Base / Target:** `main` (Pull Request `#16`)
 - **Python Runtime Environments:** Python 3.12.13 and Python 3.13 Matrix CI
 
@@ -87,7 +87,7 @@ Repository quality checks executed natively via Poetry:
 - **Ruff Check:** `poetry run ruff check src/ tests/` → **PASSED** (0 errors)
 - **Ruff Format Check:** `poetry run ruff format --check src/ tests/` → **PASSED** (0 formatting differences across 46 files)
 - **Mypy Strict Check:** `poetry run mypy --strict --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py` → **PASSED** (0 errors across 24 source files)
-- **Pytest:** `poetry run pytest` → **PASSED** (277 passed, 0 failed, 0 skipped, 0 xfailed in 43.04s)
+- **Pytest:** `poetry run pytest` → **PASSED** (277 passed, 0 failed, 0 skipped, 0 xfailed in 40.24s)
 - **Coverage:** **86.88%** (Exceeds repository floor of 85.00%)
 
 ---
