@@ -135,3 +135,113 @@ def test_hybrid_entry_shared_risk_budget() -> None:
 
     assert total_allocated_risk <= hybrid.risk_budget.total_risk_currency
     assert total_allocated_vol <= hybrid.risk_budget.total_allowed_volume
+
+
+def test_opportunity_risk_ledger_state_machine_and_budget_view() -> None:
+    from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
+    import pytest
+
+    ledger = OpportunityRiskLedger("budget_1", "opp_1", Decimal("500.0"), Decimal("2.0"))
+    budget = OpportunityRiskBudget("opp_1", Decimal("500.0"), Decimal("2.0"), ledger=ledger)
+
+    # 1. RESERVE
+    budget.reserve(Decimal("100.0"), reference_id="res_1")
+    assert budget.reserved_risk == Decimal("100.0")
+    assert budget.remaining_risk == Decimal("400.0")
+
+    # 2. ALLOCATE from reservation
+    budget.allocate(Decimal("100.0"), Decimal("0.5"), reference_id="res_1")
+    assert budget.reserved_risk == Decimal("0.0")
+    assert budget.allocated_risk == Decimal("100.0")
+    assert budget.allocated_volume == Decimal("0.5")
+
+    # 3. COMMIT / CONSUME
+    ledger.record_operation(
+        entry_id="commit_1",
+        operation=LedgerOperation.COMMIT,
+        amount=Decimal("100.0"),
+        volume=Decimal("0.5"),
+        reference_id="res_1",
+        causation_id="cause_1",
+        timestamp=100,
+    )
+    assert budget.allocated_risk == Decimal("0.0")
+    assert budget.allocated_volume == Decimal("0.0")
+
+    # 4. Attempting to release committed reservation fails closed
+    with pytest.raises(AccountingInvariantException, match="terminal reservation"):
+        ledger.record_operation(
+            entry_id="rel_1",
+            operation=LedgerOperation.RELEASE,
+            amount=Decimal("100.0"),
+            volume=Decimal("0.5"),
+            reference_id="res_1",
+            causation_id="cause_2",
+            timestamp=101,
+        )
+
+    # 5. Reserve & Expire lifecycle
+    budget.reserve(Decimal("50.0"), reference_id="res_2")
+    assert budget.reserved_risk == Decimal("50.0")
+
+    ledger.record_operation(
+        entry_id="exp_1",
+        operation=LedgerOperation.EXPIRE,
+        amount=Decimal("50.0"),
+        volume=Decimal("0.0"),
+        reference_id="res_2",
+        causation_id="cause_expire",
+        timestamp=102,
+    )
+    assert budget.reserved_risk == Decimal("0.0")
+
+    # 6. Re-allocating an expired reservation fails closed
+    with pytest.raises((ValueError, AccountingInvariantException), match="non-RESERVED state"):
+        budget.allocate(Decimal("50.0"), Decimal("0.1"), reference_id="res_2")
+
+
+def test_risk_ledger_idempotency_and_replay() -> None:
+    from src.fractal_flow.domain.risk_ledger import OpportunityRiskLedger, LedgerOperation, AccountingInvariantException
+    import pytest
+
+    ledger = OpportunityRiskLedger("budget_replay", "opp_replay", Decimal("1000.0"), Decimal("5.0"))
+
+    e1 = ledger.record_operation(
+        entry_id="tx_1",
+        operation=LedgerOperation.RESERVE,
+        amount=Decimal("200.0"),
+        volume=Decimal("0.0"),
+        reference_id="res_A",
+        causation_id="cause_A",
+        timestamp=10,
+    )
+
+    # Idempotent re-submission returns existing entry
+    e1_dup = ledger.record_operation(
+        entry_id="tx_1",
+        operation=LedgerOperation.RESERVE,
+        amount=Decimal("200.0"),
+        volume=Decimal("0.0"),
+        reference_id="res_A",
+        causation_id="cause_A",
+        timestamp=10,
+    )
+    assert e1_dup == e1
+
+    # Conflicting duplicate entry_id fails closed
+    with pytest.raises(AccountingInvariantException, match="Duplicate transaction"):
+        ledger.record_operation(
+            entry_id="tx_1",
+            operation=LedgerOperation.RESERVE,
+            amount=Decimal("300.0"),
+            volume=Decimal("0.0"),
+            reference_id="res_A",
+            causation_id="cause_A",
+            timestamp=10,
+        )
+
+    # Replay onto clean ledger
+    fresh_ledger = OpportunityRiskLedger("budget_replay", "opp_replay", Decimal("1000.0"), Decimal("5.0"))
+    fresh_ledger.replay_entries([e1])
+    assert fresh_ledger.reserved_risk == Decimal("200.0")
+    assert fresh_ledger.remaining_risk == Decimal("800.0")

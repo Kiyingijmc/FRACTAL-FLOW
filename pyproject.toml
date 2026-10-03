@@ -33,6 +33,7 @@ where = ["src"]
 [tool.ruff]
 line-length = 120
 # Preserves canonical Pass 4.2 historical baseline artifacts byte-for-byte
+# using explicit file paths rather than unconstrained wildcards,
 # while enforcing strict quality gates on all active Phase 0 code and new additions.
 extend-exclude = [
     "src/fractal_flow/execution/recovery.py",
@@ -40,7 +41,12 @@ extend-exclude = [
     "src/fractal_flow/persistence/interfaces.py",
     "src/fractal_flow/persistence/journal.py",
     "src/fractal_flow/persistence/snapshot.py",
-    "tests/test_pass_4_2_*.py",
+    "tests/test_pass_4_2_authority_graph_issuance_closure.py",
+    "tests/test_pass_4_2_authority_provenance_hardening.py",
+    "tests/test_pass_4_2_authority_root_closure.py",
+    "tests/test_pass_4_2_forensic_authority_closure.py",
+    "tests/test_pass_4_2_production_authority_lifecycle_closure.py",
+    "tests/test_pass_4_2_production_bootstrap_boundary_closure.py",
     "tests/test_persistence_adversarial.py",
 ]
 

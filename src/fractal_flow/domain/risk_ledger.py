@@ -1,9 +1,25 @@
-"""Opportunity Risk Ledger for FRACTAL FLOW with atomic operations and exact Decimal accounting."""
+"""Opportunity Risk Ledger for FRACTAL FLOW with atomic operations, exact Decimal accounting, and strict reservation lifecycle."""
 
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Union, overload
+
+
+@overload
+def _to_decimal(val: None) -> None: ...
+
+
+@overload
+def _to_decimal(val: Union[Decimal, float, int, str]) -> Decimal: ...
+
+
+def _to_decimal(val: Union[Decimal, float, int, str, None]) -> Any:
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    return Decimal(str(val))
 
 
 class AccountingInvariantException(Exception):
@@ -15,9 +31,11 @@ class LedgerOperation(str, Enum):
     RESERVE = "RESERVE"
     ALLOCATE = "ALLOCATE"
     CONSUME = "CONSUME"
+    COMMIT = "COMMIT"
     RELEASE = "RELEASE"
     ROLLBACK = "ROLLBACK"
     EXPIRE = "EXPIRE"
+    CANCEL = "CANCEL"
 
 
 @dataclass(frozen=True)
@@ -25,27 +43,34 @@ class RiskLedgerEntry:
     entry_id: str
     budget_id: str
     operation: LedgerOperation
-    amount: float
-    volume: float
+    amount: Decimal
+    volume: Decimal
     reference_id: str
     causation_id: str
     timestamp: int
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "amount", _to_decimal(self.amount))
+        object.__setattr__(self, "volume", _to_decimal(self.volume))
+
 
 class OpportunityRiskLedger:
-    """Audit-trailed Opportunity Risk Ledger maintaining exact Decimal risk and volume balances."""
+    """Audit-trailed Opportunity Risk Ledger maintaining exact Decimal risk and volume balances.
+
+    This is the singular authoritative source of truth for risk decisions.
+    """
 
     def __init__(
         self,
         budget_id: str,
         opportunity_id: str,
-        total_risk: float,
-        total_volume: float,
+        total_risk: Union[Decimal, float, int, str],
+        total_volume: Union[Decimal, float, int, str],
     ) -> None:
         self.budget_id = budget_id
         self.opportunity_id = opportunity_id
-        self.total_risk = Decimal(str(total_risk))
-        self.total_volume = Decimal(str(total_volume))
+        self.total_risk = _to_decimal(total_risk)
+        self.total_volume = _to_decimal(total_volume)
 
         self.reserved_risk = Decimal("0.0")
         self.allocated_risk = Decimal("0.0")
@@ -56,35 +81,37 @@ class OpportunityRiskLedger:
 
         self.entries: list[RiskLedgerEntry] = []
         self._entries_by_id: dict[str, RiskLedgerEntry] = {}
+        # Reference-tracked active reservations: reference_id -> {"amount": Decimal, "volume": Decimal, "state": str}
+        self._active_reservations: dict[str, dict[str, Any]] = {}
 
     @property
-    def remaining_risk(self) -> float:
+    def remaining_risk(self) -> Decimal:
         rem = self.total_risk - self.allocated_risk - self.reserved_risk - self.consumed_risk
         if rem < Decimal("0.0"):
             raise AccountingInvariantException(f"Negative remaining risk detected on budget '{self.budget_id}': {rem}")
-        return float(rem)
+        return rem
 
     @property
-    def remaining_volume(self) -> float:
+    def remaining_volume(self) -> Decimal:
         rem = self.total_volume - self.allocated_volume - self.consumed_volume
         if rem < Decimal("0.0"):
             raise AccountingInvariantException(
                 f"Negative remaining volume detected on budget '{self.budget_id}': {rem}"
             )
-        return float(rem)
+        return rem
 
     def record_operation(
         self,
         entry_id: str,
         operation: LedgerOperation,
-        amount: float,
-        volume: float,
+        amount: Union[Decimal, float, int, str],
+        volume: Union[Decimal, float, int, str],
         reference_id: str,
         causation_id: str,
         timestamp: int,
     ) -> RiskLedgerEntry:
-        amt_dec = Decimal(str(amount))
-        vol_dec = Decimal(str(volume))
+        amt_dec = _to_decimal(amount)
+        vol_dec = _to_decimal(volume)
 
         if amt_dec < Decimal("0.0") or vol_dec < Decimal("0.0"):
             raise AccountingInvariantException(
@@ -96,8 +123,8 @@ class OpportunityRiskLedger:
             existing = self._entries_by_id[entry_id]
             if (
                 existing.operation == operation
-                and Decimal(str(existing.amount)) == amt_dec
-                and Decimal(str(existing.volume)) == vol_dec
+                and existing.amount == amt_dec
+                and existing.volume == vol_dec
                 and existing.reference_id == reference_id
                 and existing.causation_id == causation_id
             ):
@@ -107,32 +134,74 @@ class OpportunityRiskLedger:
             )
 
         if operation == LedgerOperation.RESERVE:
-            if amt_dec > Decimal(str(self.remaining_risk)):
+            if amt_dec > self.remaining_risk:
                 raise AccountingInvariantException(f"Reserve {amount} exceeds remaining risk {self.remaining_risk}")
+            if reference_id in self._active_reservations:
+                res_info = self._active_reservations[reference_id]
+                if res_info["state"] != "RESERVED":
+                    raise AccountingInvariantException(
+                        f"Cannot reserve on reservation '{reference_id}' in state {res_info['state']}"
+                    )
+                res_info["amount"] += amt_dec
+                res_info["volume"] += vol_dec
+            else:
+                self._active_reservations[reference_id] = {
+                    "amount": amt_dec,
+                    "volume": vol_dec,
+                    "state": "RESERVED",
+                    "causation_id": causation_id,
+                }
             self.reserved_risk += amt_dec
 
         elif operation == LedgerOperation.ALLOCATE:
-            if amt_dec > Decimal(str(self.remaining_risk)) + self.reserved_risk:
-                raise AccountingInvariantException(
-                    f"Allocate {amount} exceeds available risk {self.remaining_risk + float(self.reserved_risk)}"
-                )
-            if vol_dec > Decimal(str(self.remaining_volume)):
-                raise AccountingInvariantException(
-                    f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
-                )
-
-            if self.reserved_risk >= amt_dec:
+            if reference_id in self._active_reservations:
+                res_info = self._active_reservations[reference_id]
+                if res_info["state"] != "RESERVED":
+                    raise AccountingInvariantException(
+                        f"Cannot ALLOCATE from reservation '{reference_id}' in non-RESERVED state {res_info['state']}"
+                    )
+                if amt_dec > res_info["amount"]:
+                    raise AccountingInvariantException(
+                        f"Allocate amount {amount} exceeds reserved amount {res_info['amount']}"
+                    )
+                if vol_dec > self.remaining_volume:
+                    raise AccountingInvariantException(
+                        f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
+                    )
+                res_info["amount"] -= amt_dec
+                res_info["state"] = "ALLOCATED"
                 self.reserved_risk -= amt_dec
+                self.allocated_risk += amt_dec
+                self.allocated_volume += vol_dec
             else:
-                self.reserved_risk = Decimal("0.0")
+                if amt_dec > self.remaining_risk:
+                    raise AccountingInvariantException(
+                        f"Allocate {amount} exceeds remaining risk {self.remaining_risk}"
+                    )
+                if vol_dec > self.remaining_volume:
+                    raise AccountingInvariantException(
+                        f"Allocate volume {volume} exceeds remaining volume {self.remaining_volume}"
+                    )
+                self.allocated_risk += amt_dec
+                self.allocated_volume += vol_dec
+                self._active_reservations[reference_id] = {
+                    "amount": amt_dec,
+                    "volume": vol_dec,
+                    "state": "ALLOCATED",
+                    "causation_id": causation_id,
+                }
 
-            self.allocated_risk += amt_dec
-            self.allocated_volume += vol_dec
-
-        elif operation == LedgerOperation.CONSUME:
+        elif operation in (LedgerOperation.CONSUME, LedgerOperation.COMMIT):
+            if reference_id in self._active_reservations:
+                res_info = self._active_reservations[reference_id]
+                if res_info["state"] != "ALLOCATED":
+                    raise AccountingInvariantException(
+                        f"Cannot {operation.value} reservation '{reference_id}' in state {res_info['state']}"
+                    )
+                res_info["state"] = "COMMITTED"
             if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
                 raise AccountingInvariantException(
-                    f"Consume {amount}/{volume} exceeds allocated risk {self.allocated_risk} / vol {self.allocated_volume}"
+                    f"Consume/Commit {amount}/{volume} exceeds allocated risk {self.allocated_risk} / vol {self.allocated_volume}"
                 )
             self.allocated_risk -= amt_dec
             self.allocated_volume -= vol_dec
@@ -143,20 +212,48 @@ class OpportunityRiskLedger:
             LedgerOperation.RELEASE,
             LedgerOperation.ROLLBACK,
             LedgerOperation.EXPIRE,
+            LedgerOperation.CANCEL,
         ):
-            if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
-                raise AccountingInvariantException(
-                    f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"
-                )
-            self.allocated_risk -= amt_dec
-            self.allocated_volume -= vol_dec
+            if reference_id in self._active_reservations:
+                res_info = self._active_reservations[reference_id]
+                cur_state = res_info["state"]
+                if cur_state in ("RELEASED", "EXPIRED", "CANCELLED", "COMMITTED", "ROLLED_BACK"):
+                    raise AccountingInvariantException(
+                        f"Cannot {operation.value} terminal reservation '{reference_id}' in state {cur_state}"
+                    )
+
+                if cur_state == "RESERVED":
+                    if amt_dec > res_info["amount"]:
+                        raise AccountingInvariantException(
+                            f"Cannot {operation.value} {amt_dec} for reservation '{reference_id}': exceeds active reserved amount {res_info['amount']}"
+                        )
+                    self.reserved_risk -= amt_dec
+                    res_info["amount"] -= amt_dec
+                    if res_info["amount"] == Decimal("0.0"):
+                        res_info["state"] = operation.value
+
+                elif cur_state == "ALLOCATED":
+                    if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
+                        raise AccountingInvariantException(
+                            f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"
+                        )
+                    self.allocated_risk -= amt_dec
+                    self.allocated_volume -= vol_dec
+                    res_info["state"] = operation.value if operation != LedgerOperation.ROLLBACK else "ROLLED_BACK"
+            else:
+                if amt_dec > self.allocated_risk or vol_dec > self.allocated_volume:
+                    raise AccountingInvariantException(
+                        f"Cannot {operation.value} risk {amount}/vol {volume}: exceeds allocated risk {self.allocated_risk}/vol {self.allocated_volume}"
+                    )
+                self.allocated_risk -= amt_dec
+                self.allocated_volume -= vol_dec
 
         entry = RiskLedgerEntry(
             entry_id=entry_id,
             budget_id=self.budget_id,
             operation=operation,
-            amount=amount,
-            volume=volume,
+            amount=amt_dec,
+            volume=vol_dec,
             reference_id=reference_id,
             causation_id=causation_id,
             timestamp=timestamp,
