@@ -73,10 +73,15 @@ class SwingPoint:
     timeframe: str
     swing_type: SwingType
     price: Decimal
-    pivot_timestamp: int  # Market occurrence timestamp (when the extreme bar price occurred)
-    confirmed_at: int  # Information availability timestamp (when confirmation bar closed)
+    pivot_timestamp: int  # Market observation timestamp when the structural extreme occurred
+    confirmed_at: int  # Information availability timestamp when confirmation occurred
     v_local: Decimal
     classification: StructuralClassification = StructuralClassification.UNCLASSIFIED
+
+    @property
+    def effective_from(self) -> int:
+        """Timestamp at which this confirmed swing point becomes available to downstream consumers."""
+        return self.confirmed_at
 
     @property
     def is_confirmed(self) -> bool:
@@ -122,7 +127,7 @@ class ChangeOfCharacter:
 
     symbol: str
     timeframe: str
-    prior_direction: str  # LONG or SHORT or NEUTRAL
+    prior_direction: str  # LONG, SHORT, or NEUTRAL
     new_direction: str  # LONG or SHORT
     trigger_price: Decimal
     protected_level_price: Decimal
@@ -136,7 +141,7 @@ class FailedBreak:
     symbol: str
     timeframe: str
     level_price: Decimal
-    level_type: str
+    level_type: str  # HIGH or LOW
     breach_price: Decimal
     attempt_timestamp: int
     failed_at: int
@@ -149,7 +154,7 @@ class ReclaimEvent:
     symbol: str
     timeframe: str
     level_price: Decimal
-    level_type: str
+    level_type: str  # HIGH or LOW
     reclaim_price: Decimal
     reclaimed_at: int
 
@@ -275,6 +280,7 @@ class StructureEngine:
         min_reversal_magnitude: Decimal = Decimal("1.5"),
         displacement_threshold_mult: Decimal = Decimal("0.5"),
         persistence_bars_required: int = 2,
+        min_v_local_floor: Decimal = Decimal("0.0001"),
         swing_capacity: int = 50,
     ) -> None:
         self.symbol = symbol
@@ -282,6 +288,7 @@ class StructureEngine:
         self.min_reversal_magnitude = min_reversal_magnitude
         self.displacement_threshold_mult = displacement_threshold_mult
         self.persistence_bars_required = persistence_bars_required
+        self.min_v_local_floor = min_v_local_floor
 
         self.swing_state = SwingState.SWING_NONE
         self.previous_swing_state = SwingState.SWING_NONE
@@ -298,7 +305,14 @@ class StructureEngine:
         self.last_extreme_low: Optional[Decimal] = None
         self.last_extreme_low_ts: int = 0
 
-        self.persistence_counter = 0
+        # Track break candidate level details
+        self.last_break_candidate_level_type: str = "NONE"
+        self.last_break_candidate_level_price: Optional[Decimal] = None
+
+        # Isolated directional persistence counters
+        self.high_persistence_counter = 0
+        self.low_persistence_counter = 0
+
         self.swing_records = BoundedSwingRecordSet(capacity=swing_capacity)
         self.current_direction: str = "NEUTRAL"
 
@@ -311,11 +325,18 @@ class StructureEngine:
         self._last_config_version: Optional[int] = None
 
     def calculate_v_local(self, current_bar: Bar, atr_14: Optional[Decimal] = None) -> Decimal:
-        """Executably defines V_local as local volatility reference (ATR-14 or minimum pip floor)."""
-        if atr_14 is not None and atr_14 > Decimal("0.0"):
-            return atr_14
+        """Executably defines V_local as local volatility reference bounded by min_v_local_floor."""
+        if atr_14 is not None:
+            if atr_14 < Decimal("0.0"):
+                raise ValueError(f"ATR-14 cannot be negative, got {atr_14}")
+            if atr_14 > Decimal("0.0"):
+                return max(atr_14, self.min_v_local_floor)
+
         bar_range = current_bar.high - current_bar.low
-        return max(bar_range, Decimal("0.0001"))
+        if bar_range < Decimal("0.0"):
+            raise ValueError(f"Bar range cannot be negative, got {bar_range}")
+
+        return max(bar_range, self.min_v_local_floor)
 
     def process_bar(
         self,
@@ -331,6 +352,11 @@ class StructureEngine:
         AuthorityMatrix.verify_capability("Structure", "WRITE_STRUCTURE_STATE")
         if bar.symbol != self.symbol:
             raise ValueError(f"StructureEngine symbol mismatch: expected {self.symbol}, got {bar.symbol}")
+
+        if v_local < Decimal("0.0"):
+            raise ValueError(f"V_local volatility reference cannot be negative, got {v_local}")
+
+        effective_v_local = max(v_local, self.min_v_local_floor)
 
         # Version Race & Stale Version Validations
         if self._last_parent_version is not None and parent_version < self._last_parent_version:
@@ -352,7 +378,7 @@ class StructureEngine:
 
         reasons: list[ReasonCode] = []
 
-        # Update candidate extreme high and low with exact bar timestamps
+        # Update candidate extreme high and low
         if self.last_extreme_high is None or bar.high > self.last_extreme_high:
             self.last_extreme_high = bar.high
             self.last_extreme_high_ts = bar.close_timestamp
@@ -364,8 +390,8 @@ class StructureEngine:
         high_displacement = self.last_extreme_high - bar.close
         low_displacement = bar.close - self.last_extreme_low
 
-        high_magnitude = high_displacement / v_local if v_local > Decimal("0.0") else Decimal("0.0")
-        low_magnitude = low_displacement / v_local if v_local > Decimal("0.0") else Decimal("0.0")
+        high_magnitude = high_displacement / effective_v_local if effective_v_local > Decimal("0.0") else Decimal("0.0")
+        low_magnitude = low_displacement / effective_v_local if effective_v_local > Decimal("0.0") else Decimal("0.0")
 
         # Causal Swing Confirmation & Classification
         has_reversal = (high_magnitude >= self.min_reversal_magnitude) or (low_magnitude >= self.min_reversal_magnitude)
@@ -379,7 +405,7 @@ class StructureEngine:
                     StructuralClassification.HH
                     if prev_high and self.last_extreme_high > prev_high.price
                     else StructuralClassification.LH
-                    if prev_high
+                    if prev_high and self.last_extreme_high < prev_high.price
                     else StructuralClassification.UNCLASSIFIED
                 )
 
@@ -391,10 +417,13 @@ class StructureEngine:
                     price=self.last_extreme_high,
                     pivot_timestamp=self.last_extreme_high_ts,
                     confirmed_at=bar.close_timestamp,
-                    v_local=v_local,
+                    v_local=effective_v_local,
                     classification=classification,
                 )
                 self.swing_records.add(swing_pt)
+                # Reset candidate low extreme to track next pullback low
+                self.last_extreme_low = bar.low
+                self.last_extreme_low_ts = bar.close_timestamp
 
             if low_magnitude >= self.min_reversal_magnitude and self.protected_low != self.last_extreme_low:
                 self.protected_low = self.last_extreme_low
@@ -403,7 +432,7 @@ class StructureEngine:
                     StructuralClassification.HL
                     if prev_low and self.last_extreme_low > prev_low.price
                     else StructuralClassification.LL
-                    if prev_low
+                    if prev_low and self.last_extreme_low < prev_low.price
                     else StructuralClassification.UNCLASSIFIED
                 )
 
@@ -415,10 +444,13 @@ class StructureEngine:
                     price=self.last_extreme_low,
                     pivot_timestamp=self.last_extreme_low_ts,
                     confirmed_at=bar.close_timestamp,
-                    v_local=v_local,
+                    v_local=effective_v_local,
                     classification=classification,
                 )
                 self.swing_records.add(swing_pt)
+                # Reset candidate high extreme to track next rally high
+                self.last_extreme_high = bar.high
+                self.last_extreme_high_ts = bar.close_timestamp
 
             if self.swing_state == SwingState.SWING_NONE:
                 self.swing_state = SwingState.SWING_CANDIDATE
@@ -430,44 +462,61 @@ class StructureEngine:
         if self.swing_state != old_swing:
             self.previous_swing_state = old_swing
 
-        # 2. Structural Break & CHoCH Evaluation
+        # 2. Structural Break & CHoCH Evaluation with Isolated Directional Persistence
         level_cross = False
         disp_confirmed = False
         persist_confirmed = False
+        active_level_type = "NONE"
+        active_level_price = bar.close
 
         if self.protected_high is not None and bar.close > self.protected_high:
             level_cross = True
+            active_level_type = "HIGH"
+            active_level_price = self.protected_high
+            self.low_persistence_counter = 0  # Reset low persistence when high break is active
             disp = bar.close - self.protected_high
-            if disp >= (self.displacement_threshold_mult * v_local):
+            if disp >= (self.displacement_threshold_mult * effective_v_local):
                 disp_confirmed = True
-                self.persistence_counter += 1
-                if self.persistence_counter >= self.persistence_bars_required:
+                self.high_persistence_counter += 1
+                if self.high_persistence_counter >= self.persistence_bars_required:
                     persist_confirmed = True
             else:
-                self.persistence_counter = 0
+                self.high_persistence_counter = 0
 
         elif self.protected_low is not None and bar.close < self.protected_low:
             level_cross = True
+            active_level_type = "LOW"
+            active_level_price = self.protected_low
+            self.high_persistence_counter = 0  # Reset high persistence when low break is active
             disp = self.protected_low - bar.close
-            if disp >= (self.displacement_threshold_mult * v_local):
+            if disp >= (self.displacement_threshold_mult * effective_v_local):
                 disp_confirmed = True
-                self.persistence_counter += 1
-                if self.persistence_counter >= self.persistence_bars_required:
+                self.low_persistence_counter += 1
+                if self.low_persistence_counter >= self.persistence_bars_required:
                     persist_confirmed = True
             else:
-                self.persistence_counter = 0
+                self.low_persistence_counter = 0
         else:
-            self.persistence_counter = 0
+            self.high_persistence_counter = 0
+            self.low_persistence_counter = 0
+
+        if level_cross:
+            self.last_break_candidate_level_type = active_level_type
+            self.last_break_candidate_level_price = active_level_price
+
+        active_persistence_count = (
+            self.high_persistence_counter if active_level_type == "HIGH" else self.low_persistence_counter
+        )
 
         struct_break = StructuralBreak(
             symbol=self.symbol,
-            level_price=self.protected_high or self.protected_low or bar.close,
-            level_type="HIGH" if self.protected_high and bar.close > self.protected_high else "LOW",
+            level_price=active_level_price,
+            level_type=active_level_type,
             level_cross=level_cross,
             displacement_confirmed=disp_confirmed,
             persistence_confirmed=persist_confirmed,
-            persistence_count=self.persistence_counter,
-            v_local=v_local,
+            persistence_count=active_persistence_count,
+            v_local=effective_v_local,
             break_timestamp=bar.close_timestamp,
         )
 
@@ -479,7 +528,7 @@ class StructureEngine:
                 self.break_state = BreakState.BREAK_ESTABLISHED
 
             # Change of Character (CHoCH) detection
-            new_dir = "LONG" if self.protected_high and bar.close > self.protected_high else "SHORT"
+            new_dir = "LONG" if active_level_type == "HIGH" else "SHORT"
             if self.current_direction != new_dir:
                 self.last_choch = ChangeOfCharacter(
                     symbol=self.symbol,
@@ -496,13 +545,23 @@ class StructureEngine:
             self.break_state = BreakState.BREAK_CANDIDATE
         elif old_break == BreakState.BREAK_CANDIDATE and not level_cross:
             self.break_state = BreakState.FAILED_BREAK
-            # Record FailedBreak attempt
+            # Record FailedBreak attempt with explicit candidate level identity
+            f_type = (
+                self.last_break_candidate_level_type
+                if self.last_break_candidate_level_type != "NONE"
+                else active_level_type
+            )
+            f_price = (
+                self.last_break_candidate_level_price
+                if self.last_break_candidate_level_price is not None
+                else active_level_price
+            )
             self.last_failed_break = FailedBreak(
                 symbol=self.symbol,
                 timeframe=self.timeframe,
-                level_price=self.protected_high or self.protected_low or bar.close,
-                level_type="HIGH" if self.protected_high else "LOW",
-                breach_price=bar.high if self.protected_high else bar.low,
+                level_price=f_price,
+                level_type=f_type,
+                breach_price=bar.high if f_type == "HIGH" else bar.low,
                 attempt_timestamp=bar.close_timestamp,
                 failed_at=bar.close_timestamp,
             )
@@ -522,11 +581,21 @@ class StructureEngine:
             self.damage_state = StructuralDamageState.RECLAIM_CANDIDATE
         elif old_damage == StructuralDamageState.RECLAIM_CANDIDATE and not level_cross:
             self.damage_state = StructuralDamageState.RECLAIM_CONFIRMED
+            r_type = (
+                self.last_break_candidate_level_type
+                if self.last_break_candidate_level_type != "NONE"
+                else active_level_type
+            )
+            r_price = (
+                self.last_break_candidate_level_price
+                if self.last_break_candidate_level_price is not None
+                else active_level_price
+            )
             self.last_reclaim = ReclaimEvent(
                 symbol=self.symbol,
                 timeframe=self.timeframe,
-                level_price=self.protected_high or self.protected_low or bar.close,
-                level_type="HIGH" if self.protected_high else "LOW",
+                level_price=r_price,
+                level_type=r_type,
                 reclaim_price=bar.close,
                 reclaimed_at=bar.close_timestamp,
             )
@@ -546,7 +615,7 @@ class StructureEngine:
             damage_state=self.damage_state,
             previous_damage_state=self.previous_damage_state,
             timestamp=bar.close_timestamp,
-            v_local=v_local,
+            v_local=effective_v_local,
             root_id=root_id,
             parent_id=parent_id,
             parent_version=parent_version,
