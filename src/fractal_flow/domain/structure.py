@@ -103,6 +103,7 @@ class StructureTransitionRecord:
         s_ts = source_ts or self.timestamp
         e_ts = event_ts or s_ts
         p_ts = processing_ts or e_ts
+        validity_window = StateEnvelope.calculate_timeframe_validity_seconds(self.timeframe)
 
         return StateEnvelope(
             state_id=f"struct_state_{object_id}_{self.state_version}",
@@ -119,7 +120,7 @@ class StructureTransitionRecord:
             source_timestamp=s_ts,
             event_timestamp=e_ts,
             processing_timestamp=p_ts,
-            valid_until=p_ts + 300,
+            valid_until=p_ts + validity_window,
             last_seen=s_ts,
             reason_codes=[r.value for r in self.reason_codes],
             configuration_version=self.config_version,
@@ -160,9 +161,11 @@ class StructureEngine:
         self.last_extreme_low: Optional[Decimal] = None
         self.persistence_counter = 0
 
+        self._last_parent_id: Optional[str] = None
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
         self._last_config_version: Optional[int] = None
+        self._last_timestamp: int = 0
 
     def calculate_v_local(self, current_bar: Bar, atr_14: Optional[Decimal] = None) -> Decimal:
         """Executably defines V_local as local volatility reference (ATR-14 or minimum pip floor)."""
@@ -186,7 +189,11 @@ class StructureEngine:
         if bar.symbol != self.symbol:
             raise ValueError(f"StructureEngine symbol mismatch: expected {self.symbol}, got {bar.symbol}")
 
-        # Version Race & Stale Version Validations
+        # Parent Identity & Version Monotonicity Validation
+        if self._last_parent_id is not None and parent_id != self._last_parent_id:
+            raise ValueError(
+                f"Parent identity discontinuity: incoming parent_id '{parent_id}' != active '{self._last_parent_id}'"
+            )
         if self._last_parent_version is not None and parent_version < self._last_parent_version:
             raise ValueError(
                 f"Parent version regression detected: incoming {parent_version} < current {self._last_parent_version}"
@@ -200,9 +207,16 @@ class StructureEngine:
                 f"Configuration version mismatch: incoming {config_version} != active {self._last_config_version}"
             )
 
+        if bar.close_timestamp < self._last_timestamp:
+            raise ValueError(
+                f"Chronology violation: incoming bar timestamp {bar.close_timestamp} prior to last seen {self._last_timestamp}"
+            )
+
+        self._last_parent_id = parent_id
         self._last_parent_version = parent_version
         self._last_data_version = data_version
         self._last_config_version = config_version
+        self._last_timestamp = bar.close_timestamp
 
         reasons: list[ReasonCode] = []
 
