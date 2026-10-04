@@ -46,9 +46,15 @@ class DurableEventJournal:
         self._global_sequence: int = 0
         self._faulted: bool = False
         self._lock = threading.Lock()
+        self._fault_hook: Optional[Any] = None
 
         if self.journal_file_path and self.journal_file_path.exists():
             self._load_from_file()
+
+    def set_fault_hook(self, hook: Optional[Any]) -> None:
+        """Sets a deterministic fault injection hook for persistence crash testing."""
+        with self._lock:
+            self._fault_hook = hook
 
     def append(self, event: Event) -> JournalRecord:
         with self._lock:
@@ -96,6 +102,10 @@ class DurableEventJournal:
 
     def _append_to_file_atomically(self, record: JournalRecord) -> None:
         assert self.journal_file_path is not None
+
+        if self._fault_hook:
+            self._fault_hook("BEFORE_JOURNAL_WRITE", record)
+
         rec_data = {
             "sequence_number": record.sequence_number,
             "event": asdict(record.event),
@@ -108,6 +118,9 @@ class DurableEventJournal:
             with open(self.journal_file_path, "a+", encoding="utf-8") as f:
                 f.seek(0, os.SEEK_END)
                 orig_offset = f.tell()
+
+                if self._fault_hook:
+                    self._fault_hook("BEFORE_JOURNAL_FSYNC", record)
 
                 f.write(line)
                 f.flush()
@@ -136,13 +149,14 @@ class DurableEventJournal:
                 f"Durable append failed (durably rolled back to offset {orig_offset}): {write_err}"
             ) from write_err
 
+        # File write and fsync succeeded on disk.
+        # Check fault hook AFTER fsync completion (simulating process crash before in-memory state update)
+        if self._fault_hook:
+            self._fault_hook("AFTER_JOURNAL_FSYNC", record)
+
     @staticmethod
     def _is_incomplete_json_tail(line_str: str, err: Exception) -> bool:
-        """Conservatively determines whether an EOF parse error represents a physically truncated JSON record.
-
-        Returns True ONLY when there is structural evidence of premature EOF termination (unterminated string,
-        unterminated object/array, or cut-off key/value). Returns False for completed malformed lines.
-        """
+        """Conservatively determines whether an EOF parse error represents a physically truncated JSON record."""
         if not isinstance(err, json.JSONDecodeError):
             return False
 
@@ -150,11 +164,9 @@ class DurableEventJournal:
         if not stripped:
             return False
 
-        # Every complete JournalRecord JSON object must end with '}'
         if stripped.endswith("}"):
             return False
 
-        # Structural inspection of quote/brace/bracket balance
         in_string = False
         escaped = False
         open_braces = 0
@@ -228,10 +240,8 @@ class DurableEventJournal:
             is_last_line = (idx == total_lines)
 
             try:
-                # 1. Structural JSON decoding
                 data = json.loads(line_str)
 
-                # 2. Strict type & field validation
                 if not isinstance(data, dict) or "sequence_number" not in data or "event" not in data or "checksum" not in data:
                     raise json.JSONDecodeError("Missing required record schema fields", line_str, 0)
 
@@ -245,7 +255,6 @@ class DurableEventJournal:
                 if not isinstance(evt_data, dict) or not isinstance(recorded_checksum, str):
                     raise JournalCorruptionException(f"Invalid event payload or checksum format at line {idx}")
 
-                # 3. Global sequence continuity check
                 if seq_num != temp_global_sequence + 1:
                     raise JournalCorruptionException(
                         f"Journal global sequence gap/disorder at line {idx}: sequence {seq_num} != expected {temp_global_sequence + 1}"
@@ -253,20 +262,17 @@ class DurableEventJournal:
 
                 evt = Event(**evt_data)
 
-                # 4. Event ID uniqueness check
                 if evt.event_id in temp_event_ids:
                     raise JournalCorruptionException(
                         f"Journal corruption at line {idx}: duplicate event_id '{evt.event_id}' (first seen at sequence {temp_event_ids[evt.event_id]})"
                     )
 
-                # 5. Checksum validation
                 computed_checksum = JournalRecord.compute_checksum(seq_num, evt)
                 if recorded_checksum != computed_checksum:
                     raise JournalCorruptionException(
                         f"Journal corruption at line {idx}: checksum mismatch."
                     )
 
-                # 6. Aggregate version continuity check
                 key = f"{evt.aggregate_type}:{evt.aggregate_id}"
                 curr_seq = temp_aggregate_sequences.get(key, 0)
                 if evt.aggregate_version != curr_seq + 1:
@@ -282,7 +288,6 @@ class DurableEventJournal:
                 last_valid_byte_offset = offset + len(line_bytes)
 
             except Exception as e:
-                # Distinguish demonstrably incomplete EOF JSON syntax tail vs completed invalid records or middle corruption
                 if is_last_line and self.truncate_corrupted_tail and self._is_incomplete_json_tail(line_str, e):
                     try:
                         with open(self.journal_file_path, "a+b") as tf:
@@ -298,7 +303,6 @@ class DurableEventJournal:
                 else:
                     raise JournalCorruptionException(f"Journal corruption at line {idx}: malformed record. Error: {e}") from e
 
-        # Commit temporary loaded structures to instance state only after full validation and tail recovery succeed
         self._records = temp_records
         self._aggregate_sequences = temp_aggregate_sequences
         self._event_ids = temp_event_ids
