@@ -10,26 +10,26 @@ invariants:
   - id: 2
     title: strategy_engines_no_direct_orders
     rule: "Strategy engines must not directly place MT5 orders."
-    status: SPECIFIED_ONLY
+    status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix forbids PDE/Flow/Strategy from creating execution intents"
-    test_reference: None
-    failure_mode: "Requires Layer 2 implementation"
+    test_reference: tests/phase2/test_behavioral_replay_adversarial.py::test_three_levels_of_authority_enforcement
+    failure_mode: "AuthorityViolationException"
 
   - id: 3
     title: pde_cannot_call_ordersend
     rule: "PDE cannot call OrderSend."
-    status: SPECIFIED_ONLY
+    status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix.verify_capability('PDE', 'CREATE_EXECUTION_INTENT')"
-    test_reference: None
-    failure_mode: "Requires Layer 2 implementation"
+    test_reference: tests/phase2/test_pde_pullback.py::test_pde_authority_and_forbidden_capabilities
+    failure_mode: "AuthorityViolationException"
 
   - id: 4
     title: flow_cannot_open_position
     rule: "Flow cannot open a position."
-    status: SPECIFIED_ONLY
+    status: ENFORCED
     enforcement_mechanism: "AuthorityMatrix.verify_capability('Flow', 'CREATE_EXECUTION_INTENT')"
-    test_reference: None
-    failure_mode: "Requires Layer 2 implementation"
+    test_reference: tests/phase2/test_flow_ownership.py::test_flow_engine_authority_and_forbidden_capabilities
+    failure_mode: "AuthorityViolationException"
 
   - id: 5
     title: risk_cannot_manufacture_signal
@@ -202,10 +202,10 @@ invariants:
   - id: 26
     title: primary_pullback_higher_tf
     rule: "Primary pullback normally occurs on a timeframe strictly higher than execution timeframe."
-    status: SPECIFIED_ONLY
-    enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: None
-    failure_mode: "Requires Layer 2 PDE implementation"
+    status: ENFORCED
+    enforcement_mechanism: "PDEEngine compare_timeframes rank check"
+    test_reference: tests/phase2/test_pde_pullback.py::test_timeframe_ordering_invariant_26
+    failure_mode: "ValueError on equal/lower timeframe rank"
 
   - id: 27
     title: lower_tf_pullback_explicit_micro
@@ -258,18 +258,18 @@ invariants:
   - id: 33
     title: fixed_fibonacci_not_constitutional
     rule: "Fixed Fibonacci thresholds are not constitutional pullback rules."
-    status: SPECIFIED_ONLY
-    enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: None
-    failure_mode: "Requires Layer 2 implementation"
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "PDEEngine max_pullback_depth independence verification"
+    test_reference: tests/phase2/test_pde_pullback.py::test_fibonacci_independence_principle_invariant_33
+    failure_mode: "Constitutional state affected by parameter mutation"
 
   - id: 34
     title: fixed_candle_count_not_constitutional
     rule: "Fixed candle-count pullback rules are not constitutional."
-    status: SPECIFIED_ONLY
-    enforcement_mechanism: "Layer 2 PDE Engine specification"
-    test_reference: None
-    failure_mode: "Requires Layer 2 implementation"
+    status: INTEGRATION_VERIFIED
+    enforcement_mechanism: "FlowEngine dwell bars independence verification"
+    test_reference: tests/phase2/test_flow_ownership.py::test_flow_state_transitions_and_dwell_filtering
+    failure_mode: "Constitutional state affected by parameter mutation"
 
   - id: 35
     title: structural_stops_primary

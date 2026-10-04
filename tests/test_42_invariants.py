@@ -73,8 +73,14 @@ def test_invariant_verification_matrix_is_truthful() -> None:
                 f"Invariant {inv_id} reference '{test_symbol}' is not a pytest-collectible test function!"
             )
 
+            # Ensure repo root is on sys.path for inner pytest collection
+            import sys
+            root_str = str(Path(".").resolve())
+            if root_str not in sys.path:
+                sys.path.insert(0, root_str)
+
             # Mechanical pytest collection verification (proves structural reference collectibility, not runtime pass)
-            collect_res = pytest.main(["--collect-only", "-q", ref])
+            collect_res = pytest.main(["-o", "addopts=", "-p", "no:cov", "--collect-only", "-q", ref])
             assert collect_res == pytest.ExitCode.OK, (
                 f"Pytest failed to collect invariant {inv_id} test reference node '{ref}'!"
             )
