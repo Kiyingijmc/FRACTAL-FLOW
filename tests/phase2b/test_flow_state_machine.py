@@ -1,4 +1,4 @@
-"""Tests for Flow State Machine Transitions and Hysteresis."""
+"""Tests for Flow State Machine Transitions, Hysteresis, Dwell, and Transition Confirmation."""
 
 from decimal import Decimal
 
@@ -42,17 +42,18 @@ def test_initial_state_and_first_transition():
     assert rec.flow_state in (FlowState.LONG_EMERGING, FlowState.BALANCED)
 
 
-def test_hysteresis_and_dwell_time():
+def test_transition_confirmation_bars_behavior():
+    # Set transition_confirm_bars = 2, min_dwell_bars = 1
     engine = FlowEngine(
         symbol="EURUSD",
         dominance_threshold=Decimal("0.60"),
         emerging_threshold=Decimal("0.30"),
-        min_persistence_bars=2,
-        min_dwell_bars=2,
+        min_persistence_bars=1,
+        min_dwell_bars=1,
+        transition_confirm_bars=2,
     )
 
-    # 1. First bullish bar
-    ev1 = FlowEvidence(
+    ev_long = FlowEvidence(
         long_strength=Decimal("0.65"),
         short_strength=Decimal("0.10"),
         imbalance=Decimal("0.55"),
@@ -63,65 +64,99 @@ def test_hysteresis_and_dwell_time():
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
     )
+
+    # First bar: Candidate is LONG_EMERGING, confirmation counter = 1 < 2 -> state remains UNKNOWN
     rec1 = engine.process_bar(
         bar=make_bar(ts=1700000000),
         v_local=Decimal("0.0010"),
         root_id="root_1",
         parent_id="p1",
         parent_version=1,
-        override_evidence=ev1,
+        override_evidence=ev_long,
     )
-    # Transitions from UNKNOWN -> LONG_EMERGING
-    assert rec1.flow_state == FlowState.LONG_EMERGING
+    assert rec1.flow_state == FlowState.UNKNOWN
+    assert engine.transition_candidate == FlowState.LONG_EMERGING
+    assert engine.transition_counter == 1
 
-    # 2. Second bullish bar satisfying dominance threshold, but persistence = 1 < 2
-    ev2 = FlowEvidence(
-        long_strength=Decimal("0.70"),
-        short_strength=Decimal("0.10"),
-        imbalance=Decimal("0.60"),
-        directional_displacement=Decimal("2.0"),
-        directional_efficiency=Decimal("0.9"),
-        structure_progression=Decimal("0.6"),
-        persistence=Decimal("1"),
-        volatility_context=Decimal("0.0010"),
-        timestamp=1700000120,
-    )
+    # Second bar: Candidate is LONG_EMERGING again, confirmation counter = 2 >= 2 -> commits transition to LONG_EMERGING
     rec2 = engine.process_bar(
         bar=make_bar(ts=1700000060),
         v_local=Decimal("0.0010"),
         root_id="root_1",
         parent_id="p1",
         parent_version=1,
-        override_evidence=ev2,
+        override_evidence=ev_long,
     )
     assert rec2.flow_state == FlowState.LONG_EMERGING
+    assert engine.transition_candidate is None
+    assert engine.transition_counter == 0
 
-    # 3. Third bar satisfying persistence >= 2 and dwell >= 2
-    ev3 = FlowEvidence(
-        long_strength=Decimal("0.75"),
-        short_strength=Decimal("0.10"),
-        imbalance=Decimal("0.65"),
-        directional_displacement=Decimal("2.5"),
-        directional_efficiency=Decimal("0.95"),
-        structure_progression=Decimal("0.7"),
-        persistence=Decimal("2"),
-        volatility_context=Decimal("0.0010"),
-        timestamp=1700000180,
+
+def test_transition_confirmation_interrupted_reset():
+    engine = FlowEngine(
+        symbol="EURUSD",
+        dominance_threshold=Decimal("0.60"),
+        emerging_threshold=Decimal("0.30"),
+        min_persistence_bars=1,
+        min_dwell_bars=1,
+        transition_confirm_bars=2,
     )
-    rec3 = engine.process_bar(
-        bar=make_bar(ts=1700000120),
+
+    ev_long = FlowEvidence(
+        long_strength=Decimal("0.65"),
+        short_strength=Decimal("0.10"),
+        imbalance=Decimal("0.55"),
+        directional_displacement=Decimal("1.5"),
+        directional_efficiency=Decimal("0.8"),
+        structure_progression=Decimal("0.5"),
+        persistence=Decimal("1"),
+        volatility_context=Decimal("0.0010"),
+        timestamp=1700000060,
+    )
+
+    ev_short = FlowEvidence(
+        long_strength=Decimal("0.10"),
+        short_strength=Decimal("0.65"),
+        imbalance=Decimal("-0.55"),
+        directional_displacement=Decimal("-1.5"),
+        directional_efficiency=Decimal("-0.8"),
+        structure_progression=Decimal("-0.5"),
+        persistence=Decimal("1"),
+        volatility_context=Decimal("0.0010"),
+        timestamp=1700000120,
+    )
+
+    # Bar 1: Long evidence -> Candidate LONG_EMERGING (counter 1)
+    rec1 = engine.process_bar(
+        bar=make_bar(ts=1700000000),
         v_local=Decimal("0.0010"),
-        root_id="root_1",
+        root_id="r1",
         parent_id="p1",
         parent_version=1,
-        override_evidence=ev3,
+        override_evidence=ev_long,
     )
-    assert rec3.flow_state == FlowState.LONG_DOMINANT
+    assert rec1.flow_state == FlowState.UNKNOWN
+    assert engine.transition_candidate == FlowState.LONG_EMERGING
+    assert engine.transition_counter == 1
+
+    # Bar 2: Short evidence interrupts long candidate -> Candidate becomes SHORT_EMERGING (counter resets to 1)
+    rec2 = engine.process_bar(
+        bar=make_bar(ts=1700000060),
+        v_local=Decimal("0.0010"),
+        root_id="r1",
+        parent_id="p1",
+        parent_version=1,
+        override_evidence=ev_short,
+    )
+    assert rec2.flow_state == FlowState.UNKNOWN
+    assert engine.transition_candidate == FlowState.SHORT_EMERGING
+    assert engine.transition_counter == 1
 
 
 def test_weakening_does_not_imply_reversal():
-    engine = FlowEngine(symbol="EURUSD")
+    engine = FlowEngine(symbol="EURUSD", min_dwell_bars=1, transition_confirm_bars=1)
     engine.flow_state = FlowState.LONG_DOMINANT
+    engine._dwell_counter = 1
 
     # Weakening long strength
     ev_weak = FlowEvidence(

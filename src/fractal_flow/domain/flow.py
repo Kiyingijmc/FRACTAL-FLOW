@@ -1,7 +1,7 @@
 """Flow Ownership Engine for FRACTAL FLOW.
 
 Computes directional pressure ownership, strength, imbalance, and state transitions
-using causal evidence, hysteresis, state dwell, and fail-closed authority validation.
+using causal evidence, hysteresis, state dwell, transition confirmation, and fail-closed authority validation.
 """
 
 from dataclasses import dataclass, field
@@ -73,6 +73,8 @@ class FlowTransitionRecord:
     config_version: int
     data_version: int
     feature_version: int
+    transition_candidate: Optional[FlowState] = None
+    transition_counter: int = 0
     reason_codes: list[ReasonCode] = field(default_factory=list)
     authority: str = "FLOW"
 
@@ -113,7 +115,14 @@ class FlowTransitionRecord:
 
 
 class FlowEngine:
-    """Causal, Hysteresis-Aware Flow Ownership Engine."""
+    """Causal, Hysteresis, Dwell, and Transition-Confirmed Flow Ownership Engine.
+
+    Separates four temporal mechanisms:
+    1. Persistence: Measures consecutive directional evidence (long/short).
+    2. Hysteresis: Asymmetric thresholds preventing rapid threshold oscillation.
+    3. State Dwell: Minimum residence observations in current state before transition eligibility.
+    4. Transition Confirmation: Consecutive qualifying observations of a candidate state before transition commit.
+    """
 
     def __init__(
         self,
@@ -124,7 +133,7 @@ class FlowEngine:
         weakening_threshold: Decimal = Decimal("0.40"),
         min_persistence_bars: int = 2,
         min_dwell_bars: int = 2,
-        transition_confirm_bars: int = 2,
+        transition_confirm_bars: int = 1,
         max_history_capacity: int = 100,
     ) -> None:
         self.symbol = symbol
@@ -134,7 +143,7 @@ class FlowEngine:
         self.weakening_threshold = weakening_threshold
         self.min_persistence_bars = min_persistence_bars
         self.min_dwell_bars = min_dwell_bars
-        self.transition_confirm_bars = transition_confirm_bars
+        self.transition_confirm_bars = max(1, transition_confirm_bars)
         self.max_history_capacity = max_history_capacity
 
         self.flow_state = FlowState.UNKNOWN
@@ -144,6 +153,9 @@ class FlowEngine:
         self._dwell_counter = 0
         self._long_persistence_counter = 0
         self._short_persistence_counter = 0
+
+        # Bound transition candidate state & transition confirmation counter
+        self._transition_candidate: Optional[FlowState] = None
         self._transition_counter = 0
 
         self._history: list[FlowEvidence] = []
@@ -155,6 +167,14 @@ class FlowEngine:
     @property
     def history(self) -> tuple[FlowEvidence, ...]:
         return tuple(self._history)
+
+    @property
+    def transition_candidate(self) -> Optional[FlowState]:
+        return self._transition_candidate
+
+    @property
+    def transition_counter(self) -> int:
+        return self._transition_counter
 
     def _record_history(self, evidence: FlowEvidence) -> None:
         self._history.append(evidence)
@@ -196,15 +216,11 @@ class FlowEngine:
         elif close_displacement < Decimal("0.0"):
             self._short_persistence_counter += 1
             self._long_persistence_counter = 0
-        else:
-            # Neutral bar
-            pass
 
         p_long = Decimal(str(self._long_persistence_counter))
         p_short = Decimal(str(self._short_persistence_counter))
 
         # Raw directional strengths (0.0 to 1.0 clamped)
-        # Combination of displacement, efficiency, persistence and structural progression
         long_raw = (
             max(Decimal("0.0"), displacement) * Decimal("0.3")
             + max(Decimal("0.0"), efficiency) * Decimal("0.3")
@@ -278,19 +294,43 @@ class FlowEngine:
         evidence = override_evidence or self.calculate_evidence(bar, v_local, structure_progression)
         self._record_history(evidence)
 
-        # Evaluate target flow state given current evidence and state machine rules
-        target_state = self._determine_target_state(evidence)
+        # 1. Determine candidate target flow state given evidence & hysteresis rules
+        candidate_state = self._determine_target_state(evidence)
 
-        reasons: list[ReasonCode] = []
         old_state = self.flow_state
+        reasons: list[ReasonCode] = []
 
-        if target_state != old_state:
-            GLOBAL_STATE_REGISTRY.validate_transition("FlowState", old_state.value, target_state.value)
-            self.previous_flow_state = old_state
-            self.flow_state = target_state
-            self._dwell_counter = 1
+        # 2. Evaluate state transition confirmation logic
+        if candidate_state != old_state:
+            # Check state dwell requirement on current state before transition eligibility
+            if self._dwell_counter < self.min_dwell_bars and old_state != FlowState.UNKNOWN:
+                # Still dwelling in current state
+                self._dwell_counter += 1
+                self._transition_candidate = None
+                self._transition_counter = 0
+            else:
+                # Accumulate confirmation for candidate
+                if candidate_state == self._transition_candidate:
+                    self._transition_counter += 1
+                else:
+                    self._transition_candidate = candidate_state
+                    self._transition_counter = 1
+
+                # If transition_confirm_bars threshold satisfied, commit transition
+                if self._transition_counter >= self.transition_confirm_bars:
+                    GLOBAL_STATE_REGISTRY.validate_transition("FlowState", old_state.value, candidate_state.value)
+                    self.previous_flow_state = old_state
+                    self.flow_state = candidate_state
+                    self._dwell_counter = 1
+                    self._transition_candidate = None
+                    self._transition_counter = 0
+                else:
+                    self._dwell_counter += 1
         else:
+            # Candidate matches active flow_state; reset candidate tracking & increment dwell
             self._dwell_counter += 1
+            self._transition_candidate = None
+            self._transition_counter = 0
 
         self.state_version += 1
 
@@ -308,6 +348,8 @@ class FlowEngine:
             config_version=config_version,
             data_version=data_version,
             feature_version=feature_version,
+            transition_candidate=self._transition_candidate,
+            transition_counter=self._transition_counter,
             reason_codes=reasons,
             authority="FLOW",
         )
@@ -320,7 +362,6 @@ class FlowEngine:
         curr = self.flow_state
         l_str, s_str = ev.long_strength, ev.short_strength
 
-        # Evaluate potential next states adhering strictly to canonical graph
         if curr == FlowState.UNKNOWN:
             if l_str >= self.emerging_threshold and l_str > s_str + Decimal("0.10"):
                 return FlowState.LONG_EMERGING
@@ -332,11 +373,7 @@ class FlowEngine:
                 return FlowState.BALANCED
 
         elif curr == FlowState.LONG_EMERGING:
-            if (
-                l_str >= self.dominance_threshold
-                and ev.persistence >= Decimal(str(self.min_persistence_bars))
-                and self._dwell_counter >= self.min_dwell_bars
-            ):
+            if l_str >= self.dominance_threshold and ev.persistence >= Decimal(str(self.min_persistence_bars)):
                 return FlowState.LONG_DOMINANT
             elif s_str >= self.emerging_threshold and l_str >= self.emerging_threshold:
                 return FlowState.CONTESTED
@@ -353,7 +390,7 @@ class FlowEngine:
                 return FlowState.TRANSITIONING
             elif s_str >= self.emerging_threshold and l_str >= self.weakening_threshold:
                 return FlowState.CONTESTED
-            elif l_str < self.weakening_threshold:
+            elif l_str < self.dominance_threshold:
                 return FlowState.LONG_WEAKENING
             return FlowState.LONG_DOMINANT
 
@@ -371,11 +408,7 @@ class FlowEngine:
             return FlowState.LONG_WEAKENING
 
         elif curr == FlowState.SHORT_EMERGING:
-            if (
-                s_str >= self.dominance_threshold
-                and ev.persistence >= Decimal(str(self.min_persistence_bars))
-                and self._dwell_counter >= self.min_dwell_bars
-            ):
+            if s_str >= self.dominance_threshold and ev.persistence >= Decimal(str(self.min_persistence_bars)):
                 return FlowState.SHORT_DOMINANT
             elif l_str >= self.emerging_threshold and s_str >= self.emerging_threshold:
                 return FlowState.CONTESTED
@@ -392,7 +425,7 @@ class FlowEngine:
                 return FlowState.TRANSITIONING
             elif l_str >= self.emerging_threshold and s_str >= self.weakening_threshold:
                 return FlowState.CONTESTED
-            elif s_str < self.weakening_threshold:
+            elif s_str < self.dominance_threshold:
                 return FlowState.SHORT_WEAKENING
             return FlowState.SHORT_DOMINANT
 

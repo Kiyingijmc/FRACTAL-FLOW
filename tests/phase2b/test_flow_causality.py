@@ -50,24 +50,26 @@ def build_baseline_sequence(n: int = 5) -> list[Bar]:
     return bars
 
 
-def run_sequence(bars: list[Bar]) -> tuple[str, str, tuple]:
+def run_sequence(bars: list[Bar], struct_progressions: list[Decimal] = None) -> list:
     engine = FlowEngine(symbol="EURUSD")
     recs = []
     for i, b in enumerate(bars):
+        sp = struct_progressions[i] if struct_progressions is not None else Decimal("0.0")
         rec = engine.process_bar(
             bar=b,
             v_local=Decimal("0.0010"),
             root_id="root_1",
             parent_id="p1",
             parent_version=1,
+            structure_progression=sp,
         )
         recs.append(rec)
-    return recs[2].flow_state.value, recs[2].evidence.imbalance, tuple(r.flow_state.value for r in recs[:3])
+    return recs
 
 
 def test_mutation_a_future_directional_spike():
     bars_base = build_baseline_sequence(5)
-    st_t, imb_t, seq_t = run_sequence(bars_base)
+    recs_base = run_sequence(bars_base)
 
     # Inject massive bullish spike at T+3, T+4 (future)
     bars_mutated = list(bars_base)
@@ -78,16 +80,20 @@ def test_mutation_a_future_directional_spike():
         open_p="1.1200", close_p="1.1500", high_p="1.1510", low_p="1.1190", ts=bars_base[4].open_timestamp
     )
 
-    st_mut, imb_mut, seq_mut = run_sequence(bars_mutated)
+    recs_mut = run_sequence(bars_mutated)
 
-    assert st_t == st_mut
-    assert imb_t == imb_mut
-    assert seq_t == seq_mut
+    # Prefix T0..T2 must be identical
+    for i in range(3):
+        assert recs_base[i].flow_state == recs_mut[i].flow_state
+        assert recs_base[i].evidence == recs_mut[i].evidence
+
+    # Future T3..T4 outputs are allowed to differ
+    assert recs_base[3].evidence != recs_mut[3].evidence
 
 
 def test_mutation_b_future_reversal():
     bars_base = build_baseline_sequence(5)
-    st_t, imb_t, seq_t = run_sequence(bars_base)
+    recs_base = run_sequence(bars_base)
 
     # Inject massive bearish reversal at T+3, T+4 (future)
     bars_mutated = list(bars_base)
@@ -98,29 +104,38 @@ def test_mutation_b_future_reversal():
         open_p="1.0800", close_p="1.0600", high_p="1.0810", low_p="1.0590", ts=bars_base[4].open_timestamp
     )
 
-    st_mut, imb_mut, seq_mut = run_sequence(bars_mutated)
+    recs_mut = run_sequence(bars_mutated)
 
-    assert st_t == st_mut
-    assert imb_t == imb_mut
-    assert seq_t == seq_mut
+    # Prefix T0..T2 must be identical
+    for i in range(3):
+        assert recs_base[i].flow_state == recs_mut[i].flow_state
+        assert recs_base[i].evidence == recs_mut[i].evidence
+
+    # Future T3..T4 outputs differ
+    assert recs_base[3].evidence != recs_mut[3].evidence
 
 
 def test_mutation_c_future_structure_progression():
     bars_base = build_baseline_sequence(5)
+    sp_base = [Decimal("0.0"), Decimal("0.1"), Decimal("0.2"), Decimal("0.3"), Decimal("0.4")]
+    sp_mutated = [Decimal("0.0"), Decimal("0.1"), Decimal("0.2"), Decimal("0.9"), Decimal("1.0")]
 
-    engine_base = FlowEngine(symbol="EURUSD")
-    recs_base = [engine_base.process_bar(b, Decimal("0.0010"), "root_1", "p1", 1) for b in bars_base[:3]]
+    recs_base = run_sequence(bars_base, sp_base)
+    recs_mut = run_sequence(bars_base, sp_mutated)
 
-    engine_mut = FlowEngine(symbol="EURUSD")
-    recs_mut = [engine_mut.process_bar(b, Decimal("0.0010"), "root_1", "p1", 1) for b in bars_base[:3]]
+    # Prefix T0..T2 must be identical
+    for i in range(3):
+        assert recs_base[i].flow_state == recs_mut[i].flow_state
+        assert recs_base[i].evidence == recs_mut[i].evidence
 
-    assert recs_base[2].flow_state == recs_mut[2].flow_state
-    assert recs_base[2].evidence == recs_mut[2].evidence
+    # Future T3..T4 outputs materially differ
+    assert recs_base[3].evidence.structure_progression != recs_mut[3].evidence.structure_progression
+    assert recs_base[3].evidence.long_strength != recs_mut[3].evidence.long_strength
 
 
 def test_mutation_d_future_persistence():
     bars_base = build_baseline_sequence(5)
-    st_t, imb_t, seq_t = run_sequence(bars_base)
+    recs_base = run_sequence(bars_base)
 
     # Inject future persistence
     bars_mutated = list(bars_base)
@@ -129,16 +144,17 @@ def test_mutation_d_future_persistence():
             open_p="1.1050", close_p="1.1100", high_p="1.1110", low_p="1.1040", ts=bars_base[i].open_timestamp
         )
 
-    st_mut, imb_mut, seq_mut = run_sequence(bars_mutated)
+    recs_mut = run_sequence(bars_mutated)
 
-    assert st_t == st_mut
-    assert imb_t == imb_mut
-    assert seq_t == seq_mut
+    # Prefix T0..T2 must be identical
+    for i in range(3):
+        assert recs_base[i].flow_state == recs_mut[i].flow_state
+        assert recs_base[i].evidence == recs_mut[i].evidence
 
 
 def test_mutation_e_future_volatility_expansion():
     bars_base = build_baseline_sequence(5)
-    st_t, imb_t, seq_t = run_sequence(bars_base)
+    recs_base = run_sequence(bars_base)
 
     # Inject extreme future volatility at T+3, T+4
     bars_mutated = list(bars_base)
@@ -149,8 +165,9 @@ def test_mutation_e_future_volatility_expansion():
         open_p="1.1500", close_p="1.0500", high_p="1.1700", low_p="1.0100", ts=bars_base[4].open_timestamp
     )
 
-    st_mut, imb_mut, seq_mut = run_sequence(bars_mutated)
+    recs_mut = run_sequence(bars_mutated)
 
-    assert st_t == st_mut
-    assert imb_t == imb_mut
-    assert seq_t == seq_mut
+    # Prefix T0..T2 must be identical
+    for i in range(3):
+        assert recs_base[i].flow_state == recs_mut[i].flow_state
+        assert recs_base[i].evidence == recs_mut[i].evidence
