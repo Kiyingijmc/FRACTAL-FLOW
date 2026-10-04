@@ -9,7 +9,6 @@ Tests:
 """
 
 from decimal import Decimal
-import pytest
 
 from src.fractal_flow.domain.location import LocationEngine, LocationState
 from src.fractal_flow.domain.market import Bar
@@ -25,10 +24,14 @@ def test_regime_engine_transitions_and_volatility_extreme() -> None:
     v_local = Decimal("0.0010")
     b = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0800", "1.0850", "1.0800", "1.0845")
 
-    rec1 = engine.evaluate(b, "LONG_DOMINANT", v_local, is_vol_extreme=False, root_id="r1", parent_id="p1", parent_version=1)
+    rec1 = engine.evaluate(
+        b, "LONG_DOMINANT", v_local, is_vol_extreme=False, root_id="r1", parent_id="p1", parent_version=1
+    )
     assert rec1.regime_state == RegimeState.TREND_UP
 
-    rec_chaos = engine.evaluate(b, "LONG_DOMINANT", v_local, is_vol_extreme=True, root_id="r1", parent_id="p2", parent_version=2)
+    rec_chaos = engine.evaluate(
+        b, "LONG_DOMINANT", v_local, is_vol_extreme=True, root_id="r1", parent_id="p2", parent_version=2
+    )
     assert rec_chaos.regime_state == RegimeState.CHAOTIC
 
 

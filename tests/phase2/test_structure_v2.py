@@ -11,7 +11,6 @@ Tests:
 """
 
 from decimal import Decimal
-import pytest
 
 from src.fractal_flow.domain.market import Bar
 from src.fractal_flow.domain.structure import (

@@ -6,7 +6,7 @@ across timeframes (4H, 1H, 30M, 15M, 5M, 1M) with lineage tracking, version pinn
 and deterministic invalidation cascades.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
@@ -15,7 +15,6 @@ from src.fractal_flow.domain.flow import FlowEngine, FlowTransitionRecord
 from src.fractal_flow.domain.location import LocationEngine, LocationTransitionRecord
 from src.fractal_flow.domain.market import Bar, Tick
 from src.fractal_flow.domain.pde import PDEEngine, PDETransitionRecord
-from src.fractal_flow.domain.reason_codes import ReasonCode
 from src.fractal_flow.domain.regime import RegimeEngine, RegimeTransitionRecord
 from src.fractal_flow.domain.role import RoleEngine, RoleTransitionRecord
 from src.fractal_flow.domain.structure import StructureEngine, StructureTransitionRecord
@@ -47,13 +46,25 @@ class BehavioralPipeline:
         self.timeframes = timeframes or ["4H", "1H", "30M", "15M", "5M", "1M"]
 
         self.dq_engines: dict[str, DataQualityEngine] = {tf: DataQualityEngine(symbol=symbol) for tf in self.timeframes}
-        self.vol_engines: dict[str, VolatilityEngine] = {tf: VolatilityEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
-        self.struct_engines: dict[str, StructureEngine] = {tf: StructureEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
-        self.flow_engines: dict[str, FlowEngine] = {tf: FlowEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
+        self.vol_engines: dict[str, VolatilityEngine] = {
+            tf: VolatilityEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
+        self.struct_engines: dict[str, StructureEngine] = {
+            tf: StructureEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
+        self.flow_engines: dict[str, FlowEngine] = {
+            tf: FlowEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
         self.pde_engines: dict[str, PDEEngine] = {tf: PDEEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
-        self.regime_engines: dict[str, RegimeEngine] = {tf: RegimeEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
-        self.role_engines: dict[str, RoleEngine] = {tf: RoleEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
-        self.location_engines: dict[str, LocationEngine] = {tf: LocationEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes}
+        self.regime_engines: dict[str, RegimeEngine] = {
+            tf: RegimeEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
+        self.role_engines: dict[str, RoleEngine] = {
+            tf: RoleEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
+        self.location_engines: dict[str, LocationEngine] = {
+            tf: LocationEngine(symbol=symbol, timeframe=tf) for tf in self.timeframes
+        }
 
         self.pipeline_version = 0
 
@@ -141,7 +152,11 @@ class BehavioralPipeline:
         )
 
         # 7. Role
-        direction = "LONG" if "LONG" in flow_rec.flow_state.value else ("SHORT" if "SHORT" in flow_rec.flow_state.value else "NEUTRAL")
+        direction = (
+            "LONG"
+            if "LONG" in flow_rec.flow_state.value
+            else ("SHORT" if "SHORT" in flow_rec.flow_state.value else "NEUTRAL")
+        )
         role_rec = self.role_engines[tf].evaluate(
             bar,
             direction=direction,
@@ -158,11 +173,11 @@ class BehavioralPipeline:
         )
 
         # 8. Location
-        htf_obstacle = htf_snapshot.structure_record.protected_high if htf_snapshot else None
+        htf_obstacle = getattr(htf_snapshot.structure_record, "protected_high", None) if htf_snapshot else None
         location_rec = self.location_engines[tf].evaluate(
             bar,
-            protected_high=struct_rec.protected_high,
-            protected_low=struct_rec.protected_low,
+            protected_high=getattr(struct_rec, "protected_high", None),
+            protected_low=getattr(struct_rec, "protected_low", None),
             v_local=v_local,
             root_id=root_id,
             parent_id=f"role_{role_rec.state_version}",

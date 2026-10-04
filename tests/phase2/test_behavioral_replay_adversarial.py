@@ -7,7 +7,6 @@ Tests:
 - Stale parent version rejection and version race protections.
 """
 
-from decimal import Decimal
 import pytest
 
 from src.fractal_flow.domain.authority import AuthorityMatrix, AuthorityViolationException
@@ -30,10 +29,7 @@ def test_behavioral_pipeline_replay_equivalence() -> None:
         Bar.create("EURUSD", "1M", BASE_TS + i * 60, BASE_TS + (i + 1) * 60, "1.0850", "1.0860", "1.0840", "1.0855")
         for i in range(5)
     ]
-    ticks = [
-        Tick.create("EURUSD", BASE_TS + (i + 1) * 60, "1.0855", "1.0856")
-        for i in range(5)
-    ]
+    ticks = [Tick.create("EURUSD", BASE_TS + (i + 1) * 60, "1.0855", "1.0856") for i in range(5)]
 
     p1 = BehavioralPipeline("EURUSD", timeframes=["1M"])
     snaps1 = [p1.process_bar(b, t, root_id="r1") for b, t in zip(bars, ticks)]
@@ -55,10 +51,7 @@ def test_causal_no_lookahead_behavioral_pipeline() -> None:
         Bar.create("EURUSD", "1M", BASE_TS + i * 60, BASE_TS + (i + 1) * 60, "1.0850", "1.0860", "1.0840", "1.0855")
         for i in range(5)
     ]
-    ticks = [
-        Tick.create("EURUSD", BASE_TS + (i + 1) * 60, "1.0855", "1.0856")
-        for i in range(5)
-    ]
+    ticks = [Tick.create("EURUSD", BASE_TS + (i + 1) * 60, "1.0855", "1.0856") for i in range(5)]
 
     decision_time = BASE_TS + 180
 
@@ -94,13 +87,26 @@ def test_three_levels_of_authority_enforcement() -> None:
         "Location": LocationEngine("EURUSD"),
     }
 
-    forbidden_capabilities = ["CREATE_EXECUTION_INTENT", "SUBMIT_ORDER", "MODIFY_POSITION", "CLOSE_POSITION_STRATEGICALLY"]
+    forbidden_capabilities = [
+        "CREATE_EXECUTION_INTENT",
+        "SUBMIT_ORDER",
+        "MODIFY_POSITION",
+        "CLOSE_POSITION_STRATEGICALLY",
+    ]
     for eng_name in engines:
         for cap in forbidden_capabilities:
             with pytest.raises(AuthorityViolationException):
                 AuthorityMatrix.verify_capability(eng_name, cap)
 
-    execution_methods = ["create_execution_intent", "submit_order", "modify_position", "close_position_strategically", "size_position"]
+    execution_methods = [
+        "create_execution_intent",
+        "submit_order",
+        "modify_position",
+        "close_position_strategically",
+        "size_position",
+    ]
     for eng_name, instance in engines.items():
         for m in execution_methods:
-            assert not hasattr(instance, m), f"Engine {eng_name} violates static architecture protection with attribute {m}"
+            assert not hasattr(instance, m), (
+                f"Engine {eng_name} violates static architecture protection with attribute {m}"
+            )

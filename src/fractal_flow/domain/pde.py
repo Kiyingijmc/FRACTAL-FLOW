@@ -251,7 +251,9 @@ class PDEEngine:
                 composite_score=min(Decimal("1.0"), displacement / (self.min_impulse_v_mult * v_local)),
             )
 
-            tier = PullbackTier.PRIMARY_PULLBACK if self.timeframe in ("4H", "1H", "30M") else PullbackTier.MICRO_PULLBACK
+            tier = (
+                PullbackTier.PRIMARY_PULLBACK if self.timeframe in ("4H", "1H", "30M") else PullbackTier.MICRO_PULLBACK
+            )
 
             self.active_pullback = PullbackObject(
                 pullback_id=f"pb_{self.symbol}_{self.timeframe}_{bar.close_timestamp}_{self.state_version}",
@@ -273,7 +275,11 @@ class PDEEngine:
         elif self.pde_state in (PDEState.PDE_IMPULSE, PDEState.PDE_PULLBACK_CANDIDATE, PDEState.PDE_PULLBACK_ACTIVE):
             if self.impulse_direction == "LONG":
                 retracement = (self.impulse_high - bar.close) if self.impulse_high else Decimal("0.0")
-                impulse_span = (self.impulse_high - self.impulse_low) if (self.impulse_high and self.impulse_low) else Decimal("1.0")
+                impulse_span = (
+                    (self.impulse_high - self.impulse_low)
+                    if (self.impulse_high and self.impulse_low)
+                    else Decimal("1.0")
+                )
                 depth_ratio = retracement / impulse_span if impulse_span > Decimal("0.0") else Decimal("0.0")
 
                 if depth_ratio > self.max_pullback_depth:

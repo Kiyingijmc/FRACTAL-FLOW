@@ -75,6 +75,7 @@ def test_invariant_verification_matrix_is_truthful() -> None:
 
             # Ensure repo root is on sys.path for inner pytest collection
             import sys
+
             root_str = str(Path(".").resolve())
             if root_str not in sys.path:
                 sys.path.insert(0, root_str)

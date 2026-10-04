@@ -7,9 +7,6 @@ Tests:
 - Graceful degradation on missing or corrupt HTF data.
 """
 
-from decimal import Decimal
-import pytest
-
 from src.fractal_flow.domain.market import Bar, Tick
 from src.fractal_flow.domain.pipeline import BehavioralPipeline, BehavioralStateSnapshot
 
@@ -36,7 +33,13 @@ def test_behavioral_pipeline_end_to_end_execution() -> None:
     assert snapshot.symbol == "EURUSD"
     assert snapshot.timeframe == "1M"
     assert snapshot.dq_record.state.value == "DATA_NORMAL"
-    assert snapshot.vol_record.state.value in ("VOL_NORMAL", "VOL_ELEVATED", "VOL_UNKNOWN", "VOL_COMPRESSION", "VOL_EXPANSION")
+    assert snapshot.vol_record.state.value in (
+        "VOL_NORMAL",
+        "VOL_ELEVATED",
+        "VOL_UNKNOWN",
+        "VOL_COMPRESSION",
+        "VOL_EXPANSION",
+    )
     assert snapshot.structure_record.authority == "STRUCTURE"
     assert snapshot.flow_record.authority == "FLOW"
     assert snapshot.pde_record.authority == "PDE"

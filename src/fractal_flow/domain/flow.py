@@ -248,16 +248,19 @@ class FlowEngine:
         has_structural_reversal = False
 
         if structure_record is not None:
-            if structure_record.bos_type in ("BOS_BULLISH", "CHOCH_BULLISH"):
+            bos_type = getattr(structure_record, "bos_type", None)
+            if bos_type in ("BOS_BULLISH", "CHOCH_BULLISH"):
                 struct_prog = Decimal("1.0")
                 if "SHORT" in self.flow_state.value:
                     has_structural_reversal = True
-            elif structure_record.bos_type in ("BOS_BEARISH", "CHOCH_BEARISH"):
+            elif bos_type in ("BOS_BEARISH", "CHOCH_BEARISH"):
                 struct_prog = Decimal("-1.0")
                 if "LONG" in self.flow_state.value:
                     has_structural_reversal = True
 
-        confidence = min(Decimal("1.0"), max(Decimal("0.0"), (abs(imbalance) + efficiency + abs(struct_prog)) / Decimal("3.0")))
+        confidence = min(
+            Decimal("1.0"), max(Decimal("0.0"), (abs(imbalance) + efficiency + abs(struct_prog)) / Decimal("3.0"))
+        )
 
         metrics = FlowMetrics(
             long_strength=long_strength,

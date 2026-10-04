@@ -6,7 +6,6 @@ RECLAIM, TRANSITION, EXHAUSTION, NOISE, AMBIGUOUS.
 """
 
 from dataclasses import dataclass, field
-from decimal import Decimal
 from enum import Enum, unique
 from typing import Optional
 
