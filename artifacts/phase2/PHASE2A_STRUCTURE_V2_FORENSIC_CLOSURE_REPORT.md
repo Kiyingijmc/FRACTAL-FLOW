@@ -7,7 +7,7 @@
 `1ebaeb1f911d28ebc6a91160a29c8d862b4549b0`
 
 ## C. Correction SHA
-`FINAL_CORRECTION_SHA_PENDING_COMMIT`
+`067d9b65424fd738afc8fb964d0dce625245bc89`
 
 ## D. Existing Implementation Summary
 The initial Structure engine provided adaptive swing magnitude calculation and basic break/damage states, but possessed timestamp semantic conflations (using `close_timestamp` for candidate pivots) and unisolated persistence counters across level directions.
