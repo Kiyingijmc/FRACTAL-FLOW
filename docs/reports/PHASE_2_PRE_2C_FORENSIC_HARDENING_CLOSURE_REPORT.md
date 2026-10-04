@@ -14,8 +14,9 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 - **Target Mainline Branch**: `main` (`ae5c3788c22839bd4b99476b884dcc0d743286cd`)
 - **Historical Hardening Source HEAD**: `3e6be352219399606b2befa8124b9fad95e44e4c`
 - **New Integration Branch**: `phase2-pre2c-forensic-hardening-mainline-integration`
-- **Integration Mechanism**: Non-fast-forward merge (`git merge --no-ff`)
-- **Merge Base (`main`, Historical Hardening HEAD)**: `45be29c4dc7107c804623a577d2c547bde5e5496`
+- **Integration Mechanism**: Single-parent descendant/consolidated integration commit
+- **Parent Commit**: `ae5c3788c22839bd4b99476b884dcc0d743286cd`
+- **Merge Commit**: No
 - **Working Tree State**: `CLEAN`
 
 ---
@@ -36,7 +37,7 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 | `tests/phase2b/test_flow_evidence.py` | Modified | FlowEvidence provenance field assertions | KEEP |
 | `tests/phase2b/test_flow_evidence_provenance.py` | Added | FlowEvidence parameter mismatch rejection tests | KEEP |
 | `tests/phase2b/test_flow_immutability.py` | Added | Flow validate-before-mutate immutability tests | KEEP |
-| `tests/phase2b/test_flow_state_machine.py` | Modified | Flow state machine transition confirmation tests | KEEP |
+| `tests/phase2b/test_flow_state_machine.py` | Modified | Flow state transition confirmation tests | KEEP |
 | `tests/test_deterministic_replay.py` | Added | Deterministic replay & state parity tests | KEEP |
 | `tests/test_state_envelope_validity.py` | Added | Timeframe-aware StateEnvelope validity tests | KEEP |
 | `tests/test_state_registry_startup.py` | Added | StateRegistry fail-closed startup tests | KEEP |
@@ -84,8 +85,8 @@ poetry run pytest
 - **Ruff Formatter**: `0 formatting issues` (Clean)
 - **Mypy Strict**: `0 type errors` across 31 checked source files (Clean)
 - **Python Compileall**: `0 syntax/compilation errors`
-- **Pytest Suite**: `384 passed, 0 failed, 26 warnings`
-- **Test Coverage**: `87.79%` (Exceeds required `--cov-fail-under=85`)
+- **Pytest Suite**: `411 passed, 0 failed, 26 warnings`
+- **Test Coverage**: `87.91%` (Exceeds required `--cov-fail-under=85`)
 
 ---
 
@@ -104,8 +105,12 @@ poetry run pytest
 
 ## 7. Exact-HEAD CI Evidence
 
-The integration branch will be pushed to origin to trigger the `FRACTAL FLOW Baseline CI` GitHub Actions workflow. CI verification details will be confirmed upon run completion:
+Recorded GitHub Actions execution evidence for commit `f27bb04e4abf3ff905977808f7c349110a728d71`:
 
 - **Workflow Name**: `FRACTAL FLOW Baseline CI`
-- **CI Matrix**: Python 3.12, Python 3.13
-- **Required Invariant**: `CI.head_sha == ACTUAL_BRANCH_HEAD == FORENSIC_REPORT_FINAL_HEAD`
+- **Run ID**: `37240810361`
+- **Run Number**: `119`
+- **Target SHA**: `f27bb04e4abf3ff905977808f7c349110a728d71`
+- **Conclusion**: `success`
+- **CI Matrix**: Python 3.12 (`success`), Python 3.13 (`success`)
+- **Exact-Head Invariant**: `CI.head_sha == f27bb04e4abf3ff905977808f7c349110a728d71` (`VERIFIED`)
