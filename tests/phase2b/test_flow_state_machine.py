@@ -53,7 +53,7 @@ def test_transition_confirmation_bars_behavior():
         transition_confirm_bars=2,
     )
 
-    ev_long = FlowEvidence(
+    ev_long_1 = FlowEvidence(
         long_strength=Decimal("0.65"),
         short_strength=Decimal("0.10"),
         imbalance=Decimal("0.55"),
@@ -63,6 +63,22 @@ def test_transition_confirmation_bars_behavior():
         persistence=Decimal("1"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
+        symbol="EURUSD",
+        timeframe="1M",
+    )
+
+    ev_long_2 = FlowEvidence(
+        long_strength=Decimal("0.65"),
+        short_strength=Decimal("0.10"),
+        imbalance=Decimal("0.55"),
+        directional_displacement=Decimal("1.5"),
+        directional_efficiency=Decimal("0.8"),
+        structure_progression=Decimal("0.5"),
+        persistence=Decimal("1"),
+        volatility_context=Decimal("0.0010"),
+        timestamp=1700000120,
+        symbol="EURUSD",
+        timeframe="1M",
     )
 
     # First bar: Candidate is LONG_EMERGING, confirmation counter = 1 < 2 -> state remains UNKNOWN
@@ -72,7 +88,7 @@ def test_transition_confirmation_bars_behavior():
         root_id="root_1",
         parent_id="p1",
         parent_version=1,
-        override_evidence=ev_long,
+        override_evidence=ev_long_1,
     )
     assert rec1.flow_state == FlowState.UNKNOWN
     assert engine.transition_candidate == FlowState.LONG_EMERGING
@@ -85,7 +101,7 @@ def test_transition_confirmation_bars_behavior():
         root_id="root_1",
         parent_id="p1",
         parent_version=1,
-        override_evidence=ev_long,
+        override_evidence=ev_long_2,
     )
     assert rec2.flow_state == FlowState.LONG_EMERGING
     assert engine.transition_candidate is None
@@ -112,6 +128,8 @@ def test_transition_confirmation_interrupted_reset():
         persistence=Decimal("1"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
+        symbol="EURUSD",
+        timeframe="1M",
     )
 
     ev_short = FlowEvidence(
@@ -124,6 +142,8 @@ def test_transition_confirmation_interrupted_reset():
         persistence=Decimal("1"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000120,
+        symbol="EURUSD",
+        timeframe="1M",
     )
 
     # Bar 1: Long evidence -> Candidate LONG_EMERGING (counter 1)
@@ -169,6 +189,8 @@ def test_weakening_does_not_imply_reversal():
         persistence=Decimal("0"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
+        symbol="EURUSD",
+        timeframe="1M",
     )
     rec = engine.process_bar(
         bar=make_bar(ts=1700000000),

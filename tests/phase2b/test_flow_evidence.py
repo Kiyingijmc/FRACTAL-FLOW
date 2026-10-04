@@ -38,6 +38,8 @@ def test_flow_evidence_types_and_imbalance():
         persistence=Decimal("3"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000000,
+        symbol="EURUSD",
+        timeframe="1M",
     )
     assert ev.imbalance == Decimal("0.50")
     assert isinstance(ev.long_strength, Decimal)
@@ -56,6 +58,8 @@ def test_flow_evidence_rejects_non_decimal_and_non_finite():
             persistence=Decimal("3"),
             volatility_context=Decimal("0.0010"),
             timestamp=1700000000,
+            symbol="EURUSD",
+            timeframe="1M",
         )
 
     with pytest.raises(ValueError, match="must be a finite Decimal"):
@@ -69,6 +73,8 @@ def test_flow_evidence_rejects_non_decimal_and_non_finite():
             persistence=Decimal("3"),
             volatility_context=Decimal("0.0010"),
             timestamp=1700000000,
+            symbol="EURUSD",
+            timeframe="1M",
         )
 
 
