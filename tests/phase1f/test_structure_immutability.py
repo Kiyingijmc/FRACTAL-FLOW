@@ -120,9 +120,7 @@ def test_structure_immutability_on_duplicate_conflicting_timestamp():
 
     state_before = snapshot_engine_state(engine)
 
-    bar1_conflicting = make_bar(
-        open_ts=1700000000, close_ts=1700000060, high_p="1.1100", close_p="1.1090"
-    )
+    bar1_conflicting = make_bar(open_ts=1700000000, close_ts=1700000060, high_p="1.1100", close_p="1.1090")
     with pytest.raises(ValueError, match="Duplicate timestamp conflict"):
         engine.process_bar(bar1_conflicting, Decimal("0.0010"), "root_1", "parent_A", 2)
 

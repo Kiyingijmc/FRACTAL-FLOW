@@ -3,7 +3,7 @@
 from decimal import Decimal
 import pytest
 
-from src.fractal_flow.domain.flow import FlowEngine, FlowEvidence, FlowState
+from src.fractal_flow.domain.flow import FlowEngine, FlowEvidence
 from src.fractal_flow.domain.market import Bar, Timeframe
 
 
