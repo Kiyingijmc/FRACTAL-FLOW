@@ -57,7 +57,7 @@ class StructureState:
 
 
 @dataclass(frozen=True)
-class FlowState:
+class FlowStateSnapshot:
     symbol: str
     timeframe: str
     dominant_flow: str
