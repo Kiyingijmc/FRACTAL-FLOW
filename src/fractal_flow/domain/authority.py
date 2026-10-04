@@ -75,6 +75,46 @@ CAPABILITIES = {
             "CREATE_EXECUTION_INTENT",
             "SUBMIT_ORDER",
             "MODIFY_POSITION",
+            "CLOSE_POSITION_STRATEGICALLY",
+        },
+    },
+    "Regime": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "READ_FEATURES",
+            "WRITE_REGIME_STATE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "MODIFY_POSITION",
+            "CLOSE_POSITION_STRATEGICALLY",
+        },
+    },
+    "Role": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "READ_FEATURES",
+            "WRITE_ROLE_STATE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "MODIFY_POSITION",
+            "CLOSE_POSITION_STRATEGICALLY",
+        },
+    },
+    "Location": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "READ_FEATURES",
+            "WRITE_LOCATION_STATE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "MODIFY_POSITION",
+            "CLOSE_POSITION_STRATEGICALLY",
         },
     },
     "EntryPolicy": {

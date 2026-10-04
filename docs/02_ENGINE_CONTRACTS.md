@@ -103,19 +103,27 @@ Uses hysteresis to avoid noisy ownership flipping.
 
 ## 5. PDE
 
-States:
-NONE
-IMPULSE
-PULLBACK_CANDIDATE
-PULLBACK_ACTIVE
-WEAKENING
-DEEPENING
-STRUCTURAL_RECOVERY
-RESUMPTION_CANDIDATE
+Primary States (PDEState):
+PDE_NONE
+PDE_IMPULSE
+PDE_PULLBACK_CANDIDATE
+PDE_PULLBACK_ACTIVE
+PDE_WEAKENING
+PDE_STRENGTHENING
+PDE_DEEPENING
+PDE_RESUMPTION_IN_PROGRESS
+PDE_FOLLOW_THROUGH
+PDE_RESUMPTION_FAILED
+PDE_INVALIDATED
+
+Resumption Sub-Lifecycle States (PDEResumptionState):
+RESUMPTION_NONE
+RECOVERY_CANDIDATE
+RECOVERY_CONFIRMED
+DISPLACEMENT_CANDIDATE
 RESUMPTION_CONFIRMED
 FOLLOW_THROUGH
-FAILED_RESUMPTION
-INVALIDATED
+RESUMPTION_FAILED
 
 PDE describes market behavior. It never directly emits a broker order.
 
@@ -330,7 +338,7 @@ QUARANTINED
 | Regime | Yes | Yes | No | No |
 | Role | Yes | Yes | No | No |
 | Location | Yes | No | No | No |
-| Opportunity | Yes | Yes | No | No |
+| Opportunity | Yes | No | No | No |
 | Tradeability | Yes | No | No | No |
 | News | Yes | Yes | No | Protective |
 | Risk | Yes | No | No | Protective |
