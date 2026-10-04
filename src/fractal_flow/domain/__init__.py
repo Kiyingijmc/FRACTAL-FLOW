@@ -1,6 +1,7 @@
 """Domain module initialization."""
 
 from src.fractal_flow.domain.data_quality import DataQualityAssessment, DataQualityEngine, DataQualityState
+from src.fractal_flow.domain.flow import FlowEngine, FlowEvidence, FlowState, FlowTransitionRecord
 from src.fractal_flow.domain.market import Bar, BarAggregator, Tick, Timeframe, aggregate_ticks_to_bars
 from src.fractal_flow.domain.structure import (
     BreakState,
@@ -20,6 +21,10 @@ __all__ = [
     "DataQualityAssessment",
     "DataQualityEngine",
     "DataQualityState",
+    "FlowEngine",
+    "FlowEvidence",
+    "FlowState",
+    "FlowTransitionRecord",
     "StructuralBreak",
     "StructuralDamageState",
     "StructuralStopCandidate",
