@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from src.fractal_flow.domain.market import Timeframe
+
 
 class InvalidStateTransitionException(Exception):
     """Raised when an illegal state transition or invalid state machine is encountered."""
@@ -34,20 +36,50 @@ class StateRegistry:
 
     def _load_specs(self, states_path: str, transitions_path: str) -> None:
         s_path = Path(states_path)
-        if s_path.exists():
+        if not s_path.exists():
+            raise FileNotFoundError(
+                f"StateRegistry startup failure: states specification file not found at '{states_path}'"
+            )
+        try:
             with open(s_path) as f:
                 data = yaml.safe_load(f)
-                raw_states = data.get("states", {}) if isinstance(data, dict) else {}
-                for machine, st_list in raw_states.items():
-                    self._states[machine] = set(st_list)
+        except Exception as e:
+            raise ValueError(
+                f"StateRegistry startup failure: malformed states specification in '{states_path}': {e}"
+            ) from e
+
+        if not isinstance(data, dict) or "states" not in data or not isinstance(data["states"], dict):
+            raise ValueError(f"StateRegistry startup failure: missing or invalid 'states' root dict in '{states_path}'")
+
+        for machine, st_list in data["states"].items():
+            if not isinstance(st_list, (list, set, tuple)):
+                raise ValueError(f"StateRegistry startup failure: states for machine '{machine}' must be a list")
+            self._states[machine] = set(st_list)
 
         t_path = Path(transitions_path)
-        if t_path.exists():
+        if not t_path.exists():
+            raise FileNotFoundError(
+                f"StateRegistry startup failure: transitions specification file not found at '{transitions_path}'"
+            )
+        try:
             with open(t_path) as f:
                 data = yaml.safe_load(f)
-                raw_trans = data.get("transitions", {}) if isinstance(data, dict) else {}
-                for machine, trans_map in raw_trans.items():
-                    self._transitions[machine] = {k: list(v) for k, v in trans_map.items()}
+        except Exception as e:
+            raise ValueError(
+                f"StateRegistry startup failure: malformed transitions specification in '{transitions_path}': {e}"
+            ) from e
+
+        if not isinstance(data, dict) or "transitions" not in data or not isinstance(data["transitions"], dict):
+            raise ValueError(
+                f"StateRegistry startup failure: missing or invalid 'transitions' root dict in '{transitions_path}'"
+            )
+
+        for machine, trans_map in data["transitions"].items():
+            if not isinstance(trans_map, dict):
+                raise ValueError(
+                    f"StateRegistry startup failure: transition map for machine '{machine}' must be a dict"
+                )
+            self._transitions[machine] = {k: list(v) for k, v in trans_map.items()}
 
     def is_known_machine(self, machine_name: str) -> bool:
         return machine_name in self._states or machine_name in self._transitions
@@ -86,6 +118,21 @@ GLOBAL_STATE_REGISTRY = StateRegistry()
 @dataclass
 class StateEnvelope:
     state_id: str
+
+    @classmethod
+    def calculate_timeframe_validity_seconds(cls, timeframe_str: str, default_bars: int = 5) -> int:
+        """Calculates timeframe-aware validity window in seconds (default 5 bars of timeframe duration).
+
+        Fails closed with ValueError on invalid or unmapped timeframe strings.
+        """
+        try:
+            tf = Timeframe.validate(timeframe_str)
+            return tf.seconds * default_bars
+        except ValueError as e:
+            raise ValueError(
+                f"StateEnvelope validity calculation failure: invalid or unmapped timeframe '{timeframe_str}'"
+            ) from e
+
     object_id: str
     object_type: str
     symbol: str

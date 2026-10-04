@@ -40,6 +40,11 @@ class FlowEvidence:
     persistence: Decimal
     volatility_context: Decimal
     timestamp: int
+    symbol: str
+    timeframe: str
+    config_version: int = 1
+    data_version: int = 1
+    feature_version: int = 1
 
     def __post_init__(self) -> None:
         for name, val in [
@@ -88,6 +93,7 @@ class FlowTransitionRecord:
         s_ts = source_ts or self.timestamp
         e_ts = event_ts or s_ts
         p_ts = processing_ts or e_ts
+        validity_window = StateEnvelope.calculate_timeframe_validity_seconds(self.timeframe)
 
         return StateEnvelope(
             state_id=f"flow_state_{object_id}_{self.state_version}",
@@ -104,7 +110,7 @@ class FlowTransitionRecord:
             source_timestamp=s_ts,
             event_timestamp=e_ts,
             processing_timestamp=p_ts,
-            valid_until=p_ts + 300,
+            valid_until=p_ts + validity_window,
             last_seen=s_ts,
             reason_codes=[r.value for r in self.reason_codes],
             configuration_version=self.config_version,
@@ -159,6 +165,7 @@ class FlowEngine:
         self._transition_counter = 0
 
         self._history: list[FlowEvidence] = []
+        self._last_parent_id: Optional[str] = None
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
         self._last_config_version: Optional[int] = None
@@ -198,6 +205,8 @@ class FlowEngine:
                 persistence=Decimal("0.0"),
                 volatility_context=v_local,
                 timestamp=bar.close_timestamp,
+                symbol=bar.symbol,
+                timeframe=self.timeframe,
             )
 
         bar_range = bar.high - bar.low
@@ -248,6 +257,8 @@ class FlowEngine:
             persistence=p_long if close_displacement >= Decimal("0.0") else p_short,
             volatility_context=v_local,
             timestamp=bar.close_timestamp,
+            symbol=bar.symbol,
+            timeframe=self.timeframe,
         )
 
     def process_bar(
@@ -267,7 +278,11 @@ class FlowEngine:
         if bar.symbol != self.symbol:
             raise ValueError(f"FlowEngine symbol mismatch: expected {self.symbol}, got {bar.symbol}")
 
-        # Parent and version validation
+        # Parent Identity & Version Monotonicity Validation
+        if self._last_parent_id is not None and parent_id != self._last_parent_id:
+            raise ValueError(
+                f"Parent identity discontinuity: incoming parent_id '{parent_id}' != active '{self._last_parent_id}'"
+            )
         if self._last_parent_version is not None and parent_version < self._last_parent_version:
             raise ValueError(
                 f"Parent version regression detected: incoming {parent_version} < current {self._last_parent_version}"
@@ -286,6 +301,34 @@ class FlowEngine:
                 f"Chronology violation: incoming bar timestamp {bar.close_timestamp} prior to last seen {self._last_timestamp}"
             )
 
+        # Validate evidence provenance if override_evidence supplied
+        if override_evidence is not None:
+            if override_evidence.symbol != bar.symbol:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (symbol): expected {bar.symbol}, got {override_evidence.symbol}"
+                )
+            if override_evidence.timestamp != bar.close_timestamp:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (timestamp): expected {bar.close_timestamp}, got {override_evidence.timestamp}"
+                )
+            if override_evidence.timeframe != self.timeframe:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (timeframe): expected {self.timeframe}, got {override_evidence.timeframe}"
+                )
+            if override_evidence.config_version != config_version:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (config_version): expected {config_version}, got {override_evidence.config_version}"
+                )
+            if override_evidence.data_version != data_version:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (data_version): expected {data_version}, got {override_evidence.data_version}"
+                )
+            if override_evidence.feature_version != feature_version:
+                raise ValueError(
+                    f"FlowEvidence provenance mismatch (feature_version): expected {feature_version}, got {override_evidence.feature_version}"
+                )
+
+        self._last_parent_id = parent_id
         self._last_parent_version = parent_version
         self._last_data_version = data_version
         self._last_config_version = config_version
