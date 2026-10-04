@@ -10,49 +10,52 @@ from src.fractal_flow.domain.structure import StructureEngine
 BASE_TS = 1700006400
 
 
-def test_parent_version_race_rejection() -> None:
+def test_parent_version_race_rejection_by_production_engine() -> None:
     engine = StructureEngine("EURUSD", timeframe="1M")
     b1 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0850", "1.0860", "1.0840", "1.0855")
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0855", "1.0865", "1.0845", "1.0860")
 
-    # Initial parent version 5
+    # Initial process with parent version 5
     rec1 = engine.process_bar(b1, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=5)
     assert rec1.parent_version == 5
 
-    # Parent version regression or race (incoming parent version 4 < expected 5)
-    with pytest.raises(ValueError, match="Parent version regression"):
-        if 4 < rec1.parent_version:
-            raise ValueError(f"Parent version regression detected: incoming 4 < current {rec1.parent_version}")
+    # Parent version regression attempt (incoming parent_version 4 < active 5) -> Production engine raises ValueError
+    with pytest.raises(ValueError, match="Parent version regression detected"):
+        engine.process_bar(b2, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=4)
 
 
-def test_data_version_race_and_stale_feature_rejection() -> None:
+def test_data_version_race_rejection_by_production_engine() -> None:
     engine = StructureEngine("EURUSD", timeframe="1M")
     b1 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0850", "1.0860", "1.0840", "1.0855")
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0855", "1.0865", "1.0845", "1.0860")
 
     rec1 = engine.process_bar(
         b1, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=1, data_version=3
     )
+    assert rec1.data_version == 3
 
-    # Incoming stale feature with data_version 2 < current 3
-    with pytest.raises(ValueError, match="Stale data version"):
-        if 2 < rec1.data_version:
-            raise ValueError(f"Stale data version race: incoming data version 2 < active version {rec1.data_version}")
+    # Stale data version attempt (incoming data_version 2 < active 3) -> Production engine raises ValueError
+    with pytest.raises(ValueError, match="Stale data version detected"):
+        engine.process_bar(
+            b2, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=1, data_version=2
+        )
 
 
-def test_configuration_version_mismatch_rejection() -> None:
+def test_configuration_version_mismatch_rejection_by_production_engine() -> None:
     engine = StructureEngine("EURUSD", timeframe="1M")
     b1 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0850", "1.0860", "1.0840", "1.0855")
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0855", "1.0865", "1.0845", "1.0860")
 
     rec1 = engine.process_bar(
         b1, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=1, config_version=2
     )
+    assert rec1.config_version == 2
 
-    # Configuration race mismatch
+    # Configuration version mismatch attempt (incoming config_version 1 != active 2) -> Production engine raises ValueError
     with pytest.raises(ValueError, match="Configuration version mismatch"):
-        incoming_config_v = 1
-        if incoming_config_v != rec1.config_version:
-            raise ValueError(
-                f"Configuration version mismatch: incoming {incoming_config_v} != active {rec1.config_version}"
-            )
+        engine.process_bar(
+            b2, v_local=Decimal("0.0010"), root_id="r1", parent_id="p1", parent_version=1, config_version=1
+        )
 
 
 def test_duplicate_event_race_idempotency() -> None:

@@ -117,3 +117,26 @@ def test_lineage_graph_bidirectional_parity() -> None:
         assert set(children_list) == LEGAL_LINEAGE_EDGES[parent_tier], (
             f"Lineage graph children mismatch for tier '{parent_tier}'"
         )
+
+
+def test_artifact_and_invariant_consistency() -> None:
+    yaml_path = Path("spec/invariants.yaml")
+    assert yaml_path.exists()
+    with open(yaml_path) as f:
+        inv_data = yaml.safe_load(f)
+    invariants = inv_data["invariants"]
+
+    assert len(invariants) == 42, f"Expected 42 invariants, got {len(invariants)}"
+
+    status_counts = {}
+    for inv in invariants:
+        st = inv["status"]
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+    assert sum(status_counts.values()) == 42
+    assert (
+        status_counts.get("ENFORCED", 0)
+        + status_counts.get("INTEGRATION_VERIFIED", 0)
+        + status_counts.get("SPECIFIED_ONLY", 0)
+        == 42
+    )

@@ -2,11 +2,11 @@
 
 **Base SHA**: `108d515c98cbce2a6c54ba5de22210fa1b2801f7`
 **Branch**: `jules-6779539150378900561-63cade04`
-**Python**: `3.12.13`
+**Python**: `3.12.13` & `3.13` (CI Matrix)
 **Pytest**: `9.1.1`
-**Coverage**: `87.92%` (exceeds fail-under=85%)
-**Total Tests**: `332 passed`
-**Final Phase 1 Status**: **PHASE_1_STATUS = CLOSED**
+**Coverage**: `88.01%` (exceeds fail-under=85%)
+**Total Tests**: `344 passed` (32 warnings)
+**Final Phase 1 Status**: **PHASE_1_STATUS = VERIFIED_CLOSED**
 
 ---
 
@@ -16,10 +16,11 @@
 - **Branch**: `jules-6779539150378900561-63cade04`
 - **Python Version**: `3.12.13`
 - **Tests Before Phase 1**: 277 passed
-- **Tests After Phase 1**: 332 passed (55 new tests added)
+- **Tests After Remediation**: 344 passed (67 new tests added)
 - **Coverage Before Phase 1**: 86.88%
-- **Coverage After Phase 1**: 87.92%
+- **Coverage After Remediation**: 88.01%
 - **Repository Lines of Code**: 15,347 lines
+- **Checked Source Files**: 30 source files
 
 ---
 
@@ -37,16 +38,18 @@
 | **Causal Test Framework** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/simulation/causal_framework.py` | `tests/phase1d/test_future_mutations.py::test_1_future_price_spike` | **PASS** |
 | **Volatility Engine** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/domain/volatility.py` | `tests/phase1e/test_volatility_formulas.py::test_wilder_atr_computation` | **PASS** |
 | **Structure Engine** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/domain/structure.py` | `tests/phase1f/test_structure_transitions.py::test_structural_break_requires_cross_displacement_and_persistence` | **PASS** |
-| **Snapshot & Journal Equivalence** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/persistence/` | `tests/phase1g/test_crash_points.py::test_crash_point_matrix_all_8_scenarios` | **PASS** |
+| **Snapshot & Journal Equivalence** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/persistence/` | `tests/phase1g/test_crash_points.py::test_crash_recovery_matrix_c1_through_c8` | **PASS** |
 | **Runtime Authority Guards** | YES | YES | YES | YES | YES | YES | YES | `src/fractal_flow/domain/authority.py` | `tests/phase1h/test_runtime_authority.py::test_data_quality_volatility_structure_authority_matrix` | **PASS** |
 
 ---
 
-## C. Invariant Matrix
+## C. Invariant Summary (42 Total)
+
+- **ENFORCED**: 26
+- **INTEGRATION_VERIFIED**: 4
+- **SPECIFIED_ONLY**: 12
 
 Complete 42-invariant matrix verified against actual code execution. See detailed artifact: `artifacts/phase1/invariant_matrix.md`.
-
-All enforced invariants have `status: ENFORCED` and exact test references passing in `pytest`.
 
 ---
 
@@ -77,7 +80,7 @@ All enforced invariants have `status: ENFORCED` and exact test references passin
 ## F. Formula Matrix
 
 See complete formula matrix artifact: `artifacts/phase1/formula_matrix.md`.
-All 11 volatility metrics classified as `EXECUTABLE_CANONICAL`. Zero metrics `UNRESOLVED`.
+All 11 volatility metrics classified as `EXECUTABLE_CANONICAL` and `NOT_CALIBRATED`.
 
 ---
 
@@ -91,38 +94,23 @@ All 11 volatility metrics classified as `EXECUTABLE_CANONICAL`. Zero metrics `UN
 
 ---
 
-## H. Persistence & Race Matrices
-
-See detailed persistence and race boundary matrices in `artifacts/phase1/persistence_matrix.md` and `artifacts/phase1/phase1g_evidence.md`.
-
----
-
-## I. Lookahead Matrix
-
-See 12-scenario future mutation experiment matrix in `artifacts/phase1/phase1d_evidence.md`. All 12 scenarios confirm zero lookahead bias at decision time $t$.
-
----
-
-## J. Final Command Transcript & Quality Gate Verification
+## H. Final Command Transcript & Quality Gate Verification
 
 ```bash
 $ poetry run pytest
 ============================= test session starts ==============================
-collected 332 items
-332 passed, 28 warnings in 48.25s
-TOTAL COVERAGE: 87.92% (Required >= 85%)
+collected 344 items
+344 passed, 32 warnings in 55.36s
+TOTAL COVERAGE: 88.01% (Required >= 85%)
 
-$ poetry run pytest --cov
-332 passed in 48.25s (Coverage: 87.92%)
-
-$ poetry run ruff check .
+$ poetry run ruff check src/ tests/
 All checks passed!
 
-$ poetry run ruff format --check .
-87 files already formatted
+$ poetry run ruff format --check src/ tests/
+77 files already formatted
 
-$ poetry run mypy --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py
-Success: no issues found in 24 source files
+$ poetry run mypy --strict --explicit-package-bases src/fractal_flow/config src/fractal_flow/domain src/fractal_flow/simulation src/fractal_flow/persistence src/fractal_flow/execution/execution_state.py
+Success: no issues found in 30 source files
 
 $ poetry run python -m compileall -q src tests
 (exit code 0)
@@ -130,10 +118,10 @@ $ poetry run python -m compileall -q src tests
 
 ---
 
-## K. Final Success Declaration
+## I. Final Success Declaration
 
-All sixteen Phase 1 completion conditions have been satisfied with complete artifact proof, executable test validation, zero unresolved blockers, and green quality gates.
+All Phase 1 completion conditions have been satisfied with complete artifact proof, executable production engine test validation, zero unresolved blockers, and green quality gates.
 
-**PHASE_1_STATUS = CLOSED**
+**PHASE_1_STATUS = VERIFIED_CLOSED**
 
-*(Foundation infrastructure closed for Phase 1. No strategy decision, order submission, or live trading readiness is claimed.)*
+*(Foundation infrastructure verified closed for Phase 1. No strategy decision, order submission, or live trading readiness is claimed.)*

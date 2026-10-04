@@ -182,7 +182,18 @@ class VolatilityEngine:
         )
 
         # 4. Statistical Metrics (float)
-        # Realized Volatility (N=20 log returns std dev)
+        # Realized Volatility (N=20 log returns std dev) with timeframe-aware annualization
+        timeframe_bars_per_day = {
+            "1M": 1440,
+            "5M": 288,
+            "15M": 96,
+            "30M": 48,
+            "1H": 24,
+            "4H": 6,
+        }
+        bars_per_day = timeframe_bars_per_day.get(self.timeframe, 1440)
+        annualization_factor = math.sqrt(252 * bars_per_day)
+
         realized_vol = 0.0
         if len(self._close_history) >= 2:
             n = min(20, len(self._close_history) - 1)
@@ -192,7 +203,7 @@ class VolatilityEngine:
             ]
             mean_ret = sum(log_returns) / len(log_returns)
             var = sum((r - mean_ret) ** 2 for r in log_returns) / max(1, len(log_returns) - 1)
-            realized_vol = math.sqrt(var) * math.sqrt(252 * 1440)  # Annualized
+            realized_vol = math.sqrt(var) * annualization_factor
 
         # Local Volatility (N=5 standard deviation of close prices / current price)
         local_vol = 0.0

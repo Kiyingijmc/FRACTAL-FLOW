@@ -159,6 +159,10 @@ class StructureEngine:
         self.last_extreme_low: Optional[Decimal] = None
         self.persistence_counter = 0
 
+        self._last_parent_version: Optional[int] = None
+        self._last_data_version: Optional[int] = None
+        self._last_config_version: Optional[int] = None
+
     def calculate_v_local(self, current_bar: Bar, atr_14: Optional[Decimal] = None) -> Decimal:
         """Executably defines V_local as local volatility reference (ATR-14 or minimum pip floor)."""
         if atr_14 is not None and atr_14 > Decimal("0.0"):
@@ -179,6 +183,24 @@ class StructureEngine:
     ) -> StructureTransitionRecord:
         if bar.symbol != self.symbol:
             raise ValueError(f"StructureEngine symbol mismatch: expected {self.symbol}, got {bar.symbol}")
+
+        # Version Race & Stale Version Validations
+        if self._last_parent_version is not None and parent_version < self._last_parent_version:
+            raise ValueError(
+                f"Parent version regression detected: incoming {parent_version} < current {self._last_parent_version}"
+            )
+        if self._last_data_version is not None and data_version < self._last_data_version:
+            raise ValueError(
+                f"Stale data version detected: incoming data version {data_version} < active version {self._last_data_version}"
+            )
+        if self._last_config_version is not None and config_version != self._last_config_version:
+            raise ValueError(
+                f"Configuration version mismatch: incoming {config_version} != active {self._last_config_version}"
+            )
+
+        self._last_parent_version = parent_version
+        self._last_data_version = data_version
+        self._last_config_version = config_version
 
         reasons: list[ReasonCode] = []
 
