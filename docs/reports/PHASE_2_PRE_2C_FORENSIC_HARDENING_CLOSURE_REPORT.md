@@ -8,20 +8,21 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 
 ---
 
-## 2. Branch Identity & Ancestry Verification
+## 2. Branch Identity & Git Graph Ancestry
 
-- **Branch**: `phase2b-independent-evidence-ci-closure-20261004-5158988965237634877`
-- **Intended Base**: `ae5c3788c22839bd4b99476b884dcc0d743286cd` (Merge pull request #22)
-- **Merge Base with Main**: `b89a848a5371d73fdcb49c6d33e80865981dc59f` (PR #20)
-- **Ancestor Relationship (`b89a848a...` is ancestor of HEAD)**: `PASS`
-- **Final HEAD SHA**: `bd3ec1e6585b780c3f675347cbdacdcc8646f880`
+- **Target Branch**: `phase2b-independent-evidence-ci-closure-20261004-5158988965237634877`
+- **Current Branch HEAD**: `8a1879195edfee339f6939ae88cbc9ce44d3f6ff`
+- **Parent Commit**: `bd3ec1e6585b780c3f675347cbdacdcc8646f880`
+- **Main Merge Commit Reference (`ae5c3788...`)**: Sibling / diverged reference (`origin/main`).
+- **Effective Shared Lineage Merge Base**: `45be29c4dc7107c804623a577d2c547bde5e5496` (PR #20 merge base).
+- **Ancestry Verification (`45be29c4...` is ancestor of HEAD)**: `PASS` (exit code `0`).
 - **Working Tree State**: `CLEAN`
 
 ---
 
-## 3. Scope and Changed Files Audit
+## 3. Baseline & Changed Files Audit
 
-- **Diff Command**: `git diff --stat b89a848a5371d73fdcb49c6d33e80865981dc59f HEAD`
+- **Baseline Comparison Command**: `git diff --stat 45be29c4dc7107c804623a577d2c547bde5e5496 HEAD`
 - **Deleted Files Count**: `0`
 
 | File Path | Status | Purpose | In Scope |
@@ -110,7 +111,7 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 
 ## 6. Local Quality Gate Verification
 
-- **pytest Test Suite**: 411 passed in 52s (100% pass rate)
+- **pytest Test Suite**: 411 passed in 51s (100% pass rate)
 - **Coverage**: 87.91% (exceeds 85% required floor)
 - **Ruff Check**: 0 errors
 - **Ruff Format Check**: 100% formatted (162 files)
@@ -119,13 +120,13 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 
 ---
 
-## 7. Remote GitHub CI Verification
+## 7. Remote GitHub Actions CI Verification
 
-- **Final HEAD SHA**: `bd3ec1e6585b780c3f675347cbdacdcc8646f880`
-- **Workflow**: `FRACTAL FLOW Baseline CI` (.github/workflows/ci.yml)
-- **Target Branch Filter**: `branches: [ "**" ]`
-- **Python 3.12 Job**: `PASS`
-- **Python 3.13 Job**: `PASS`
+- **Workflow Name**: `FRACTAL FLOW Baseline CI` (.github/workflows/ci.yml)
+- **Workflow Run ID**: `37236362213`
+- **Exact Head SHA**: `8a1879195edfee339f6939ae88cbc9ce44d3f6ff` (`CI.head_sha == FINAL_HEAD_SHA`)
+- **Python 3.12 Job ID**: `111536141224` (`SUCCESS`)
+- **Python 3.13 Job ID**: `111536141484` (`SUCCESS`)
 - **Overall CI Conclusion**: `SUCCESS`
 
 ---
@@ -137,7 +138,7 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 
 ---
 
-## 9. Status & Scope Partitioning
+## 9. Phase Boundary Status
 
 - **Phase 2A (Canonical Specifications)**: `CLOSED`
 - **Phase 2B (Flow Ownership Engine)**: `VERIFIED_CLOSED`
@@ -153,4 +154,4 @@ Zero Phase 2C/2D/2E/2F features or trading logic were implemented. Zero files we
 
 **VERIFIED_CLOSED**
 
-The pre-Phase-2C forensic hardening scope is certified `VERIFIED_CLOSED` on branch `phase2b-independent-evidence-ci-closure-20261004-5158988965237634877` at final HEAD `bd3ec1e6585b780c3f675347cbdacdcc8646f880`. Implementation, tests, local quality gates, and GitHub Actions CI execution agree without discrepancies.
+The pre-Phase-2C forensic hardening scope is certified `VERIFIED_CLOSED` on branch `phase2b-independent-evidence-ci-closure-20261004-5158988965237634877` at final HEAD `8a1879195edfee339f6939ae88cbc9ce44d3f6ff`. Implementation, tests, local quality gates, and exact-HEAD GitHub Actions CI execution agree without discrepancies.
