@@ -1,8 +1,13 @@
-"""Adaptive Volatility-Normalized Structure Engine for FRACTAL FLOW.
+"""Adaptive Volatility-Normalized Structure Engine for FRACTAL FLOW (Phase 2A — Structure v2).
 
-Implements adaptive swings (SwingReversalMagnitude = ReversalDisplacement / V_local),
-structural break confirmation (LevelCross x DisplacementConfirmation x PersistenceConfirmation),
-state transitions with lineage tracking, and primary structural stop candidates.
+Implements:
+- Bounded, deterministic SwingRecord sets with replay equivalence and stable ordering.
+- Causal swing detection preserving strict pivot_timestamp vs confirmed_at / effective_from semantics.
+- Volatility-normalized reversal magnitude (SwingReversalMagnitude = ReversalDisplacement / V_local).
+- Causal HH/HL/LH/LL structural classification.
+- Deterministic Break of Structure (BOS) and Change of Character (CHoCH).
+- Failed break detection, reclaim/rearm state machine, and structural damage/invalidation.
+- Primary structural stop candidate generation strictly without trading authority.
 """
 
 from dataclasses import dataclass, field
@@ -44,6 +49,55 @@ class StructuralDamageState(str, Enum):
     RECLAIM_CONFIRMED = "RECLAIM_CONFIRMED"
 
 
+@unique
+class SwingType(str, Enum):
+    HIGH = "HIGH"
+    LOW = "LOW"
+
+
+@unique
+class StructuralClassification(str, Enum):
+    UNCLASSIFIED = "UNCLASSIFIED"
+    HH = "HH"  # Higher High
+    HL = "HL"  # Higher Low
+    LH = "LH"  # Lower High
+    LL = "LL"  # Lower Low
+
+
+@dataclass(frozen=True)
+class SwingPoint:
+    """Causal, deterministic representation of a structural swing extreme."""
+
+    swing_id: str
+    symbol: str
+    timeframe: str
+    swing_type: SwingType
+    price: Decimal
+    pivot_timestamp: int  # Market occurrence timestamp (when the extreme bar price occurred)
+    confirmed_at: int  # Information availability timestamp (when confirmation bar closed)
+    v_local: Decimal
+    classification: StructuralClassification = StructuralClassification.UNCLASSIFIED
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.confirmed_at >= self.pivot_timestamp
+
+
+@dataclass(frozen=True)
+class StructuralLevel:
+    """Protected or internal structural level anchor."""
+
+    level_id: str
+    symbol: str
+    timeframe: str
+    level_type: SwingType
+    price: Decimal
+    created_at_ts: int
+    confirmed_at_ts: int
+    is_protected: bool = True
+    is_broken: bool = False
+
+
 @dataclass(frozen=True)
 class StructuralBreak:
     symbol: str
@@ -54,11 +108,50 @@ class StructuralBreak:
     persistence_confirmed: bool
     persistence_count: int
     v_local: Decimal
+    break_timestamp: int = 0
 
     @property
     def is_confirmed_break(self) -> bool:
         """StructuralBreak = LevelCross x DisplacementConfirmation x PersistenceConfirmation."""
         return self.level_cross and self.displacement_confirmed and self.persistence_confirmed
+
+
+@dataclass(frozen=True)
+class ChangeOfCharacter:
+    """Informational event representing a structural posture transition (CHoCH)."""
+
+    symbol: str
+    timeframe: str
+    prior_direction: str  # LONG or SHORT or NEUTRAL
+    new_direction: str  # LONG or SHORT
+    trigger_price: Decimal
+    protected_level_price: Decimal
+    confirmed_at: int
+
+
+@dataclass(frozen=True)
+class FailedBreak:
+    """Informational record of a failed structural break attempt."""
+
+    symbol: str
+    timeframe: str
+    level_price: Decimal
+    level_type: str
+    breach_price: Decimal
+    attempt_timestamp: int
+    failed_at: int
+
+
+@dataclass(frozen=True)
+class ReclaimEvent:
+    """Informational record of a structural level reclaim following a failed break."""
+
+    symbol: str
+    timeframe: str
+    level_price: Decimal
+    level_type: str
+    reclaim_price: Decimal
+    reclaimed_at: int
 
 
 @dataclass(frozen=True)
@@ -69,6 +162,42 @@ class StructuralStopCandidate:
     atr_buffer: Decimal
     recommended_stop_price: Decimal
     timeframe: str = "1M"
+
+
+class BoundedSwingRecordSet:
+    """Deterministic, bounded collection of confirmed swing points with FIFO eviction and stable ordering."""
+
+    def __init__(self, capacity: int = 50) -> None:
+        if capacity <= 0:
+            raise ValueError("BoundedSwingRecordSet capacity must be a positive integer.")
+        self.capacity = capacity
+        self._records: list[SwingPoint] = []
+
+    def add(self, swing: SwingPoint) -> None:
+        """Adds a swing point deterministically; evicts oldest if capacity is reached."""
+        # Idempotency check: ignore exact duplicate swing IDs
+        if any(s.swing_id == swing.swing_id for s in self._records):
+            return
+
+        self._records.append(swing)
+        # Sort stably by confirmed_at, then pivot_timestamp, then swing_id
+        self._records.sort(key=lambda s: (s.confirmed_at, s.pivot_timestamp, s.swing_id))
+
+        if len(self._records) > self.capacity:
+            self._records.pop(0)  # Evict oldest confirmed swing
+
+    def get_last_swing(self, swing_type: Optional[SwingType] = None) -> Optional[SwingPoint]:
+        """Returns the most recently confirmed swing point matching the given type."""
+        for s in reversed(self._records):
+            if swing_type is None or s.swing_type == swing_type:
+                return s
+        return None
+
+    def get_records(self) -> list[SwingPoint]:
+        return list(self._records)
+
+    def __len__(self) -> int:
+        return len(self._records)
 
 
 @dataclass
@@ -90,6 +219,9 @@ class StructureTransitionRecord:
     config_version: int
     data_version: int
     feature_version: int
+    last_choch: Optional[ChangeOfCharacter] = None
+    last_failed_break: Optional[FailedBreak] = None
+    last_reclaim: Optional[ReclaimEvent] = None
     reason_codes: list[ReasonCode] = field(default_factory=list)
     authority: str = "STRUCTURE"
 
@@ -130,7 +262,11 @@ class StructureTransitionRecord:
 
 
 class StructureEngine:
-    """Adaptive, Volatility-Normalized Structure Engine."""
+    """Adaptive Volatility-Normalized Structure Engine (v2).
+
+    Produces causal swings, protected levels, HH/HL/LH/LL, BOS, CHoCH, failed breaks,
+    reclaims, and structural stops in a strictly informational capacity.
+    """
 
     def __init__(
         self,
@@ -139,6 +275,7 @@ class StructureEngine:
         min_reversal_magnitude: Decimal = Decimal("1.5"),
         displacement_threshold_mult: Decimal = Decimal("0.5"),
         persistence_bars_required: int = 2,
+        swing_capacity: int = 50,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
@@ -157,8 +294,17 @@ class StructureEngine:
         self.protected_high: Optional[Decimal] = None
         self.protected_low: Optional[Decimal] = None
         self.last_extreme_high: Optional[Decimal] = None
+        self.last_extreme_high_ts: int = 0
         self.last_extreme_low: Optional[Decimal] = None
+        self.last_extreme_low_ts: int = 0
+
         self.persistence_counter = 0
+        self.swing_records = BoundedSwingRecordSet(capacity=swing_capacity)
+        self.current_direction: str = "NEUTRAL"
+
+        self.last_choch: Optional[ChangeOfCharacter] = None
+        self.last_failed_break: Optional[FailedBreak] = None
+        self.last_reclaim: Optional[ReclaimEvent] = None
 
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
@@ -206,11 +352,13 @@ class StructureEngine:
 
         reasons: list[ReasonCode] = []
 
-        # Update high/low extremes
+        # Update candidate extreme high and low with exact bar timestamps
         if self.last_extreme_high is None or bar.high > self.last_extreme_high:
             self.last_extreme_high = bar.high
+            self.last_extreme_high_ts = bar.close_timestamp
         if self.last_extreme_low is None or bar.low < self.last_extreme_low:
             self.last_extreme_low = bar.low
+            self.last_extreme_low_ts = bar.close_timestamp
 
         # 1. Adaptive Swing Reversal Magnitude Evaluation
         high_displacement = self.last_extreme_high - bar.close
@@ -219,24 +367,70 @@ class StructureEngine:
         high_magnitude = high_displacement / v_local if v_local > Decimal("0.0") else Decimal("0.0")
         low_magnitude = low_displacement / v_local if v_local > Decimal("0.0") else Decimal("0.0")
 
-        # Swing state transitions
+        # Causal Swing Confirmation & Classification
+        has_reversal = (high_magnitude >= self.min_reversal_magnitude) or (low_magnitude >= self.min_reversal_magnitude)
+
         old_swing = self.swing_state
-        if high_magnitude >= self.min_reversal_magnitude or low_magnitude >= self.min_reversal_magnitude:
+        if has_reversal:
+            if high_magnitude >= self.min_reversal_magnitude and self.protected_high != self.last_extreme_high:
+                self.protected_high = self.last_extreme_high
+                prev_high = self.swing_records.get_last_swing(SwingType.HIGH)
+                classification = (
+                    StructuralClassification.HH
+                    if prev_high and self.last_extreme_high > prev_high.price
+                    else StructuralClassification.LH
+                    if prev_high
+                    else StructuralClassification.UNCLASSIFIED
+                )
+
+                swing_pt = SwingPoint(
+                    swing_id=f"swing_high_{self.symbol}_{self.last_extreme_high_ts}",
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    swing_type=SwingType.HIGH,
+                    price=self.last_extreme_high,
+                    pivot_timestamp=self.last_extreme_high_ts,
+                    confirmed_at=bar.close_timestamp,
+                    v_local=v_local,
+                    classification=classification,
+                )
+                self.swing_records.add(swing_pt)
+
+            if low_magnitude >= self.min_reversal_magnitude and self.protected_low != self.last_extreme_low:
+                self.protected_low = self.last_extreme_low
+                prev_low = self.swing_records.get_last_swing(SwingType.LOW)
+                classification = (
+                    StructuralClassification.HL
+                    if prev_low and self.last_extreme_low > prev_low.price
+                    else StructuralClassification.LL
+                    if prev_low
+                    else StructuralClassification.UNCLASSIFIED
+                )
+
+                swing_pt = SwingPoint(
+                    swing_id=f"swing_low_{self.symbol}_{self.last_extreme_low_ts}",
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    swing_type=SwingType.LOW,
+                    price=self.last_extreme_low,
+                    pivot_timestamp=self.last_extreme_low_ts,
+                    confirmed_at=bar.close_timestamp,
+                    v_local=v_local,
+                    classification=classification,
+                )
+                self.swing_records.add(swing_pt)
+
             if self.swing_state == SwingState.SWING_NONE:
                 self.swing_state = SwingState.SWING_CANDIDATE
             elif self.swing_state == SwingState.SWING_CANDIDATE:
                 self.swing_state = SwingState.SWING_CONFIRMED
-                if high_magnitude >= self.min_reversal_magnitude:
-                    self.protected_high = self.last_extreme_high
-                if low_magnitude >= self.min_reversal_magnitude:
-                    self.protected_low = self.last_extreme_low
             elif self.swing_state == SwingState.SWING_CONFIRMED:
                 self.swing_state = SwingState.SWING_PROTECTED
 
         if self.swing_state != old_swing:
             self.previous_swing_state = old_swing
 
-        # 2. Structural Break Evaluation (LevelCross x DisplacementConfirmation x PersistenceConfirmation)
+        # 2. Structural Break & CHoCH Evaluation
         level_cross = False
         disp_confirmed = False
         persist_confirmed = False
@@ -268,12 +462,13 @@ class StructureEngine:
         struct_break = StructuralBreak(
             symbol=self.symbol,
             level_price=self.protected_high or self.protected_low or bar.close,
-            level_type="HIGH" if self.protected_high else "LOW",
+            level_type="HIGH" if self.protected_high and bar.close > self.protected_high else "LOW",
             level_cross=level_cross,
             displacement_confirmed=disp_confirmed,
             persistence_confirmed=persist_confirmed,
             persistence_count=self.persistence_counter,
             v_local=v_local,
+            break_timestamp=bar.close_timestamp,
         )
 
         old_break = self.break_state
@@ -282,15 +477,40 @@ class StructureEngine:
                 self.break_state = BreakState.BREAK_CONFIRMED
             elif self.break_state == BreakState.BREAK_CONFIRMED:
                 self.break_state = BreakState.BREAK_ESTABLISHED
+
+            # Change of Character (CHoCH) detection
+            new_dir = "LONG" if self.protected_high and bar.close > self.protected_high else "SHORT"
+            if self.current_direction != new_dir:
+                self.last_choch = ChangeOfCharacter(
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    prior_direction=self.current_direction,
+                    new_direction=new_dir,
+                    trigger_price=bar.close,
+                    protected_level_price=struct_break.level_price,
+                    confirmed_at=bar.close_timestamp,
+                )
+                self.current_direction = new_dir
+
         elif level_cross and not disp_confirmed:
             self.break_state = BreakState.BREAK_CANDIDATE
         elif old_break == BreakState.BREAK_CANDIDATE and not level_cross:
             self.break_state = BreakState.FAILED_BREAK
+            # Record FailedBreak attempt
+            self.last_failed_break = FailedBreak(
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                level_price=self.protected_high or self.protected_low or bar.close,
+                level_type="HIGH" if self.protected_high else "LOW",
+                breach_price=bar.high if self.protected_high else bar.low,
+                attempt_timestamp=bar.close_timestamp,
+                failed_at=bar.close_timestamp,
+            )
 
         if self.break_state != old_break:
             self.previous_break_state = old_break
 
-        # 3. Structural Damage State Evaluation
+        # 3. Structural Damage & Reclaim State Machine
         old_damage = self.damage_state
         if struct_break.is_confirmed_break:
             self.damage_state = StructuralDamageState.STRUCTURE_BROKEN
@@ -298,6 +518,18 @@ class StructureEngine:
             reasons.append(ReasonCode.STRUCTURE_INVALIDATED)
         elif level_cross:
             self.damage_state = StructuralDamageState.DAMAGE_CANDIDATE
+        elif old_damage == StructuralDamageState.DAMAGE_CANDIDATE and not level_cross:
+            self.damage_state = StructuralDamageState.RECLAIM_CANDIDATE
+        elif old_damage == StructuralDamageState.RECLAIM_CANDIDATE and not level_cross:
+            self.damage_state = StructuralDamageState.RECLAIM_CONFIRMED
+            self.last_reclaim = ReclaimEvent(
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                level_price=self.protected_high or self.protected_low or bar.close,
+                level_type="HIGH" if self.protected_high else "LOW",
+                reclaim_price=bar.close,
+                reclaimed_at=bar.close_timestamp,
+            )
 
         if self.damage_state != old_damage:
             self.previous_damage_state = old_damage
@@ -322,6 +554,9 @@ class StructureEngine:
             config_version=config_version,
             data_version=data_version,
             feature_version=feature_version,
+            last_choch=self.last_choch,
+            last_failed_break=self.last_failed_break,
+            last_reclaim=self.last_reclaim,
             reason_codes=reasons,
             authority="STRUCTURE",
         )
