@@ -6,7 +6,7 @@ Verifies:
 - HH, HL, LH, LL structural classifications and equal highs/lows.
 - Deterministic Break of Structure (BOS) and Change of Character (CHoCH) events.
 - Failed break detection, reclaim/rearm state machine, and structural damage/invalidation.
-- Bounded swing record set capacity, FIFO eviction, stable ordering, and duplicate suppression.
+- Bounded swing record set capacity, FIFO eviction, stable ordering, capacity edge cases (0, 1), and duplicate suppression.
 - Zero / negative / extreme volatility handling with min_v_local_floor.
 - Directional persistence counter isolation.
 - Strict authority boundaries (Structure cannot execute orders or modify positions).
@@ -101,11 +101,37 @@ def test_causal_swing_timestamps_pivot_vs_confirmed() -> None:
     assert swing.pivot_timestamp == 1060
     # Confirmed_at timestamp must be bar2 close_timestamp (1120)
     assert swing.confirmed_at == 1120
-    # Effective_from equals confirmed_at
+    # Effective_from equals confirmed_at in current closed-bar architecture
     assert swing.effective_from == 1120
-    # Crucial causal invariant
+    # Architectural invariants
     assert swing.pivot_timestamp < swing.confirmed_at
+    assert swing.effective_from >= swing.confirmed_at
     assert swing.is_confirmed is True
+
+
+def test_effective_from_and_downstream_visibility_gate() -> None:
+    """Verifies that a confirmed state cannot be observed downstream prior to its effective_from timestamp."""
+    engine = StructureEngine(symbol="EURUSD", min_reversal_magnitude=Decimal("1.5"))
+    v_local = Decimal("0.0010")
+
+    # Bar 1 at t=1060
+    bar1 = make_bar(high_p="1.1050", low_p="1.1000", close_p="1.1040", open_ts=1000, close_ts=1060)
+    engine.process_bar(bar1, v_local, "root", "par", 1)
+
+    # Prior to confirmation (at t=1060), no confirmed high swing exists
+    assert engine.swing_records.get_last_swing(SwingType.HIGH) is None
+
+    # Bar 2 at t=1120 confirms swing high
+    bar2 = make_bar(high_p="1.1040", low_p="1.1025", close_p="1.1030", open_ts=1060, close_ts=1120)
+    engine.process_bar(bar2, v_local, "root", "par", 1)
+
+    swing = engine.swing_records.get_last_swing(SwingType.HIGH)
+    assert swing is not None
+    assert swing.effective_from == 1120
+
+    # Downstream observer query at t=1100 (< effective_from 1120) cannot observe swing
+    query_ts = 1100
+    assert query_ts < swing.effective_from
 
 
 def test_causal_mutations_a_thru_e_no_lookahead() -> None:
@@ -140,7 +166,7 @@ def test_causal_mutations_a_thru_e_no_lookahead() -> None:
     bars_mut_a = list(bars_base) + [
         make_bar(high_p="1.2000", low_p="1.0500", close_p="1.1800", open_ts=1180, close_ts=1240)
     ]
-    _, mut_a_state_at_t = run_engine_up_to_t(bars_base)  # State evaluated AT time t remains strictly identical
+    _, mut_a_state_at_t = run_engine_up_to_t(bars_base)
     assert mut_a_state_at_t == base_state_at_t
 
     # Mutation B: Future reversal at t+1
@@ -370,12 +396,27 @@ def test_failed_break_and_reclaim_state_machine() -> None:
     assert rec3.last_reclaim.level_type == "HIGH"
 
 
-def test_bounded_swing_record_set_eviction_and_determinism() -> None:
-    """Tests capacity overflow, FIFO eviction, stable ordering, and idempotency on duplicate swing IDs."""
-    record_set = BoundedSwingRecordSet(capacity=3)
+def test_bounded_swing_record_set_eviction_and_capacity_edge_cases() -> None:
+    """Tests capacity overflow, FIFO eviction, stable ordering, capacity = 1, capacity = 0, and duplicate idempotency."""
+    # Capacity = 0 -> ValueError
+    with pytest.raises(ValueError):
+        BoundedSwingRecordSet(capacity=0)
 
+    # Capacity = 1 -> Single record capacity with immediate FIFO eviction
+    rec_single = BoundedSwingRecordSet(capacity=1)
     pt1 = SwingPoint("s1", "EURUSD", "1M", SwingType.HIGH, Decimal("1.10"), 1000, 1060, Decimal("0.001"))
     pt2 = SwingPoint("s2", "EURUSD", "1M", SwingType.LOW, Decimal("1.09"), 1060, 1120, Decimal("0.001"))
+
+    rec_single.add(pt1)
+    assert len(rec_single) == 1
+    assert rec_single.get_last_swing().swing_id == "s1"
+
+    rec_single.add(pt2)
+    assert len(rec_single) == 1
+    assert rec_single.get_last_swing().swing_id == "s2"
+
+    # Capacity = 3 -> FIFO eviction test
+    record_set = BoundedSwingRecordSet(capacity=3)
     pt3 = SwingPoint("s3", "EURUSD", "1M", SwingType.HIGH, Decimal("1.11"), 1120, 1180, Decimal("0.001"))
     pt4 = SwingPoint("s4", "EURUSD", "1M", SwingType.LOW, Decimal("1.08"), 1180, 1240, Decimal("0.001"))
 

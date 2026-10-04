@@ -66,7 +66,20 @@ class StructuralClassification(str, Enum):
 
 @dataclass(frozen=True)
 class SwingPoint:
-    """Causal, deterministic representation of a structural swing extreme."""
+    """Causal, deterministic representation of a structural swing extreme.
+
+    Timestamp Semantics:
+    - pivot_timestamp: Market observation timestamp when the structural extreme occurred.
+    - confirmed_at: Information availability timestamp when reversal magnitude was confirmed.
+    - effective_from: Timestamp when confirmed swing state becomes available to downstream consumers.
+
+    Architectural Relation:
+        effective_from >= confirmed_at > pivot_timestamp
+
+    Implementation Behavior:
+        In the current closed-bar M1 architecture, effective_from equals confirmed_at because
+        StructureEngine publishes confirmed swing state immediately upon bar closure confirmation.
+    """
 
     swing_id: str
     symbol: str
