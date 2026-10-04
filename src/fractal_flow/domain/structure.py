@@ -62,6 +62,24 @@ class StructuralBreak:
 
 
 @dataclass(frozen=True)
+class SwingRecord:
+    swing_id: str
+    symbol: str
+    timeframe: str
+    pivot_timestamp: int
+    confirmed_at: int
+    effective_from: int
+    price: Decimal
+    swing_type: str  # HIGH or LOW
+    classification: str  # HH, HL, LH, LL, NEUTRAL
+    status: SwingState
+    version: int
+    root_id: str
+    parent_id: str
+    parent_version: int
+
+
+@dataclass(frozen=True)
 class StructuralStopCandidate:
     symbol: str
     direction: str  # LONG or SHORT
@@ -92,6 +110,11 @@ class StructureTransitionRecord:
     feature_version: int
     reason_codes: list[ReasonCode] = field(default_factory=list)
     authority: str = "STRUCTURE"
+    active_swings: list[SwingRecord] = field(default_factory=list)
+    bos_type: Optional[str] = None  # BOS_BULLISH, BOS_BEARISH, CHOCH_BULLISH, CHOCH_BEARISH
+    reclaim_type: Optional[str] = None  # RECLAIM_HIGH, RECLAIM_LOW
+    protected_high: Optional[Decimal] = None
+    protected_low: Optional[Decimal] = None
 
     def to_envelope(
         self,
@@ -145,6 +168,7 @@ class StructureEngine:
         self.min_reversal_magnitude = min_reversal_magnitude
         self.displacement_threshold_mult = displacement_threshold_mult
         self.persistence_bars_required = persistence_bars_required
+        self.max_swing_history = 50
 
         self.swing_state = SwingState.SWING_NONE
         self.previous_swing_state = SwingState.SWING_NONE
@@ -157,9 +181,12 @@ class StructureEngine:
         self.protected_high: Optional[Decimal] = None
         self.protected_low: Optional[Decimal] = None
         self.last_extreme_high: Optional[Decimal] = None
+        self.last_extreme_high_ts: Optional[int] = None
         self.last_extreme_low: Optional[Decimal] = None
+        self.last_extreme_low_ts: Optional[int] = None
         self.persistence_counter = 0
 
+        self.swings: list[SwingRecord] = []
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
         self._last_config_version: Optional[int] = None
@@ -206,11 +233,13 @@ class StructureEngine:
 
         reasons: list[ReasonCode] = []
 
-        # Update high/low extremes
+        # Update high/low extremes with timestamp tracing
         if self.last_extreme_high is None or bar.high > self.last_extreme_high:
             self.last_extreme_high = bar.high
+            self.last_extreme_high_ts = bar.close_timestamp
         if self.last_extreme_low is None or bar.low < self.last_extreme_low:
             self.last_extreme_low = bar.low
+            self.last_extreme_low_ts = bar.close_timestamp
 
         # 1. Adaptive Swing Reversal Magnitude Evaluation
         high_displacement = self.last_extreme_high - bar.close
@@ -221,6 +250,9 @@ class StructureEngine:
 
         # Swing state transitions
         old_swing = self.swing_state
+        bos_type: Optional[str] = None
+        reclaim_type: Optional[str] = None
+
         if high_magnitude >= self.min_reversal_magnitude or low_magnitude >= self.min_reversal_magnitude:
             if self.swing_state == SwingState.SWING_NONE:
                 self.swing_state = SwingState.SWING_CANDIDATE
@@ -228,8 +260,28 @@ class StructureEngine:
                 self.swing_state = SwingState.SWING_CONFIRMED
                 if high_magnitude >= self.min_reversal_magnitude:
                     self.protected_high = self.last_extreme_high
+                    self._register_swing(
+                        swing_type="HIGH",
+                        price=self.last_extreme_high,
+                        pivot_ts=self.last_extreme_high_ts or bar.close_timestamp,
+                        confirmed_at=bar.close_timestamp,
+                        status=SwingState.SWING_CONFIRMED,
+                        root_id=root_id,
+                        parent_id=parent_id,
+                        parent_version=parent_version,
+                    )
                 if low_magnitude >= self.min_reversal_magnitude:
                     self.protected_low = self.last_extreme_low
+                    self._register_swing(
+                        swing_type="LOW",
+                        price=self.last_extreme_low,
+                        pivot_ts=self.last_extreme_low_ts or bar.close_timestamp,
+                        confirmed_at=bar.close_timestamp,
+                        status=SwingState.SWING_CONFIRMED,
+                        root_id=root_id,
+                        parent_id=parent_id,
+                        parent_version=parent_version,
+                    )
             elif self.swing_state == SwingState.SWING_CONFIRMED:
                 self.swing_state = SwingState.SWING_PROTECTED
 
@@ -282,15 +334,21 @@ class StructureEngine:
                 self.break_state = BreakState.BREAK_CONFIRMED
             elif self.break_state == BreakState.BREAK_CONFIRMED:
                 self.break_state = BreakState.BREAK_ESTABLISHED
+
+            if self.protected_high is not None and bar.close > self.protected_high:
+                bos_type = "BOS_BULLISH" if self._last_dominant_direction() != "SHORT" else "CHOCH_BULLISH"
+            elif self.protected_low is not None and bar.close < self.protected_low:
+                bos_type = "BOS_BEARISH" if self._last_dominant_direction() != "LONG" else "CHOCH_BEARISH"
+
         elif level_cross and not disp_confirmed:
             self.break_state = BreakState.BREAK_CANDIDATE
-        elif old_break == BreakState.BREAK_CANDIDATE and not level_cross:
+        elif old_break in (BreakState.BREAK_CANDIDATE, BreakState.BREAK_CONFIRMED) and not level_cross:
             self.break_state = BreakState.FAILED_BREAK
 
         if self.break_state != old_break:
             self.previous_break_state = old_break
 
-        # 3. Structural Damage State Evaluation
+        # 3. Structural Damage & Reclaim Evaluation
         old_damage = self.damage_state
         if struct_break.is_confirmed_break:
             self.damage_state = StructuralDamageState.STRUCTURE_BROKEN
@@ -298,6 +356,19 @@ class StructureEngine:
             reasons.append(ReasonCode.STRUCTURE_INVALIDATED)
         elif level_cross:
             self.damage_state = StructuralDamageState.DAMAGE_CANDIDATE
+        elif old_damage in (
+            StructuralDamageState.DAMAGE_CANDIDATE,
+            StructuralDamageState.STRUCTURE_BROKEN,
+            StructuralDamageState.RECLAIM_CANDIDATE,
+            StructuralDamageState.RECLAIM_CONFIRMED,
+        ):
+            if old_damage in (StructuralDamageState.DAMAGE_CANDIDATE, StructuralDamageState.STRUCTURE_BROKEN):
+                self.damage_state = StructuralDamageState.RECLAIM_CANDIDATE
+            elif old_damage == StructuralDamageState.RECLAIM_CANDIDATE:
+                self.damage_state = StructuralDamageState.RECLAIM_CONFIRMED
+                reclaim_type = "RECLAIM_CONFIRMED"
+            elif old_damage == StructuralDamageState.RECLAIM_CONFIRMED:
+                self.damage_state = StructuralDamageState.INTACT
 
         if self.damage_state != old_damage:
             self.previous_damage_state = old_damage
@@ -324,7 +395,87 @@ class StructureEngine:
             feature_version=feature_version,
             reason_codes=reasons,
             authority="STRUCTURE",
+            active_swings=list(self.swings),
+            bos_type=bos_type,
+            reclaim_type=reclaim_type,
+            protected_high=self.protected_high,
+            protected_low=self.protected_low,
         )
+
+    def _register_swing(
+        self,
+        swing_type: str,
+        price: Decimal,
+        pivot_ts: int,
+        confirmed_at: int,
+        status: SwingState,
+        root_id: str,
+        parent_id: str,
+        parent_version: int,
+    ) -> SwingRecord:
+        """Registers a new confirmed swing with HH/HL/LH/LL classification and bounded history eviction."""
+        prev_same_type = [s for s in self.swings if s.swing_type == swing_type and s.status != SwingState.SWING_BROKEN]
+        classification = "NEUTRAL"
+
+        if prev_same_type:
+            last_same = prev_same_type[-1]
+            if swing_type == "HIGH":
+                if price > last_same.price:
+                    classification = "HH"
+                elif price < last_same.price:
+                    classification = "LH"
+            elif swing_type == "LOW":
+                if price > last_same.price:
+                    classification = "HL"
+                elif price < last_same.price:
+                    classification = "LL"
+
+        swing_id = f"swing_{self.symbol}_{self.timeframe}_{swing_type}_{pivot_ts}_{self.state_version}"
+        rec = SwingRecord(
+            swing_id=swing_id,
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            pivot_timestamp=pivot_ts,
+            confirmed_at=confirmed_at,
+            effective_from=confirmed_at,
+            price=price,
+            swing_type=swing_type,
+            classification=classification,
+            status=status,
+            version=self.state_version,
+            root_id=root_id,
+            parent_id=parent_id,
+            parent_version=parent_version,
+        )
+
+        self.swings.append(rec)
+        self._evict_swing_history()
+        return rec
+
+    def _evict_swing_history(self) -> None:
+        """Bounded deterministic eviction of old/broken swings."""
+        if len(self.swings) <= self.max_swing_history:
+            return
+        for idx, s in enumerate(self.swings):
+            if s.status == SwingState.SWING_BROKEN:
+                self.swings.pop(idx)
+                return
+        self.swings.pop(0)
+
+    def _last_dominant_direction(self) -> str:
+        """Determines dominant direction based on latest swing classification."""
+        if not self.swings:
+            return "UNKNOWN"
+        latest = self.swings[-1]
+        if latest.classification in ("HH", "HL"):
+            return "LONG"
+        if latest.classification in ("LH", "LL"):
+            return "SHORT"
+        return "UNKNOWN"
+
+    def get_confirmed_swings(self, decision_timestamp: int) -> list[SwingRecord]:
+        """Returns confirmed swings causally available at decision_timestamp."""
+        return [s for s in self.swings if s.effective_from <= decision_timestamp]
 
     def get_structural_stop_candidate(self, direction: str, atr_14: Decimal) -> Optional[StructuralStopCandidate]:
         """Outputs primary structural stop candidate strictly without sizing, authorizing, or submitting orders."""
