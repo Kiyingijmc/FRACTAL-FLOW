@@ -1,11 +1,7 @@
 """Flow Ownership Engine for FRACTAL FLOW.
 
-Evaluates market ownership using observable evidence:
-long strength, short strength, imbalance, momentum, efficiency, structural progression,
-persistence, and confidence.
-
-Uses hysteresis and dwell-time filters to prevent noisy ownership flipping and
-requires structural evidence for ownership reversal transitions.
+Computes directional pressure ownership, strength, imbalance, and state transitions
+using causal evidence, hysteresis, state dwell, transition confirmation, and fail-closed authority validation.
 """
 
 from dataclasses import dataclass, field
@@ -14,10 +10,9 @@ from enum import Enum, unique
 from typing import Optional
 
 from src.fractal_flow.domain.authority import AuthorityMatrix
-from src.fractal_flow.domain.envelope import StateEnvelope
+from src.fractal_flow.domain.envelope import GLOBAL_STATE_REGISTRY, StateEnvelope
 from src.fractal_flow.domain.market import Bar
 from src.fractal_flow.domain.reason_codes import ReasonCode
-from src.fractal_flow.domain.structure import StructureTransitionRecord
 
 
 @unique
@@ -34,84 +29,33 @@ class FlowState(str, Enum):
     TRANSITIONING = "TRANSITIONING"
 
 
-LEGAL_FLOW_TRANSITIONS: dict[FlowState, set[FlowState]] = {
-    FlowState.UNKNOWN: {
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.LONG_EMERGING,
-        FlowState.SHORT_EMERGING,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.BALANCED: {
-        FlowState.LONG_EMERGING,
-        FlowState.SHORT_EMERGING,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.CONTESTED: {
-        FlowState.BALANCED,
-        FlowState.LONG_EMERGING,
-        FlowState.SHORT_EMERGING,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.LONG_EMERGING: {
-        FlowState.LONG_DOMINANT,
-        FlowState.LONG_WEAKENING,
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.LONG_DOMINANT: {
-        FlowState.LONG_WEAKENING,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.LONG_WEAKENING: {
-        FlowState.LONG_DOMINANT,
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-        FlowState.SHORT_EMERGING,
-    },
-    FlowState.SHORT_EMERGING: {
-        FlowState.SHORT_DOMINANT,
-        FlowState.SHORT_WEAKENING,
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.SHORT_DOMINANT: {
-        FlowState.SHORT_WEAKENING,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-    },
-    FlowState.SHORT_WEAKENING: {
-        FlowState.SHORT_DOMINANT,
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.TRANSITIONING,
-        FlowState.LONG_EMERGING,
-    },
-    FlowState.TRANSITIONING: {
-        FlowState.BALANCED,
-        FlowState.CONTESTED,
-        FlowState.LONG_EMERGING,
-        FlowState.SHORT_EMERGING,
-        FlowState.UNKNOWN,
-    },
-}
-
-
 @dataclass(frozen=True)
-class FlowMetrics:
+class FlowEvidence:
     long_strength: Decimal
     short_strength: Decimal
     imbalance: Decimal
-    momentum: Decimal
-    efficiency: Decimal
-    structural_progression: Decimal
-    persistence: int
-    confidence: Decimal
+    directional_displacement: Decimal
+    directional_efficiency: Decimal
+    structure_progression: Decimal
+    persistence: Decimal
+    volatility_context: Decimal
+    timestamp: int
+
+    def __post_init__(self) -> None:
+        for name, val in [
+            ("long_strength", self.long_strength),
+            ("short_strength", self.short_strength),
+            ("imbalance", self.imbalance),
+            ("directional_displacement", self.directional_displacement),
+            ("directional_efficiency", self.directional_efficiency),
+            ("structure_progression", self.structure_progression),
+            ("persistence", self.persistence),
+            ("volatility_context", self.volatility_context),
+        ]:
+            if not isinstance(val, Decimal):
+                raise TypeError(f"FlowEvidence field '{name}' must be a Decimal, got {type(val)}")
+            if val.is_nan() or val.is_infinite():
+                raise ValueError(f"FlowEvidence field '{name}' must be a finite Decimal, got {val}")
 
 
 @dataclass
@@ -120,7 +64,7 @@ class FlowTransitionRecord:
     timeframe: str
     flow_state: FlowState
     previous_flow_state: FlowState
-    metrics: FlowMetrics
+    evidence: FlowEvidence
     timestamp: int
     root_id: str
     parent_id: str
@@ -129,6 +73,8 @@ class FlowTransitionRecord:
     config_version: int
     data_version: int
     feature_version: int
+    transition_candidate: Optional[FlowState] = None
+    transition_counter: int = 0
     reason_codes: list[ReasonCode] = field(default_factory=list)
     authority: str = "FLOW"
 
@@ -169,37 +115,144 @@ class FlowTransitionRecord:
 
 
 class FlowEngine:
-    """Flow Ownership Engine determining directional order-flow dominance."""
+    """Causal, Hysteresis, Dwell, and Transition-Confirmed Flow Ownership Engine.
+
+    Separates four temporal mechanisms:
+    1. Persistence: Measures consecutive directional evidence (long/short).
+    2. Hysteresis: Asymmetric thresholds preventing rapid threshold oscillation.
+    3. State Dwell: Minimum residence observations in current state before transition eligibility.
+    4. Transition Confirmation: Consecutive qualifying observations of a candidate state before transition commit.
+    """
 
     def __init__(
         self,
         symbol: str,
         timeframe: str = "1M",
-        hysteresis_margin: Decimal = Decimal("0.15"),
-        dwell_bars_required: int = 2,
-        dominance_threshold: Decimal = Decimal("0.65"),
+        dominance_threshold: Decimal = Decimal("0.60"),
+        emerging_threshold: Decimal = Decimal("0.30"),
+        weakening_threshold: Decimal = Decimal("0.40"),
+        min_persistence_bars: int = 2,
+        min_dwell_bars: int = 2,
+        transition_confirm_bars: int = 1,
+        max_history_capacity: int = 100,
     ) -> None:
         self.symbol = symbol
         self.timeframe = timeframe
-        self.hysteresis_margin = hysteresis_margin
-        self.dwell_bars_required = dwell_bars_required
         self.dominance_threshold = dominance_threshold
+        self.emerging_threshold = emerging_threshold
+        self.weakening_threshold = weakening_threshold
+        self.min_persistence_bars = min_persistence_bars
+        self.min_dwell_bars = min_dwell_bars
+        self.transition_confirm_bars = max(1, transition_confirm_bars)
+        self.max_history_capacity = max_history_capacity
 
         self.flow_state = FlowState.UNKNOWN
         self.previous_flow_state = FlowState.UNKNOWN
         self.state_version = 0
 
-        self.dwell_counter = 0
-        self.candidate_state: Optional[FlowState] = None
+        self._dwell_counter = 0
+        self._long_persistence_counter = 0
+        self._short_persistence_counter = 0
 
+        # Bound transition candidate state & transition confirmation counter
+        self._transition_candidate: Optional[FlowState] = None
+        self._transition_counter = 0
+
+        self._history: list[FlowEvidence] = []
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
         self._last_config_version: Optional[int] = None
+        self._last_timestamp: int = 0
 
-    def evaluate_bar(
+    @property
+    def history(self) -> tuple[FlowEvidence, ...]:
+        return tuple(self._history)
+
+    @property
+    def transition_candidate(self) -> Optional[FlowState]:
+        return self._transition_candidate
+
+    @property
+    def transition_counter(self) -> int:
+        return self._transition_counter
+
+    def _record_history(self, evidence: FlowEvidence) -> None:
+        self._history.append(evidence)
+        if len(self._history) > self.max_history_capacity:
+            self._history.pop(0)
+
+    def calculate_evidence(
         self,
         bar: Bar,
-        structure_record: Optional[StructureTransitionRecord],
+        v_local: Decimal,
+        structure_progression: Decimal = Decimal("0.0"),
+    ) -> FlowEvidence:
+        if v_local <= Decimal("0.0"):
+            return FlowEvidence(
+                long_strength=Decimal("0.0"),
+                short_strength=Decimal("0.0"),
+                imbalance=Decimal("0.0"),
+                directional_displacement=Decimal("0.0"),
+                directional_efficiency=Decimal("0.0"),
+                structure_progression=Decimal("0.0"),
+                persistence=Decimal("0.0"),
+                volatility_context=v_local,
+                timestamp=bar.close_timestamp,
+            )
+
+        bar_range = bar.high - bar.low
+        close_displacement = bar.close - bar.open
+
+        # Directional displacement normalized by v_local
+        displacement = close_displacement / v_local
+
+        # Directional efficiency
+        efficiency = close_displacement / bar_range if bar_range > Decimal("0.0") else Decimal("0.0")
+
+        # Persistence calculation based on recent history
+        if close_displacement > Decimal("0.0"):
+            self._long_persistence_counter += 1
+            self._short_persistence_counter = 0
+        elif close_displacement < Decimal("0.0"):
+            self._short_persistence_counter += 1
+            self._long_persistence_counter = 0
+
+        p_long = Decimal(str(self._long_persistence_counter))
+        p_short = Decimal(str(self._short_persistence_counter))
+
+        # Raw directional strengths (0.0 to 1.0 clamped)
+        long_raw = (
+            max(Decimal("0.0"), displacement) * Decimal("0.3")
+            + max(Decimal("0.0"), efficiency) * Decimal("0.3")
+            + min(Decimal("1.0"), p_long / Decimal("5.0")) * Decimal("0.2")
+            + max(Decimal("0.0"), structure_progression) * Decimal("0.2")
+        )
+        short_raw = (
+            max(Decimal("0.0"), -displacement) * Decimal("0.3")
+            + max(Decimal("0.0"), -efficiency) * Decimal("0.3")
+            + min(Decimal("1.0"), p_short / Decimal("5.0")) * Decimal("0.2")
+            + max(Decimal("0.0"), -structure_progression) * Decimal("0.2")
+        )
+
+        long_str = min(Decimal("1.0"), max(Decimal("0.0"), long_raw))
+        short_str = min(Decimal("1.0"), max(Decimal("0.0"), short_raw))
+        imbalance = long_str - short_str
+
+        return FlowEvidence(
+            long_strength=long_str,
+            short_strength=short_str,
+            imbalance=imbalance,
+            directional_displacement=displacement,
+            directional_efficiency=efficiency,
+            structure_progression=structure_progression,
+            persistence=p_long if close_displacement >= Decimal("0.0") else p_short,
+            volatility_context=v_local,
+            timestamp=bar.close_timestamp,
+        )
+
+    def process_bar(
+        self,
+        bar: Bar,
         v_local: Decimal,
         root_id: str,
         parent_id: str,
@@ -207,12 +260,14 @@ class FlowEngine:
         config_version: int = 1,
         data_version: int = 1,
         feature_version: int = 1,
+        structure_progression: Decimal = Decimal("0.0"),
+        override_evidence: Optional[FlowEvidence] = None,
     ) -> FlowTransitionRecord:
-        """Evaluates FlowState for bar given structural evidence."""
         AuthorityMatrix.verify_capability("Flow", "WRITE_FLOW_STATE")
         if bar.symbol != self.symbol:
             raise ValueError(f"FlowEngine symbol mismatch: expected {self.symbol}, got {bar.symbol}")
 
+        # Parent and version validation
         if self._last_parent_version is not None and parent_version < self._last_parent_version:
             raise ValueError(
                 f"Parent version regression detected: incoming {parent_version} < current {self._last_parent_version}"
@@ -226,71 +281,65 @@ class FlowEngine:
                 f"Configuration version mismatch: incoming {config_version} != active {self._last_config_version}"
             )
 
+        if bar.close_timestamp < self._last_timestamp:
+            raise ValueError(
+                f"Chronology violation: incoming bar timestamp {bar.close_timestamp} prior to last seen {self._last_timestamp}"
+            )
+
         self._last_parent_version = parent_version
         self._last_data_version = data_version
         self._last_config_version = config_version
+        self._last_timestamp = bar.close_timestamp
 
-        bar_range = bar.high - bar.low
-        body = abs(bar.close - bar.open)
-        efficiency = body / bar_range if bar_range > Decimal("0.0") else Decimal("0.5")
+        evidence = override_evidence or self.calculate_evidence(bar, v_local, structure_progression)
+        self._record_history(evidence)
 
-        long_strength = (
-            ((bar.close - bar.low) / bar_range) if bar_range > Decimal("0.0") else Decimal("0.5")
-        ) * efficiency
-        short_strength = (
-            ((bar.high - bar.close) / bar_range) if bar_range > Decimal("0.0") else Decimal("0.5")
-        ) * efficiency
-
-        imbalance = long_strength - short_strength
-        momentum = (bar.close - bar.open) / v_local if v_local > Decimal("0.0") else Decimal("0.0")
-
-        struct_prog = Decimal("0.0")
-        has_structural_reversal = False
-
-        if structure_record is not None:
-            bos_type = getattr(structure_record, "bos_type", None)
-            if bos_type in ("BOS_BULLISH", "CHOCH_BULLISH"):
-                struct_prog = Decimal("1.0")
-                if "SHORT" in self.flow_state.value:
-                    has_structural_reversal = True
-            elif bos_type in ("BOS_BEARISH", "CHOCH_BEARISH"):
-                struct_prog = Decimal("-1.0")
-                if "LONG" in self.flow_state.value:
-                    has_structural_reversal = True
-
-        confidence = min(
-            Decimal("1.0"), max(Decimal("0.0"), (abs(imbalance) + efficiency + abs(struct_prog)) / Decimal("3.0"))
-        )
-
-        metrics = FlowMetrics(
-            long_strength=long_strength,
-            short_strength=short_strength,
-            imbalance=imbalance,
-            momentum=momentum,
-            efficiency=efficiency,
-            structural_progression=struct_prog,
-            persistence=self.dwell_counter,
-            confidence=confidence,
-        )
-
-        target_state = self._determine_raw_state(imbalance, struct_prog, has_structural_reversal)
-        next_state = self._apply_hysteresis_and_dwell(target_state, has_structural_reversal)
+        # 1. Determine candidate target flow state given evidence & hysteresis rules
+        candidate_state = self._determine_target_state(evidence)
 
         old_state = self.flow_state
-        if next_state != old_state:
-            if next_state not in LEGAL_FLOW_TRANSITIONS.get(old_state, set()):
-                next_state = FlowState.TRANSITIONING
+        reasons: list[ReasonCode] = []
 
-            self.previous_flow_state = old_state
-            self.flow_state = next_state
-            self.state_version += 1
+        # 2. Evaluate state transition confirmation logic
+        if candidate_state != old_state:
+            # Check state dwell requirement on current state before transition eligibility
+            if self._dwell_counter < self.min_dwell_bars and old_state != FlowState.UNKNOWN:
+                # Still dwelling in current state
+                self._dwell_counter += 1
+                self._transition_candidate = None
+                self._transition_counter = 0
+            else:
+                # Accumulate confirmation for candidate
+                if candidate_state == self._transition_candidate:
+                    self._transition_counter += 1
+                else:
+                    self._transition_candidate = candidate_state
+                    self._transition_counter = 1
+
+                # If transition_confirm_bars threshold satisfied, commit transition
+                if self._transition_counter >= self.transition_confirm_bars:
+                    GLOBAL_STATE_REGISTRY.validate_transition("FlowState", old_state.value, candidate_state.value)
+                    self.previous_flow_state = old_state
+                    self.flow_state = candidate_state
+                    self._dwell_counter = 1
+                    self._transition_candidate = None
+                    self._transition_counter = 0
+                else:
+                    self._dwell_counter += 1
+        else:
+            # Candidate matches active flow_state; reset candidate tracking & increment dwell
+            self._dwell_counter += 1
+            self._transition_candidate = None
+            self._transition_counter = 0
+
+        self.state_version += 1
 
         return FlowTransitionRecord(
             symbol=self.symbol,
             timeframe=self.timeframe,
             flow_state=self.flow_state,
             previous_flow_state=self.previous_flow_state,
-            metrics=metrics,
+            evidence=evidence,
             timestamp=bar.close_timestamp,
             root_id=root_id,
             parent_id=parent_id,
@@ -299,50 +348,131 @@ class FlowEngine:
             config_version=config_version,
             data_version=data_version,
             feature_version=feature_version,
+            transition_candidate=self._transition_candidate,
+            transition_counter=self._transition_counter,
+            reason_codes=reasons,
             authority="FLOW",
         )
 
-    def _determine_raw_state(
-        self, imbalance: Decimal, struct_prog: Decimal, has_structural_reversal: bool
-    ) -> FlowState:
-        if abs(imbalance) < Decimal("0.10") and struct_prog == Decimal("0.0"):
-            return FlowState.BALANCED
+    def _determine_target_state(self, ev: FlowEvidence) -> FlowState:
+        # Fail closed to UNKNOWN if volatility invalid
+        if ev.volatility_context <= Decimal("0.0"):
+            return FlowState.UNKNOWN
 
-        if imbalance > self.dominance_threshold or struct_prog > Decimal("0.5"):
-            return FlowState.LONG_DOMINANT
-        elif imbalance > Decimal("0.20"):
+        curr = self.flow_state
+        l_str, s_str = ev.long_strength, ev.short_strength
+
+        if curr == FlowState.UNKNOWN:
+            if l_str >= self.emerging_threshold and l_str > s_str + Decimal("0.10"):
+                return FlowState.LONG_EMERGING
+            elif s_str >= self.emerging_threshold and s_str > l_str + Decimal("0.10"):
+                return FlowState.SHORT_EMERGING
+            elif l_str >= self.emerging_threshold and s_str >= self.emerging_threshold:
+                return FlowState.CONTESTED
+            else:
+                return FlowState.BALANCED
+
+        elif curr == FlowState.LONG_EMERGING:
+            if l_str >= self.dominance_threshold and ev.persistence >= Decimal(str(self.min_persistence_bars)):
+                return FlowState.LONG_DOMINANT
+            elif s_str >= self.emerging_threshold and l_str >= self.emerging_threshold:
+                return FlowState.CONTESTED
+            elif s_str >= self.dominance_threshold and l_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif l_str < self.weakening_threshold:
+                return FlowState.LONG_WEAKENING
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
             return FlowState.LONG_EMERGING
-        elif imbalance < -self.dominance_threshold or struct_prog < Decimal("-0.5"):
-            return FlowState.SHORT_DOMINANT
-        elif imbalance < Decimal("-0.20"):
+
+        elif curr == FlowState.LONG_DOMINANT:
+            if s_str >= self.dominance_threshold and l_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif s_str >= self.emerging_threshold and l_str >= self.weakening_threshold:
+                return FlowState.CONTESTED
+            elif l_str < self.dominance_threshold:
+                return FlowState.LONG_WEAKENING
+            return FlowState.LONG_DOMINANT
+
+        elif curr == FlowState.LONG_WEAKENING:
+            if l_str >= self.dominance_threshold:
+                return FlowState.LONG_DOMINANT
+            elif s_str >= self.dominance_threshold and l_str < self.weakening_threshold:
+                return FlowState.SHORT_EMERGING
+            elif s_str >= self.emerging_threshold and l_str >= self.weakening_threshold:
+                return FlowState.CONTESTED
+            elif s_str >= self.emerging_threshold and l_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
+            return FlowState.LONG_WEAKENING
+
+        elif curr == FlowState.SHORT_EMERGING:
+            if s_str >= self.dominance_threshold and ev.persistence >= Decimal(str(self.min_persistence_bars)):
+                return FlowState.SHORT_DOMINANT
+            elif l_str >= self.emerging_threshold and s_str >= self.emerging_threshold:
+                return FlowState.CONTESTED
+            elif l_str >= self.dominance_threshold and s_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif s_str < self.weakening_threshold:
+                return FlowState.SHORT_WEAKENING
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
             return FlowState.SHORT_EMERGING
 
-        return FlowState.CONTESTED
+        elif curr == FlowState.SHORT_DOMINANT:
+            if l_str >= self.dominance_threshold and s_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif l_str >= self.emerging_threshold and s_str >= self.weakening_threshold:
+                return FlowState.CONTESTED
+            elif s_str < self.dominance_threshold:
+                return FlowState.SHORT_WEAKENING
+            return FlowState.SHORT_DOMINANT
 
-    def _apply_hysteresis_and_dwell(self, target_state: FlowState, has_structural_reversal: bool) -> FlowState:
-        if self.flow_state == FlowState.UNKNOWN:
-            if target_state == FlowState.LONG_DOMINANT:
-                target_state = FlowState.LONG_EMERGING
-            elif target_state == FlowState.SHORT_DOMINANT:
-                target_state = FlowState.SHORT_EMERGING
-            return target_state
+        elif curr == FlowState.SHORT_WEAKENING:
+            if s_str >= self.dominance_threshold:
+                return FlowState.SHORT_DOMINANT
+            elif l_str >= self.dominance_threshold and s_str < self.weakening_threshold:
+                return FlowState.LONG_EMERGING
+            elif l_str >= self.emerging_threshold and s_str >= self.weakening_threshold:
+                return FlowState.CONTESTED
+            elif l_str >= self.emerging_threshold and s_str < self.weakening_threshold:
+                return FlowState.TRANSITIONING
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
+            return FlowState.SHORT_WEAKENING
 
-        is_long = "LONG" in self.flow_state.value
-        is_short = "SHORT" in self.flow_state.value
-        target_is_long = "LONG" in target_state.value
-        target_is_short = "SHORT" in target_state.value
+        elif curr == FlowState.BALANCED:
+            if l_str >= self.emerging_threshold and l_str > s_str + Decimal("0.10"):
+                return FlowState.LONG_EMERGING
+            elif s_str >= self.emerging_threshold and s_str > l_str + Decimal("0.10"):
+                return FlowState.SHORT_EMERGING
+            elif l_str >= self.emerging_threshold and s_str >= self.emerging_threshold:
+                return FlowState.CONTESTED
+            return FlowState.BALANCED
 
-        if (is_long and target_is_short) or (is_short and target_is_long):
-            if not has_structural_reversal:
-                return FlowState.LONG_WEAKENING if is_long else FlowState.SHORT_WEAKENING
+        elif curr == FlowState.CONTESTED:
+            if l_str >= self.emerging_threshold and s_str < self.weakening_threshold:
+                return FlowState.LONG_EMERGING
+            elif s_str >= self.emerging_threshold and l_str < self.weakening_threshold:
+                return FlowState.SHORT_EMERGING
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
+            elif (l_str >= self.dominance_threshold or s_str >= self.dominance_threshold) and abs(
+                l_str - s_str
+            ) >= Decimal("0.20"):
+                return FlowState.TRANSITIONING
+            return FlowState.CONTESTED
 
-        if target_state == self.candidate_state:
-            self.dwell_counter += 1
-        else:
-            self.candidate_state = target_state
-            self.dwell_counter = 1
+        elif curr == FlowState.TRANSITIONING:
+            if l_str >= self.emerging_threshold and l_str > s_str + Decimal("0.10"):
+                return FlowState.LONG_EMERGING
+            elif s_str >= self.emerging_threshold and s_str > l_str + Decimal("0.10"):
+                return FlowState.SHORT_EMERGING
+            elif l_str >= self.emerging_threshold and s_str >= self.emerging_threshold:
+                return FlowState.CONTESTED
+            elif l_str < self.emerging_threshold and s_str < self.emerging_threshold:
+                return FlowState.BALANCED
+            return FlowState.TRANSITIONING
 
-        if self.dwell_counter >= self.dwell_bars_required:
-            return target_state
-
-        return self.flow_state
+        return FlowState.UNKNOWN
