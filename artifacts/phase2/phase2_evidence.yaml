@@ -123,6 +123,7 @@ phase2_evidence:
     title: confidence_cannot_override_validity
     status: ENFORCED
     implementation_refs:
+      - src/fractal_flow/domain/envelope.py
       - src/fractal_flow/domain/models.py
     test_refs:
       - tests/test_invariant_enforcement.py::test_invariant_9_confidence_cannot_override_validity
@@ -131,6 +132,7 @@ phase2_evidence:
     scope: Phase 1 Core
     ci_required: true
     production_path:
+      - src.fractal_flow.domain.envelope.StateEnvelope
       - src.fractal_flow.domain.models.TradeDecision.is_authorized
     integration_level: UNIT_TEST
 

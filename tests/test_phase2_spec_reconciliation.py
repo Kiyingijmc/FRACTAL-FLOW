@@ -1,7 +1,7 @@
 """Phase 2 Canonical Specification Reconciliation Test Suite.
 
 Validates state vocabulary, transition graph coverage, fail-closed transition validation,
-lineage hierarchy, authority boundaries, and constitutional independence.
+lineage hierarchy, authority boundaries, constitutional independence, and evidence manifest structural integrity.
 """
 
 import pytest
@@ -274,3 +274,59 @@ def test_candle_count_independence_principle() -> None:
     assert s_3_candles.is_constitutionally_valid() is True
     assert s_100_candles.is_constitutionally_valid() is True
     assert s_3_invalid.is_constitutionally_valid() is False
+
+
+def test_evidence_manifest_structural_integrity() -> None:
+    """Verifies that artifacts/phase2/phase2_evidence.yaml maintains strict evidence-backed classification integrity."""
+    with open("artifacts/phase2/phase2_evidence.yaml") as f:
+        data = yaml.safe_load(f)
+
+    evidence_entries = data.get("phase2_evidence", [])
+    assert len(evidence_entries) == 42, f"Expected 42 invariant evidence entries, got {len(evidence_entries)}"
+
+    seen_ids: set[int] = set()
+    approved_taxonomy = {"ENFORCED", "INTEGRATION_VERIFIED", "SPECIFIED_ONLY"}
+
+    required_keys = {
+        "id",
+        "title",
+        "status",
+        "implementation_refs",
+        "test_refs",
+        "evidence_type",
+        "limitation",
+        "scope",
+        "ci_required",
+        "production_path",
+        "integration_level",
+    }
+
+    for item in evidence_entries:
+        missing_keys = required_keys - set(item.keys())
+        assert not missing_keys, f"Invariant {item.get('id')} missing required fields: {missing_keys}"
+
+        inv_id = item["id"]
+        assert isinstance(inv_id, int) and 1 <= inv_id <= 42, f"Invalid invariant ID {inv_id}"
+        assert inv_id not in seen_ids, f"Duplicate invariant ID {inv_id}"
+        seen_ids.add(inv_id)
+
+        status = item["status"]
+        assert status in approved_taxonomy, f"Invariant {inv_id} invalid status {status}"
+
+        if status == "ENFORCED":
+            assert item["production_path"], f"ENFORCED invariant {inv_id} must have a non-empty production_path"
+            assert item["implementation_refs"], f"ENFORCED invariant {inv_id} must have implementation_refs"
+            assert item["test_refs"], f"ENFORCED invariant {inv_id} must have test_refs"
+            # ENFORCED invariants cannot have only spec/invariants.yaml or docs/ as implementation_refs
+            impl_refs = item["implementation_refs"]
+            non_spec_refs = [r for r in impl_refs if not r.startswith("spec/") and not r.startswith("docs/")]
+            assert non_spec_refs, (
+                f"ENFORCED invariant {inv_id} must reference actual source code files, got {impl_refs}"
+            )
+
+        elif status == "SPECIFIED_ONLY":
+            assert not item["production_path"], (
+                f"SPECIFIED_ONLY invariant {inv_id} must have empty production_path, got {item['production_path']}"
+            )
+
+    assert len(seen_ids) == 42
