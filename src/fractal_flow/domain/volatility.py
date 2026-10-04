@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, unique
 import math
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from src.fractal_flow.domain.envelope import StateEnvelope
 from src.fractal_flow.domain.market import Bar
@@ -52,7 +52,7 @@ class VolatilityMetrics:
     version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
-        res = domain_to_primitive(self)
+        res = cast(dict[str, Any], domain_to_primitive(self))
         res["state"] = self.state.value
         res["previous_state"] = self.previous_state.value
         return res

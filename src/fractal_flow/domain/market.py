@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum, unique
 import json
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional, Union, cast
 
 from src.fractal_flow.persistence.adapter import (
     canonical_json_dumps,
@@ -148,7 +148,7 @@ class Tick:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return domain_to_primitive(self)
+        return cast(dict[str, Any], domain_to_primitive(self))
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Tick":
@@ -262,7 +262,7 @@ class Bar:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        res = domain_to_primitive(self)
+        res = cast(dict[str, Any], domain_to_primitive(self))
         res["timeframe"] = self.timeframe.value
         return res
 
