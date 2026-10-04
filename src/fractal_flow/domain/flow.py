@@ -40,11 +40,11 @@ class FlowEvidence:
     persistence: Decimal
     volatility_context: Decimal
     timestamp: int
-    symbol: Optional[str] = None
-    timeframe: Optional[str] = None
-    config_version: Optional[int] = None
-    data_version: Optional[int] = None
-    feature_version: Optional[int] = None
+    symbol: str
+    timeframe: str
+    config_version: int = 1
+    data_version: int = 1
+    feature_version: int = 1
 
     def __post_init__(self) -> None:
         for name, val in [
@@ -303,7 +303,7 @@ class FlowEngine:
 
         # Validate evidence provenance if override_evidence supplied
         if override_evidence is not None:
-            if override_evidence.symbol is not None and override_evidence.symbol != bar.symbol:
+            if override_evidence.symbol != bar.symbol:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (symbol): expected {bar.symbol}, got {override_evidence.symbol}"
                 )
@@ -311,19 +311,19 @@ class FlowEngine:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (timestamp): expected {bar.close_timestamp}, got {override_evidence.timestamp}"
                 )
-            if override_evidence.timeframe is not None and override_evidence.timeframe != self.timeframe:
+            if override_evidence.timeframe != self.timeframe:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (timeframe): expected {self.timeframe}, got {override_evidence.timeframe}"
                 )
-            if override_evidence.config_version is not None and override_evidence.config_version != config_version:
+            if override_evidence.config_version != config_version:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (config_version): expected {config_version}, got {override_evidence.config_version}"
                 )
-            if override_evidence.data_version is not None and override_evidence.data_version != data_version:
+            if override_evidence.data_version != data_version:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (data_version): expected {data_version}, got {override_evidence.data_version}"
                 )
-            if override_evidence.feature_version is not None and override_evidence.feature_version != feature_version:
+            if override_evidence.feature_version != feature_version:
                 raise ValueError(
                     f"FlowEvidence provenance mismatch (feature_version): expected {feature_version}, got {override_evidence.feature_version}"
                 )

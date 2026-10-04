@@ -72,6 +72,7 @@ def test_flow_evidence_provenance_symbol_mismatch_rejected():
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
         symbol="GBPUSD",  # Mismatch!
+        timeframe="1M",
     )
     with pytest.raises(ValueError, match=r"FlowEvidence provenance mismatch \(symbol\)"):
         engine.process_bar(
@@ -97,6 +98,8 @@ def test_flow_evidence_provenance_timestamp_mismatch_rejected():
         persistence=Decimal("3"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000999,  # Mismatch!
+        symbol="EURUSD",
+        timeframe="1M",
     )
     with pytest.raises(ValueError, match=r"FlowEvidence provenance mismatch \(timestamp\)"):
         engine.process_bar(
@@ -122,6 +125,8 @@ def test_flow_evidence_provenance_version_mismatch_rejected():
         persistence=Decimal("3"),
         volatility_context=Decimal("0.0010"),
         timestamp=1700000060,
+        symbol="EURUSD",
+        timeframe="1M",
         config_version=2,  # Config version mismatch!
     )
     with pytest.raises(ValueError, match=r"FlowEvidence provenance mismatch \(config_version\)"):

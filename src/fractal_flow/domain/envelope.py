@@ -121,12 +121,17 @@ class StateEnvelope:
 
     @classmethod
     def calculate_timeframe_validity_seconds(cls, timeframe_str: str, default_bars: int = 5) -> int:
-        """Calculates timeframe-aware validity window in seconds (default 5 bars of timeframe duration)."""
+        """Calculates timeframe-aware validity window in seconds (default 5 bars of timeframe duration).
+
+        Fails closed with ValueError on invalid or unmapped timeframe strings.
+        """
         try:
             tf = Timeframe.validate(timeframe_str)
             return tf.seconds * default_bars
-        except ValueError:
-            return 300
+        except ValueError as e:
+            raise ValueError(
+                f"StateEnvelope validity calculation failure: invalid or unmapped timeframe '{timeframe_str}'"
+            ) from e
 
     object_id: str
     object_type: str

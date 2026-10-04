@@ -161,6 +161,7 @@ class StructureEngine:
         self.last_extreme_low: Optional[Decimal] = None
         self.persistence_counter = 0
 
+        self._last_bar: Optional[Bar] = None
         self._last_parent_id: Optional[str] = None
         self._last_parent_version: Optional[int] = None
         self._last_data_version: Optional[int] = None
@@ -212,6 +213,13 @@ class StructureEngine:
                 f"Chronology violation: incoming bar timestamp {bar.close_timestamp} prior to last seen {self._last_timestamp}"
             )
 
+        if bar.close_timestamp == self._last_timestamp and self._last_bar is not None:
+            if bar != self._last_bar:
+                raise ValueError(
+                    f"Duplicate timestamp conflict at {bar.close_timestamp}: differing bar observation rejected."
+                )
+
+        self._last_bar = bar
         self._last_parent_id = parent_id
         self._last_parent_version = parent_version
         self._last_data_version = data_version

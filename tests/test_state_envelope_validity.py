@@ -1,10 +1,12 @@
-"""Tests for Timeframe-Aware StateEnvelope Validity Policy."""
+"""Tests for Timeframe-Aware StateEnvelope Validity Policy and Fail-Closed Boundary."""
+
+import pytest
+from decimal import Decimal
 
 from src.fractal_flow.domain.envelope import StateEnvelope
 from src.fractal_flow.domain.flow import FlowEngine
 from src.fractal_flow.domain.market import Bar, Timeframe
 from src.fractal_flow.domain.structure import StructureEngine
-from decimal import Decimal
 
 
 def make_bar(symbol: str = "EURUSD", timeframe: Timeframe = Timeframe.M1, ts: int = 1700000000) -> Bar:
@@ -28,6 +30,14 @@ def test_state_envelope_timeframe_validity_calculation():
     assert StateEnvelope.calculate_timeframe_validity_seconds("30M") == 9000
     assert StateEnvelope.calculate_timeframe_validity_seconds("1H") == 18000
     assert StateEnvelope.calculate_timeframe_validity_seconds("4H") == 72000
+
+
+def test_state_envelope_invalid_timeframe_fails_closed():
+    with pytest.raises(ValueError, match="invalid or unmapped timeframe"):
+        StateEnvelope.calculate_timeframe_validity_seconds("99X")
+
+    with pytest.raises(ValueError, match="invalid or unmapped timeframe"):
+        StateEnvelope.calculate_timeframe_validity_seconds("")
 
 
 def test_structure_transition_timeframe_aware_envelope():
