@@ -1,123 +1,117 @@
 phase1_evidence:
   - id: 1
     title: pipeline_data_flow_layers
-    status: ENFORCED
+    status: INTEGRATION_VERIFIED
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
+      - src/fractal_flow/domain/market.py
+      - src/fractal_flow/domain/data_quality.py
+      - src/fractal_flow/domain/volatility.py
+      - src/fractal_flow/domain/structure.py
     test_refs:
-      - tests/test_invariants.py::test_invariant_1_pipeline_data_flow_layers
-    evidence_type: AUTHORITY_GUARD
-    limitation: Phase 1 enforces AuthorityMatrix boundaries and modular contract decoupling
-    scope: Phase 1 Core
+      - tests/phase1d/test_future_mutations.py::test_1_future_price_spike
+    evidence_type: SYSTEM_PIPELINE
+    limitation: Evaluates tick -> bar -> dq -> vol -> structure pipeline integration across M1 boundaries
+    scope: Phase 1 Core Pipeline
     ci_required: true
     production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - src.fractal_flow.domain.market.BarAggregator.process_tick
+      - src.fractal_flow.domain.data_quality.DataQualityEngine.evaluate_tick
+      - src.fractal_flow.domain.volatility.VolatilityEngine.update_bar
+      - src.fractal_flow.domain.structure.StructureEngine.process_bar
+    integration_level: SYSTEM_INTEGRATION
 
   - id: 2
     title: strategy_engines_no_direct_orders
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariants.py::test_invariant_2_strategy_engines_no_direct_orders
-    evidence_type: AUTHORITY_GUARD
-    limitation: Strategy engines forbidden from creating execution intents
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: Strategy engines (PDE/Flow) belong to future Layer 2 and do not exist in Phase 1
+    scope: Layer 2 Strategy (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 3
     title: pde_cannot_call_ordersend
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariants.py::test_invariant_3_pde_cannot_call_ordersend
-    evidence_type: AUTHORITY_GUARD
-    limitation: PDE engine explicitly forbidden from execution intents
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: PDE strategy engine belongs to future Layer 2 and does not exist in Phase 1
+    scope: Layer 2 PDE Strategy (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 4
     title: flow_cannot_open_position
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariant_enforcement.py::test_invariant_4_flow_cannot_open_position
-    evidence_type: AUTHORITY_GUARD
-    limitation: Flow engine explicitly forbidden from execution intents
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: Flow strategy engine belongs to future Layer 2 and does not exist in Phase 1
+    scope: Layer 2 Flow Strategy (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 5
     title: risk_cannot_manufacture_signal
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariants.py::test_invariant_risk_cannot_manufacture_direction
-    evidence_type: AUTHORITY_GUARD
-    limitation: Risk engine forbidden from direction manufacturing
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: Risk strategy engine belongs to future Layer 4 and does not exist in Phase 1
+    scope: Layer 4 Risk Engine (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 6
     title: portfolio_cannot_manufacture_direction
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariants.py::test_invariant_portfolio_cannot_manufacture_direction
-    evidence_type: AUTHORITY_GUARD
-    limitation: Portfolio arbitration forbidden from direction manufacturing
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: Portfolio arbitration engine belongs to future Layer 4 and does not exist in Phase 1
+    scope: Layer 4 Portfolio (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 7
     title: execution_cannot_reinterpret_strategy
     status: ENFORCED
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
+      - src/fractal_flow/domain/models.py
     test_refs:
       - tests/test_invariant_enforcement.py::test_invariant_7_execution_cannot_reinterpret_strategy
-    evidence_type: AUTHORITY_GUARD
-    limitation: Execution engine forbidden from altering strategy logic
+    evidence_type: GATED_AUTHORIZATION
+    limitation: TradeDecision authorization fail-closed validates strategy parameters
     scope: Phase 1 Core
     ci_required: true
     production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
+      - src.fractal_flow.domain.models.TradeDecision.is_authorized
     integration_level: UNIT_TEST
 
   - id: 8
     title: news_shield_cannot_manufacture_trades
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     implementation_refs:
-      - src/fractal_flow/domain/authority.py
-    test_refs:
-      - tests/test_invariant_enforcement.py::test_invariant_8_news_shield_cannot_manufacture_trades
-    evidence_type: AUTHORITY_GUARD
-    limitation: News Shield engine forbidden from trade manufacturing
-    scope: Phase 1 Core
-    ci_required: true
-    production_path:
-      - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
-    integration_level: UNIT_TEST
+      - spec/invariants.yaml
+    test_refs: []
+    evidence_type: SPECIFICATION
+    limitation: News Shield engine belongs to future Layer 5 and does not exist in Phase 1
+    scope: Layer 5 News Shield (Deferred)
+    ci_required: false
+    production_path: []
+    integration_level: SPECIFICATION_ONLY
 
   - id: 9
     title: confidence_cannot_override_validity

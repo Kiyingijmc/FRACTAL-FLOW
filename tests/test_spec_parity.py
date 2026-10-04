@@ -176,3 +176,34 @@ def test_phase1_evidence_manifest_parity() -> None:
         for impl_ref in item["implementation_refs"]:
             ref_path = Path(impl_ref)
             assert ref_path.exists(), f"Evidence item {item_id} implementation_ref '{impl_ref}' does not exist on disk!"
+
+
+def test_markdown_invariant_matrix_parity() -> None:
+    """Parses artifacts/phase1/invariant_matrix.md and verifies 100% status parity with spec/phase1_evidence.yaml."""
+    matrix_path = Path("artifacts/phase1/invariant_matrix.md")
+    assert matrix_path.exists(), "artifacts/phase1/invariant_matrix.md missing"
+
+    with open(matrix_path, encoding="utf-8") as f:
+        lines = f.readlines()
+
+    matrix_map = {}
+    for line in lines:
+        if line.startswith("|") and not line.startswith("| ID") and not line.startswith("| :---"):
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3 and parts[1].isdigit():
+                inv_id = int(parts[1])
+                status = parts[2]
+                matrix_map[inv_id] = status
+
+    assert len(matrix_map) == 42, f"Expected 42 rows in invariant_matrix.md, parsed {len(matrix_map)}"
+
+    evidence_path = Path("spec/phase1_evidence.yaml")
+    with open(evidence_path, encoding="utf-8") as f:
+        ev_data = yaml.safe_load(f)
+
+    for item in ev_data["phase1_evidence"]:
+        item_id = item["id"]
+        assert item_id in matrix_map, f"Invariant ID {item_id} missing from artifacts/phase1/invariant_matrix.md"
+        assert item["status"] == matrix_map[item_id], (
+            f"Status mismatch for invariant {item_id}: evidence manifest='{item['status']}' vs matrix.md='{matrix_map[item_id]}'"
+        )

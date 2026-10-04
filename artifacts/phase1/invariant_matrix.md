@@ -2,14 +2,14 @@
 
 | ID | STATUS | ACTUAL ENFORCEMENT | TEST | LIMITATION |
 | :--- | :--- | :--- | :--- | :--- |
-| 1 | ENFORCED | AuthorityMatrix boundaries and modular contract decoupling | `tests/test_invariants.py::test_invariant_1_pipeline_data_flow_layers` | Layering checked via capability matrix |
-| 2 | ENFORCED | AuthorityMatrix forbids PDE/Flow/Strategy from creating execution intents | `tests/test_invariants.py::test_invariant_2_strategy_engines_no_direct_orders` | Static capability boundary |
-| 3 | ENFORCED | AuthorityMatrix.verify_capability('PDE', 'CREATE_EXECUTION_INTENT') | `tests/test_invariants.py::test_invariant_3_pde_cannot_call_ordersend` | Call site authority checks |
-| 4 | ENFORCED | AuthorityMatrix.verify_capability('Flow', 'CREATE_EXECUTION_INTENT') | `tests/test_invariant_enforcement.py::test_invariant_4_flow_cannot_open_position` | Runtime capability checks |
-| 5 | ENFORCED | AuthorityMatrix.verify_capability('Risk', 'MANUFACTURE_DIRECTION') | `tests/test_invariants.py::test_invariant_risk_cannot_manufacture_direction` | Runtime capability checks |
-| 6 | ENFORCED | AuthorityMatrix.verify_capability('Portfolio', 'MANUFACTURE_DIRECTION') | `tests/test_invariants.py::test_invariant_portfolio_cannot_manufacture_direction` | Runtime capability checks |
-| 7 | ENFORCED | AuthorityMatrix.verify_capability('Execution', 'REINTERPRET_STRATEGY') | `tests/test_invariant_enforcement.py::test_invariant_7_execution_cannot_reinterpret_strategy` | Runtime capability checks |
-| 8 | ENFORCED | AuthorityMatrix capability checks | `tests/test_invariant_enforcement.py::test_invariant_8_news_shield_cannot_manufacture_trades` | Runtime capability checks |
+| 1 | INTEGRATION_VERIFIED | Market -> DataQuality -> Volatility -> Structure pipeline | `tests/phase1d/test_future_mutations.py::test_1_future_price_spike` | Evaluates multi-engine pipeline across M1 boundaries |
+| 2 | SPECIFIED_ONLY | Layer 2 Strategy specification | None | Requires Layer 2 strategy engine implementation |
+| 3 | SPECIFIED_ONLY | Layer 2 PDE strategy specification | None | Requires Layer 2 PDE implementation |
+| 4 | SPECIFIED_ONLY | Layer 2 Flow strategy specification | None | Requires Layer 2 Flow implementation |
+| 5 | SPECIFIED_ONLY | Layer 4 Risk engine specification | None | Requires Layer 4 Risk implementation |
+| 6 | SPECIFIED_ONLY | Layer 4 Portfolio arbitration specification | None | Requires Layer 4 Portfolio implementation |
+| 7 | ENFORCED | TradeDecision authorization fail-closed strategy check | `tests/test_invariant_enforcement.py::test_invariant_7_execution_cannot_reinterpret_strategy` | Execution cannot reinterpret strategy parameters |
+| 8 | SPECIFIED_ONLY | Layer 5 News Shield specification | None | Requires Layer 5 News Shield implementation |
 | 9 | ENFORCED | StateEnvelope constructor and TradeDecision.is_authorized check | `tests/test_invariant_enforcement.py::test_invariant_9_confidence_cannot_override_validity` | High score cannot bypass boolean validity |
 | 10 | ENFORCED | TradeDecision.is_authorized mandatory checks | `tests/test_invariant_enforcement.py::test_invariant_10_mandatory_validity_gates_unbypassable` | Fail-closed evaluation |
 | 11 | ENFORCED | Lineage.validate_child_action check | `tests/test_lineage.py::test_lineage_exact_version_accepted` | Structural lineage graph verification |

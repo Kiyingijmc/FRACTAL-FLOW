@@ -3,9 +3,9 @@
 **Repository**: `Kiyingijmc/FRACTAL-FLOW`
 **Base SHA**: `108d515c98cbce2a6c54ba5de22210fa1b2801f7`
 **Parent SHA**: `8ab0aabd6156652c027bf8d6c71b758cfa177b9c`
-**Remediation Starting Tip SHA**: `f12bb3025bcf9c0459bc1f4474613b02c63c5dc9`
-**Branch**: `phase1-final-forensic-closure-20261004`
-**Report Timestamp**: `2026-10-04 10:00:00 UTC`
+**Remediation Tip SHA**: `d54b9ebdcf8ac43329796f21b5823ce5808c34f8`
+**Branch**: `phase1-final-forensic-closure-20261004-17339802734483937561`
+**Report Timestamp**: `2026-10-04T10:30:00Z`
 
 ---
 
@@ -14,11 +14,11 @@
 - **Repository**: `Kiyingijmc/FRACTAL-FLOW`
 - **Base SHA**: `108d515c98cbce2a6c54ba5de22210fa1b2801f7`
 - **Parent SHA**: `8ab0aabd6156652c027bf8d6c71b758cfa177b9c`
-- **Remediation Tip SHA**: `f12bb3025bcf9c0459bc1f4474613b02c63c5dc9`
-- **Current Branch**: `phase1-final-forensic-closure-20261004`
+- **Remediation Tip SHA**: `d54b9ebdcf8ac43329796f21b5823ce5808c34f8`
+- **Current Branch**: `phase1-final-forensic-closure-20261004-17339802734483937561`
 - **Python Versions**: `3.12.13` (local) & `3.13` (CI Matrix)
 - **Pytest**: `9.1.1`
-- **Total Tests**: `353 passed` (32 warnings)
+- **Total Tests**: `354 passed` (32 warnings)
 - **Total Coverage**: `88.36%` (exceeds 85% requirement)
 - **Ruff Check**: `All checks passed!`
 - **Ruff Format Check**: `77 files already formatted`
@@ -39,7 +39,7 @@
 8. `tests/phase1d/test_future_mutations.py`: Hardened all 12 causal lookahead scenarios by generating ticks crossing 5 completed M1 bar boundaries prior to decision time $t$, ensuring `BarAggregator` emits completed bars to `VolatilityEngine` and `StructureEngine`.
 9. `tests/phase1h/test_runtime_authority.py`: Added integration tests verifying `AuthorityViolationException` on real production engine call paths when capabilities are revoked.
 10. `spec/phase1_evidence.yaml`: Created canonical machine-readable evidence manifest linking all 42 invariants with implementation references, test references, evidence type, limitation, scope, and production path.
-11. `spec/invariants.yaml` & `tests/test_spec_parity.py`: Re-classified all 42 non-negotiable invariants (24 ENFORCED, 6 INTEGRATION_VERIFIED, 12 SPECIFIED_ONLY) and added automated manifest parity assertions.
+11. `spec/invariants.yaml`, `artifacts/phase1/invariant_matrix.md`, & `tests/test_spec_parity.py`: Re-classified all 42 non-negotiable invariants (19 ENFORCED, 7 INTEGRATION_VERIFIED, 16 SPECIFIED_ONLY) based strictly on evidence, and added automated 1:1 manifest-to-matrix parity assertions.
 
 ---
 
@@ -103,9 +103,9 @@ All 12 future mutation scenarios exercise production Phase 1 engines (`BarAggreg
 
 ## G. 42-Invariant Final Classification
 
-- **ENFORCED**: 24
-- **INTEGRATION_VERIFIED**: 6
-- **SPECIFIED_ONLY**: 12
+- **ENFORCED**: 19
+- **INTEGRATION_VERIFIED**: 7
+- **SPECIFIED_ONLY**: 16
 - **TOTAL**: **42**
 
 See detailed machine manifest in `spec/phase1_evidence.yaml` and summary matrix in `artifacts/phase1/invariant_matrix.md`.
@@ -116,7 +116,7 @@ See detailed machine manifest in `spec/phase1_evidence.yaml` and summary matrix 
 
 ```bash
 $ poetry run pytest
-353 passed, 32 warnings in 56.84s (Coverage: 88.36%)
+354 passed, 32 warnings in 54.38s (Coverage: 88.36%)
 
 $ poetry run ruff check src/ tests/
 All checks passed!
@@ -136,7 +136,7 @@ $ poetry run python -m compileall -q src tests
 ## I. Remaining Limitations
 
 1. **Parameter Calibration**: Empirical parameter calibration for $V_{local}$ and volatility thresholds is explicitly deferred to Phase 8 / Research Track (`NOT_CALIBRATED`).
-2. **Strategy Engines**: Strategy decision logic (Flow, PDE, Regime, Opportunity, Tradeability, Risk, Portfolio, MT5 Gateway) belongs to future phases and is explicitly deferred.
+2. **Future Strategy Engines**: Strategy decision logic (Flow, PDE, Opportunity, Tradeability, Risk, Portfolio, News Shield, MT5 Gateway) belongs to future layers and is explicitly deferred (`SPECIFIED_ONLY`).
 
 ---
 

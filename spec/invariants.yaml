@@ -2,50 +2,50 @@ invariants:
   - id: 1
     title: pipeline_data_flow_layers
     rule: "Raw market data flows strictly Layer 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6."
-    status: ENFORCED
+    status: INTEGRATION_VERIFIED
     enforcement_mechanism: "AuthorityMatrix boundaries and modular contract decoupling"
-    test_reference: tests/test_invariants.py::test_invariant_1_pipeline_data_flow_layers
+    test_reference: tests/phase1d/test_future_mutations.py::test_1_future_price_spike
     failure_mode: "AuthorityViolationException raised on layering violation"
 
   - id: 2
     title: strategy_engines_no_direct_orders
     rule: "Strategy engines must not directly place MT5 orders."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix forbids PDE/Flow/Strategy from creating execution intents"
-    test_reference: tests/test_invariants.py::test_invariant_2_strategy_engines_no_direct_orders
-    failure_mode: "AuthorityViolationException raised on order submission attempt"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
 
   - id: 3
     title: pde_cannot_call_ordersend
     rule: "PDE cannot call OrderSend."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix.verify_capability('PDE', 'CREATE_EXECUTION_INTENT')"
-    test_reference: tests/test_invariants.py::test_invariant_3_pde_cannot_call_ordersend
-    failure_mode: "AuthorityViolationException"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
 
   - id: 4
     title: flow_cannot_open_position
     rule: "Flow cannot open a position."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix.verify_capability('Flow', 'CREATE_EXECUTION_INTENT')"
-    test_reference: tests/test_invariant_enforcement.py::test_invariant_4_flow_cannot_open_position
-    failure_mode: "AuthorityViolationException"
+    test_reference: None
+    failure_mode: "Requires Layer 2 implementation"
 
   - id: 5
     title: risk_cannot_manufacture_signal
     rule: "Risk cannot manufacture a signal."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix.verify_capability('Risk', 'MANUFACTURE_DIRECTION')"
-    test_reference: tests/test_invariants.py::test_invariant_risk_cannot_manufacture_direction
-    failure_mode: "AuthorityViolationException"
+    test_reference: None
+    failure_mode: "Requires Layer 4 implementation"
 
   - id: 6
     title: portfolio_cannot_manufacture_direction
     rule: "Portfolio arbitration cannot manufacture direction."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix.verify_capability('Portfolio', 'MANUFACTURE_DIRECTION')"
-    test_reference: tests/test_invariants.py::test_invariant_portfolio_cannot_manufacture_direction
-    failure_mode: "AuthorityViolationException"
+    test_reference: None
+    failure_mode: "Requires Layer 4 implementation"
 
   - id: 7
     title: execution_cannot_reinterpret_strategy
@@ -58,10 +58,10 @@ invariants:
   - id: 8
     title: news_shield_cannot_manufacture_trades
     rule: "News Shield cannot manufacture trades."
-    status: ENFORCED
+    status: SPECIFIED_ONLY
     enforcement_mechanism: "AuthorityMatrix capability checks"
-    test_reference: tests/test_invariant_enforcement.py::test_invariant_8_news_shield_cannot_manufacture_trades
-    failure_mode: "AuthorityViolationException"
+    test_reference: None
+    failure_mode: "Requires Layer 5 implementation"
 
   - id: 9
     title: confidence_cannot_override_validity
