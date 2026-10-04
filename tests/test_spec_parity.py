@@ -117,3 +117,62 @@ def test_lineage_graph_bidirectional_parity() -> None:
         assert set(children_list) == LEGAL_LINEAGE_EDGES[parent_tier], (
             f"Lineage graph children mismatch for tier '{parent_tier}'"
         )
+
+
+def test_artifact_and_invariant_consistency() -> None:
+    yaml_path = Path("spec/invariants.yaml")
+    assert yaml_path.exists()
+    with open(yaml_path) as f:
+        inv_data = yaml.safe_load(f)
+    invariants = inv_data["invariants"]
+
+    assert len(invariants) == 42, f"Expected 42 invariants, got {len(invariants)}"
+
+    status_counts = {}
+    for inv in invariants:
+        st = inv["status"]
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+    assert sum(status_counts.values()) == 42
+    assert (
+        status_counts.get("ENFORCED", 0)
+        + status_counts.get("INTEGRATION_VERIFIED", 0)
+        + status_counts.get("SPECIFIED_ONLY", 0)
+        == 42
+    )
+
+
+def test_phase1_evidence_manifest_parity() -> None:
+    """Verifies spec/phase1_evidence.yaml machine manifest parity against spec/invariants.yaml and code references."""
+    evidence_path = Path("spec/phase1_evidence.yaml")
+    assert evidence_path.exists(), "spec/phase1_evidence.yaml missing"
+    with open(evidence_path) as f:
+        ev_data = yaml.safe_load(f)
+
+    assert "phase1_evidence" in ev_data
+    evidence = ev_data["phase1_evidence"]
+    assert len(evidence) == 42, f"Expected 42 entries in evidence manifest, got {len(evidence)}"
+
+    invariants_path = Path("spec/invariants.yaml")
+    with open(invariants_path) as f:
+        inv_data = yaml.safe_load(f)
+    invariants_map = {inv["id"]: inv for inv in inv_data["invariants"]}
+
+    for item in evidence:
+        item_id = item["id"]
+        assert item_id in invariants_map, f"Evidence item ID {item_id} missing from spec/invariants.yaml"
+        inv = invariants_map[item_id]
+
+        # Check required fields
+        for field in ("title", "status", "implementation_refs", "test_refs", "evidence_type", "limitation", "scope"):
+            assert field in item, f"Evidence item {item_id} missing required field '{field}'"
+
+        # Check status agreement between evidence and invariants spec
+        assert item["status"] == inv["status"], (
+            f"Status mismatch for invariant {item_id}: evidence='{item['status']}' vs invariants='{inv['status']}'"
+        )
+
+        # Check implementation refs exist on disk
+        for impl_ref in item["implementation_refs"]:
+            ref_path = Path(impl_ref)
+            assert ref_path.exists(), f"Evidence item {item_id} implementation_ref '{impl_ref}' does not exist on disk!"

@@ -7,6 +7,49 @@ class AuthorityViolationException(Exception):
 
 # Capability Definitions for all core system engines
 CAPABILITIES = {
+    "DataQuality": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "WRITE_DATA_QUALITY_STATE",
+            "ASSIGN_REASON_CODES",
+            "BLOCK_EXPOSURE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "ALLOCATE_RISK",
+            "MANUFACTURE_DIRECTION",
+        },
+    },
+    "Volatility": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "WRITE_VOLATILITY_STATE",
+            "COMPUTE_VOLATILITY_METRICS",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "ALLOCATE_RISK",
+            "MANUFACTURE_DIRECTION",
+        },
+    },
+    "Structure": {
+        "allowed": {
+            "READ_MARKET_STATE",
+            "READ_VOLATILITY",
+            "WRITE_STRUCTURE_STATE",
+            "INVALIDATE_PARENT_STATE",
+            "OUTPUT_STRUCTURAL_STOP_CANDIDATE",
+        },
+        "forbidden": {
+            "CREATE_EXECUTION_INTENT",
+            "SUBMIT_ORDER",
+            "ALLOCATE_RISK",
+            "SIZE_TRADE",
+            "AUTHORIZE_TRADE",
+        },
+    },
     "PDE": {
         "allowed": {
             "READ_MARKET_STATE",

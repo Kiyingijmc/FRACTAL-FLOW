@@ -1,15 +1,23 @@
 states:
   DataQualityState:
     - DATA_VALID
+    - DATA_BOOT
+    - DATA_VALIDATING
+    - DATA_NORMAL
+    - DATA_DEGRADED
     - DATA_STALE
     - DATA_CORRUPTED
     - DATA_UNAVAILABLE
 
   VolatilityState:
-    - VOL_LOW
+    - VOL_UNKNOWN
+    - VOL_COMPRESSION
     - VOL_NORMAL
-    - VOL_ELEVATED
+    - VOL_EXPANSION
     - VOL_EXTREME
+    - VOL_COLLAPSE
+    - VOL_LOW
+    - VOL_ELEVATED
     - VOL_EXPANDING
     - VOL_COMPRESSING
 
@@ -26,6 +34,14 @@ states:
     - BREAK_CONFIRMED
     - BREAK_ESTABLISHED
     - FAILED_BREAK
+
+  StructuralDamageState:
+    - INTACT
+    - DAMAGE_CANDIDATE
+    - DAMAGE_CONFIRMED
+    - STRUCTURE_BROKEN
+    - RECLAIM_CANDIDATE
+    - RECLAIM_CONFIRMED
 
   FlowState:
     - FLOW_NEUTRAL
