@@ -83,6 +83,12 @@ class SnapshotEngine:
         self._lock = threading.Lock()
         self._snapshot_valid: bool = True
         self._snapshot_fallback_used: bool = False
+        self._fault_hook: Optional[Any] = None
+
+    def set_fault_hook(self, hook: Optional[Any]) -> None:
+        """Sets a deterministic fault injection hook for persistence crash testing."""
+        with self._lock:
+            self._fault_hook = hook
 
     def register_reducer(self, event_type: str, reducer_func: Callable[[Dict[str, Any], Event], Dict[str, Any]]) -> None:
         """Registers an explicit semantic event reducer for state transitions during replay."""
@@ -279,6 +285,9 @@ class SnapshotEngine:
         target_path = self._get_snapshot_file_path(snap.aggregate_type, snap.aggregate_id)
         temp_path = target_path.with_suffix(".tmp")
 
+        if self._fault_hook:
+            self._fault_hook("BEFORE_SNAPSHOT_WRITE", snap)
+
         data = asdict(snap)
         raw_json = json.dumps(data, sort_keys=True, indent=2)
 
@@ -288,7 +297,13 @@ class SnapshotEngine:
                 f.flush()
                 os.fsync(f.fileno())
 
+            if self._fault_hook:
+                self._fault_hook("BEFORE_SNAPSHOT_REPLACE", snap)
+
             os.replace(temp_path, target_path)
+
+            if self._fault_hook:
+                self._fault_hook("AFTER_SNAPSHOT_REPLACE", snap)
 
             dir_fd = os.open(str(self.snapshot_dir), os.O_RDONLY)
             try:
