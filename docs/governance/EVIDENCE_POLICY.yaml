@@ -1,0 +1,28 @@
+evidence_policy:
+  required_fields:
+    - "evidence_id"
+    - "type"
+    - "producer"
+    - "producer_version"
+    - "target_commit"
+    - "target_tree"
+    - "timestamp"
+    - "source"
+    - "claim"
+    - "result"
+    - "metadata"
+
+  trust_levels:
+    E0: "Agent Assertion"
+    E1: "Agent-Generated Test"
+    E2: "Repository-Local Verification"
+    E3: "Independent Verification"
+    E4: "Exact-Head CI"
+    E5: "Adversarial Verification"
+    E6: "Post-Merge Verification"
+
+  acceptance_rules:
+    - "Agent assertion (E0) cannot satisfy independent verification requirements (E3+)"
+    - "Target commit SHA and tree SHA must exactly match target repository state"
+    - "Evidence result must be PASS with zero unresolved blocking contradictions"
+    - "Evidence provenance fields (producer, timestamp, target_commit) must be present and non-empty"
