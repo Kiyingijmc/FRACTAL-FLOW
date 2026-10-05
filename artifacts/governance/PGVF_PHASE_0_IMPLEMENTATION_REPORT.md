@@ -21,12 +21,13 @@ ACCEPTANCE_STATUS: NOT_YET_CLOSED
 - **Repository**: `Kiyingijmc/FRACTAL-FLOW`
 - **Branch**: `jules-10401340650672267190-84b953d2`
 - **Base Commit SHA**: `74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d`
-- **Implementation HEAD SHA**: `2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`
-- **Final HEAD SHA**: `2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`
+- **Implementation HEAD SHA**: `d3becd5df9571e5f3a37c8ff84f1050aaba27468`
+- **Final HEAD SHA**: `d3becd5df9571e5f3a37c8ff84f1050aaba27468`
 - **Final Tree SHA**: `527423f8df20e2142e8629e5156fd05799064bc3`
 - **Main SHA**: `74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d`
 - **Merge Base SHA**: `74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d`
-- **CI Run ID**: `37265007074` (Conclusion: `success`, Head SHA: `2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`)
+- **Historical Candidate HEAD SHA**: `2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`
+- **CI Run ID**: `37265007074` (Conclusion: `success`, Historical Candidate Head SHA: `2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`)
 
 ### C. Implementation Inventory
 Machine-derived complete changed file inventory from `git status` / `git diff`:
@@ -105,7 +106,7 @@ Executed authoritative commands:
 - **CLI Commands**: All `pfgv` commands validated with exit code 0
 
 ### H. Evidence Integrity
-All evidence artifacts (`artifacts/governance/PGVF_PHASE_0_EVIDENCE.json` and this report) are bound directly to `FINAL_HEAD_SHA` (`2c7d9fed8ff1c3045ba79ad4bfbbd91fa0a54264`) and `FINAL_TREE_SHA` (`527423f8df20e2142e8629e5156fd05799064bc3`).
+All evidence artifacts (`artifacts/governance/PGVF_PHASE_0_EVIDENCE.json` and this report) are bound directly to `FINAL_HEAD_SHA` (`d3becd5df9571e5f3a37c8ff84f1050aaba27468`) and `FINAL_TREE_SHA` (`527423f8df20e2142e8629e5156fd05799064bc3`).
 
 ### I. Deferred Capabilities
 Deferred to future PGVF phases:
