@@ -2,9 +2,10 @@
 
 Implements adaptive swings (SwingReversalMagnitude = ReversalDisplacement / V_local),
 causal local candidate pivot detection (candidate_at, confirmed_at, effective_from),
+independent HIGH and LOW candidate lifecycles with re-arm capability,
 formal HH/HL/LH/LL/EQUAL classifications against previous confirmed swing of same direction,
-structural trend ownership, BOS vs CHoCH break detection,
-reclaim/rearm state machine, isolated persistence counters,
+instrument-aware equality tolerance, canonical structural trend ownership,
+exact BOS vs CHoCH break truth table, reclaim/rearm state machine, isolated persistence counters,
 versioned configuration schema, bounded swing record history with deterministic eviction,
 and primary structural stop candidate generation strictly without trading authority.
 """
@@ -47,6 +48,17 @@ class StructuralDamageState(str, Enum):
     STRUCTURE_BROKEN = "STRUCTURE_BROKEN"
     RECLAIM_CANDIDATE = "RECLAIM_CANDIDATE"
     RECLAIM_CONFIRMED = "RECLAIM_CONFIRMED"
+
+
+@dataclass(frozen=True)
+class PivotCandidate:
+    side: str  # HIGH or LOW
+    price: Decimal
+    candidate_at: int
+    created_from_timestamp: int
+    status: SwingState
+    v_local_at_candidate: Decimal
+    version: int
 
 
 @dataclass(frozen=True)
@@ -205,6 +217,17 @@ class StructureTransitionRecord:
 class StructureEngine:
     """Adaptive, Volatility-Normalized Structure Engine v2."""
 
+    @staticmethod
+    def get_default_pip_size(symbol: str) -> Decimal:
+        """Determines instrument-aware default pip size."""
+        sym = symbol.upper()
+        if sym.startswith("XAU"):
+            return Decimal("0.1")
+        elif "JPY" in sym:
+            return Decimal("0.01")
+        else:
+            return Decimal("0.0001")
+
     def __init__(
         self,
         symbol: str,
@@ -237,8 +260,12 @@ class StructureEngine:
         )
         self.max_swing_history = max_swing_history if max_swing_history is not None else self.config.max_swing_history
         self.min_v_local_floor = min_v_local_floor if min_v_local_floor is not None else self.config.min_v_local_floor
+
+        default_pip = self.get_default_pip_size(self.symbol)
         self.equality_tolerance_pips = (
-            equality_tolerance_pips if equality_tolerance_pips is not None else self.config.equality_tolerance_pips
+            equality_tolerance_pips
+            if equality_tolerance_pips is not None
+            else (self.config.equality_tolerance_pips * (default_pip / Decimal("0.0001")))
         )
         self.atr_stop_buffer_mult = (
             atr_stop_buffer_mult if atr_stop_buffer_mult is not None else self.config.atr_stop_buffer_mult
@@ -255,11 +282,9 @@ class StructureEngine:
         self.protected_high: Optional[Decimal] = None
         self.protected_low: Optional[Decimal] = None
 
-        # Local Candidate Pivot State (No All-Time Extrema)
-        self._candidate_high_price: Optional[Decimal] = None
-        self._candidate_high_ts: int = 0
-        self._candidate_low_price: Optional[Decimal] = None
-        self._candidate_low_ts: int = 0
+        # Independent Local Candidate Pivot State Machine
+        self._high_candidate: Optional[PivotCandidate] = None
+        self._low_candidate: Optional[PivotCandidate] = None
 
         self.high_persistence_counter = 0
         self.low_persistence_counter = 0
@@ -282,18 +307,26 @@ class StructureEngine:
         self._last_transition_record: Optional[StructureTransitionRecord] = None
 
     @property
+    def _candidate_high_price(self) -> Optional[Decimal]:
+        return self._high_candidate.price if self._high_candidate else None
+
+    @property
+    def _candidate_low_price(self) -> Optional[Decimal]:
+        return self._low_candidate.price if self._low_candidate else None
+
+    @property
     def persistence_counter(self) -> int:
         """Backward-compatible persistence counter property."""
         return max(self.high_persistence_counter, self.low_persistence_counter)
 
     @property
     def structural_ownership(self) -> str:
-        """Determines active structural trend ownership ('BULLISH', 'BEARISH', or 'AMBIGUOUS')."""
+        """Single Source of Truth for structural trend ownership ('BULLISH', 'BEARISH', 'AMBIGUOUS', or 'UNKNOWN')."""
         high_swings = [s for s in self.swings if s.swing_type == "HIGH" and s.status != SwingState.SWING_BROKEN]
         low_swings = [s for s in self.swings if s.swing_type == "LOW" and s.status != SwingState.SWING_BROKEN]
 
         if not high_swings or not low_swings:
-            return "AMBIGUOUS"
+            return "UNKNOWN" if not self.swings else "AMBIGUOUS"
 
         latest_high = high_swings[-1]
         latest_low = low_swings[-1]
@@ -312,6 +345,15 @@ class StructureEngine:
             return "BEARISH"
 
         return "AMBIGUOUS"
+
+    def _rearm_protected_levels(self) -> None:
+        """Re-arms protected high and low levels from active confirmed swings."""
+        high_swings = [s for s in self.swings if s.swing_type == "HIGH" and s.status != SwingState.SWING_BROKEN]
+        low_swings = [s for s in self.swings if s.swing_type == "LOW" and s.status != SwingState.SWING_BROKEN]
+        if high_swings:
+            self.protected_high = high_swings[-1].price
+        if low_swings:
+            self.protected_low = low_swings[-1].price
 
     def calculate_v_local(self, current_bar: Bar, atr_14: Optional[Decimal] = None) -> Decimal:
         """Executably defines V_local as local volatility reference (ATR-14 or minimum pip floor)."""
@@ -380,72 +422,89 @@ class StructureEngine:
         bos_type = "NONE"
         reclaim_type = "NONE"
 
-        # Update Local Candidate High and Low (No All-Time Extrema)
-        if self._candidate_high_price is None or bar.high >= self._candidate_high_price:
-            self._candidate_high_price = bar.high
-            self._candidate_high_ts = bar.close_timestamp
+        # 1. Independent Local Candidate Pivot Maintenance & Extension
+        if self._high_candidate is None or bar.high >= self._high_candidate.price:
+            created_ts = self._high_candidate.created_from_timestamp if self._high_candidate else bar.close_timestamp
+            self._high_candidate = PivotCandidate(
+                side="HIGH",
+                price=bar.high,
+                candidate_at=bar.close_timestamp,
+                created_from_timestamp=created_ts,
+                status=SwingState.SWING_CANDIDATE,
+                v_local_at_candidate=effective_v_local,
+                version=self.state_version + 1,
+            )
 
-        if self._candidate_low_price is None or bar.low <= self._candidate_low_price:
-            self._candidate_low_price = bar.low
-            self._candidate_low_ts = bar.close_timestamp
+        if self._low_candidate is None or bar.low <= self._low_candidate.price:
+            created_ts = self._low_candidate.created_from_timestamp if self._low_candidate else bar.close_timestamp
+            self._low_candidate = PivotCandidate(
+                side="LOW",
+                price=bar.low,
+                candidate_at=bar.close_timestamp,
+                created_from_timestamp=created_ts,
+                status=SwingState.SWING_CANDIDATE,
+                v_local_at_candidate=effective_v_local,
+                version=self.state_version + 1,
+            )
 
-        # 1. Causal Reversal Magnitude Evaluation from Local Candidate Pivots
+        # Update swing_state to SWING_CANDIDATE if candidate is active and state is SWING_NONE or SWING_BROKEN
+        if self.swing_state in (SwingState.SWING_NONE, SwingState.SWING_BROKEN):
+            self.swing_state = SwingState.SWING_CANDIDATE
+
+        # 2. Causal Reversal Magnitude Evaluation from Local Candidates
         high_magnitude = Decimal("0.0")
-        if self._candidate_high_price is not None:
-            high_disp = self._candidate_high_price - bar.close
+        if self._high_candidate is not None:
+            high_disp = self._high_candidate.price - bar.close
             high_magnitude = high_disp / effective_v_local if high_disp > Decimal("0.0") else Decimal("0.0")
 
         low_magnitude = Decimal("0.0")
-        if self._candidate_low_price is not None:
-            low_disp = bar.close - self._candidate_low_price
+        if self._low_candidate is not None:
+            low_disp = bar.close - self._low_candidate.price
             low_magnitude = low_disp / effective_v_local if low_disp > Decimal("0.0") else Decimal("0.0")
 
         old_swing = self.swing_state
         if high_magnitude >= self.min_reversal_magnitude or low_magnitude >= self.min_reversal_magnitude:
-            if self.swing_state == SwingState.SWING_NONE:
-                self.swing_state = SwingState.SWING_CANDIDATE
-            elif self.swing_state == SwingState.SWING_CANDIDATE:
-                self.swing_state = SwingState.SWING_CONFIRMED
-                if high_magnitude >= self.min_reversal_magnitude and self._candidate_high_price is not None:
-                    self.protected_high = self._candidate_high_price
-                    self._register_swing(
-                        swing_type="HIGH",
-                        price=self._candidate_high_price,
-                        candidate_at=self._candidate_high_ts,
-                        confirmed_at=bar.close_timestamp,
-                        status=SwingState.SWING_CONFIRMED,
-                        v_local=effective_v_local,
-                        reversal_magnitude=high_magnitude,
-                        root_id=root_id,
-                        parent_id=parent_id,
-                        parent_version=parent_version,
-                    )
-                    self._candidate_high_price = None
-                    self._candidate_high_ts = 0
+            if high_magnitude >= self.min_reversal_magnitude and self._high_candidate is not None:
+                self.protected_high = self._high_candidate.price
+                self._register_swing(
+                    swing_type="HIGH",
+                    price=self._high_candidate.price,
+                    candidate_at=self._high_candidate.candidate_at,
+                    confirmed_at=bar.close_timestamp,
+                    status=SwingState.SWING_CONFIRMED,
+                    v_local=effective_v_local,
+                    reversal_magnitude=high_magnitude,
+                    root_id=root_id,
+                    parent_id=parent_id,
+                    parent_version=parent_version,
+                )
+                self._high_candidate = None
 
-                if low_magnitude >= self.min_reversal_magnitude and self._candidate_low_price is not None:
-                    self.protected_low = self._candidate_low_price
-                    self._register_swing(
-                        swing_type="LOW",
-                        price=self._candidate_low_price,
-                        candidate_at=self._candidate_low_ts,
-                        confirmed_at=bar.close_timestamp,
-                        status=SwingState.SWING_CONFIRMED,
-                        v_local=effective_v_local,
-                        reversal_magnitude=low_magnitude,
-                        root_id=root_id,
-                        parent_id=parent_id,
-                        parent_version=parent_version,
-                    )
-                    self._candidate_low_price = None
-                    self._candidate_low_ts = 0
+            if low_magnitude >= self.min_reversal_magnitude and self._low_candidate is not None:
+                self.protected_low = self._low_candidate.price
+                self._register_swing(
+                    swing_type="LOW",
+                    price=self._low_candidate.price,
+                    candidate_at=self._low_candidate.candidate_at,
+                    confirmed_at=bar.close_timestamp,
+                    status=SwingState.SWING_CONFIRMED,
+                    v_local=effective_v_local,
+                    reversal_magnitude=low_magnitude,
+                    root_id=root_id,
+                    parent_id=parent_id,
+                    parent_version=parent_version,
+                )
+                self._low_candidate = None
+
+            if self.swing_state == SwingState.SWING_CANDIDATE:
+                self.swing_state = SwingState.SWING_CONFIRMED
             elif self.swing_state == SwingState.SWING_CONFIRMED:
                 self.swing_state = SwingState.SWING_PROTECTED
 
         if self.swing_state != old_swing:
             self.previous_swing_state = old_swing
 
-        # 2. Structural Break Evaluation (LevelCross x DisplacementConfirmation x PersistenceConfirmation)
+        # 3. Structural Break Evaluation (LevelCross x DisplacementConfirmation x PersistenceConfirmation)
         high_cross = False
         low_cross = False
         disp_confirmed = False
@@ -520,28 +579,42 @@ class StructureEngine:
                 self.break_state = BreakState.BREAK_ESTABLISHED
 
             ownership = self.structural_ownership
-            if active_level_type == "HIGH":
-                bos_type = "BOS_BULLISH" if ownership == "BULLISH" else "CHOCH_BULLISH"
-                new_dir = "LONG"
-            elif active_level_type == "LOW":
-                bos_type = "BOS_BEARISH" if ownership == "BEARISH" else "CHOCH_BEARISH"
-                new_dir = "SHORT"
+            # Exact Canonical 8-Row Truth Table Evaluation
+            if ownership == "BULLISH":
+                if active_level_type == "HIGH":
+                    bos_type = "BOS_BULLISH"
+                elif active_level_type == "LOW":
+                    bos_type = "CHOCH_BEARISH"
+                    if self.current_direction != "SHORT":
+                        self.last_choch = ChangeOfCharacter(
+                            symbol=self.symbol,
+                            timeframe=self.timeframe,
+                            prior_direction=self.current_direction,
+                            new_direction="SHORT",
+                            trigger_price=bar.close,
+                            protected_level_price=struct_break.level_price,
+                            confirmed_at=bar.close_timestamp,
+                        )
+                        self.current_direction = "SHORT"
+            elif ownership == "BEARISH":
+                if active_level_type == "LOW":
+                    bos_type = "BOS_BEARISH"
+                elif active_level_type == "HIGH":
+                    bos_type = "CHOCH_BULLISH"
+                    if self.current_direction != "LONG":
+                        self.last_choch = ChangeOfCharacter(
+                            symbol=self.symbol,
+                            timeframe=self.timeframe,
+                            prior_direction=self.current_direction,
+                            new_direction="LONG",
+                            trigger_price=bar.close,
+                            protected_level_price=struct_break.level_price,
+                            confirmed_at=bar.close_timestamp,
+                        )
+                        self.current_direction = "LONG"
             else:
+                # AMBIGUOUS or UNKNOWN: No CHoCH allowed from UNKNOWN/AMBIGUOUS!
                 bos_type = "NONE"
-                new_dir = "UNKNOWN"
-
-            # CHoCH Detection
-            if self.current_direction != new_dir and new_dir != "UNKNOWN":
-                self.last_choch = ChangeOfCharacter(
-                    symbol=self.symbol,
-                    timeframe=self.timeframe,
-                    prior_direction=self.current_direction,
-                    new_direction=new_dir,
-                    trigger_price=bar.close,
-                    protected_level_price=struct_break.level_price,
-                    confirmed_at=bar.close_timestamp,
-                )
-                self.current_direction = new_dir
 
         elif level_cross and not disp_confirmed:
             self.break_state = BreakState.BREAK_CANDIDATE
@@ -570,12 +643,16 @@ class StructureEngine:
         if self.break_state != old_break:
             self.previous_break_state = old_break
 
-        # 3. Structural Damage & Reclaim State Machine
+        # 4. Structural Damage & Reclaim State Machine
         old_damage = self.damage_state
         if struct_break.is_confirmed_break:
-            self.damage_state = StructuralDamageState.STRUCTURE_BROKEN
-            self.swing_state = SwingState.SWING_BROKEN
-            reasons.append(ReasonCode.STRUCTURE_INVALIDATED)
+            if bos_type in ("CHOCH_BULLISH", "CHOCH_BEARISH"):
+                self.damage_state = StructuralDamageState.STRUCTURE_BROKEN
+                self.swing_state = SwingState.SWING_BROKEN
+                reasons.append(ReasonCode.STRUCTURE_INVALIDATED)
+            else:
+                # Continuation break (BOS_BULLISH / BOS_BEARISH) does NOT destroy structure!
+                self.damage_state = StructuralDamageState.INTACT
         elif level_cross:
             self.damage_state = StructuralDamageState.DAMAGE_CANDIDATE
         elif old_damage == StructuralDamageState.DAMAGE_CANDIDATE and not level_cross:
@@ -601,8 +678,11 @@ class StructureEngine:
                 reclaim_price=bar.close,
                 reclaimed_at=bar.close_timestamp,
             )
+            # Re-arm protected levels upon reclaim
+            self._rearm_protected_levels()
         elif old_damage == StructuralDamageState.RECLAIM_CONFIRMED and not level_cross:
             self.damage_state = StructuralDamageState.INTACT
+            self._rearm_protected_levels()
 
         if self.damage_state != old_damage:
             self.previous_damage_state = old_damage
