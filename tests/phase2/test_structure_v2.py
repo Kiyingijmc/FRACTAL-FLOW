@@ -1,19 +1,24 @@
 """Phase 2 Work Package 2A Tests: Structure Engine v2.
 
-Comprehensive test suite covering:
+Adversarial test suite covering:
 - Pivot timestamp vs confirmed_at vs effective_from causality.
-- Causal HH / HL / LH / LL structural classifications.
-- BOS vs CHoCH structural break types and ChangeOfCharacter events.
+- Monotonic rise, monotonic fall, alternating swings, shallow/large reversals.
+- Causal HH / HL / LH / LL / EQUAL_HIGH / EQUAL_LOW structural classifications.
+- Structural trend ownership ('BULLISH', 'BEARISH', 'AMBIGUOUS').
+- Bullish/Bearish BOS vs Bullish/Bearish CHoCH break types and ChangeOfCharacter events.
 - FailedBreak, ReclaimEvent, and RECLAIM_CANDIDATE -> RECLAIM_CONFIRMED -> INTACT state transitions.
 - Bounded swing record history eviction determinism.
 - Volatility normalization across price scales (EURUSD vs XAUUSD).
 - Replay equivalence and StateEnvelope validation.
-- Chronology, parent identity, version regression, and authority fail-closed behavior.
+- Chronology, duplicate timestamps, parent identity, version regression, and authority fail-closed behavior.
+- Causal prefix invariance and multi-mutation scenarios.
 """
 
 from decimal import Decimal
 import pytest
 
+from src.fractal_flow.config.config import StructureConfig
+from src.fractal_flow.domain.authority import AuthorityViolationException
 from src.fractal_flow.domain.market import Bar
 from src.fractal_flow.domain.structure import (
     BreakState,
@@ -27,7 +32,7 @@ BASE_TS = 1700006400
 
 
 def test_pivot_timestamp_causality_and_effective_from() -> None:
-    """Verifies that pivot_timestamp reflects actual price extreme bar timestamp,
+    """Verifies that candidate_at reflects actual price extreme bar timestamp,
 
     while confirmed_at and effective_from reflect confirmation bar timestamp.
     """
@@ -54,9 +59,10 @@ def test_pivot_timestamp_causality_and_effective_from() -> None:
     swing: SwingRecord = rec2.active_swings[0]
     assert swing.swing_type == "HIGH"
     assert swing.price == Decimal("1.0900")
-    assert swing.pivot_timestamp == BASE_TS + 60  # close_timestamp of Bar 0
+    assert swing.candidate_at == BASE_TS + 60  # candidate_at of Bar 0
     assert swing.confirmed_at == BASE_TS + 180  # close_timestamp of Bar 2
     assert swing.effective_from == BASE_TS + 180
+    assert swing.confirmed_at >= swing.candidate_at  # Temporal causality invariant
 
     # Downstream query at decision_timestamp < confirmed_at returns no swings
     assert engine.get_confirmed_swings(decision_timestamp=BASE_TS + 120) == []
@@ -91,7 +97,51 @@ def test_structure_hh_hl_lh_ll_classifications() -> None:
     assert last_rec is not None
     assert len(engine.swings) >= 1
     classifications = [s.classification for s in engine.swings]
-    assert any(c in ("HH", "HL", "LH", "LL", "NEUTRAL") for c in classifications)
+    assert any(c in ("HH", "HL", "LH", "LL", "EQUAL_HIGH", "EQUAL_LOW", "NEUTRAL") for c in classifications)
+
+
+def test_structure_equal_highs_and_lows_classification() -> None:
+    """Verifies explicit EQUAL_HIGH and EQUAL_LOW classifications when swing price equals previous swing price within tolerance."""
+    cfg = StructureConfig(equality_tolerance_pips=Decimal("0.0001"))
+    engine = StructureEngine("EURUSD", timeframe="1M", config=cfg)
+
+    # Register first HIGH swing at 1.0850
+    s1 = engine._register_swing("HIGH", Decimal("1.0850"), candidate_at=BASE_TS, confirmed_at=BASE_TS + 60)
+    assert s1.classification == "NEUTRAL"
+
+    # Register second HIGH swing at 1.085005 (within 0.0001 equality tolerance)
+    s2 = engine._register_swing("HIGH", Decimal("1.085005"), candidate_at=BASE_TS + 120, confirmed_at=BASE_TS + 180)
+    assert s2.classification == "EQUAL_HIGH"
+
+    # Register first LOW swing at 1.0800
+    s3 = engine._register_swing("LOW", Decimal("1.0800"), candidate_at=BASE_TS + 240, confirmed_at=BASE_TS + 300)
+    assert s3.classification == "NEUTRAL"
+
+    # Register second LOW swing at 1.080002 (within tolerance)
+    s4 = engine._register_swing("LOW", Decimal("1.080002"), candidate_at=BASE_TS + 360, confirmed_at=BASE_TS + 420)
+    assert s4.classification == "EQUAL_LOW"
+
+
+def test_structural_ownership_transitions() -> None:
+    """Verifies structural_ownership property computation ('BULLISH', 'BEARISH', 'AMBIGUOUS')."""
+    engine = StructureEngine("EURUSD", timeframe="1M")
+
+    # Initial state with no swings -> AMBIGUOUS
+    assert engine.structural_ownership == "AMBIGUOUS"
+
+    # Register HH and HL -> BULLISH
+    engine._register_swing("HIGH", Decimal("1.0850"), candidate_at=BASE_TS, confirmed_at=BASE_TS + 60)
+    engine._register_swing("LOW", Decimal("1.0800"), candidate_at=BASE_TS + 60, confirmed_at=BASE_TS + 120)
+    engine._register_swing("HIGH", Decimal("1.0880"), candidate_at=BASE_TS + 120, confirmed_at=BASE_TS + 180)  # HH
+    engine._register_swing("LOW", Decimal("1.0820"), candidate_at=BASE_TS + 180, confirmed_at=BASE_TS + 240)  # HL
+
+    assert engine.structural_ownership == "BULLISH"
+
+    # Register LH and LL -> BEARISH
+    engine._register_swing("HIGH", Decimal("1.0860"), candidate_at=BASE_TS + 240, confirmed_at=BASE_TS + 300)  # LH
+    engine._register_swing("LOW", Decimal("1.0780"), candidate_at=BASE_TS + 300, confirmed_at=BASE_TS + 360)  # LL
+
+    assert engine.structural_ownership == "BEARISH"
 
 
 def test_bos_and_choch_types() -> None:
@@ -152,7 +202,7 @@ def test_bounded_swing_history_eviction() -> None:
         engine._register_swing(
             swing_type="HIGH" if i % 2 == 0 else "LOW",
             price=Decimal("1.0800") + Decimal(str(i * 0.0010)),
-            pivot_ts=BASE_TS + i * 60,
+            candidate_at=BASE_TS + i * 60,
             confirmed_at=BASE_TS + (i + 1) * 60,
             status=SwingState.SWING_CONFIRMED,
             root_id="r1",
@@ -252,3 +302,33 @@ def test_stop_candidate_generation() -> None:
     assert cand_short.direction == "SHORT"
     assert cand_short.protected_level_price == Decimal("1.0900")
     assert cand_short.recommended_stop_price == Decimal("1.0910")  # 1.0900 + 0.0010 buffer
+
+
+def test_causal_temporal_invariant() -> None:
+    """Verifies that attempting to register a swing with confirmed_at < candidate_at fails closed."""
+    engine = StructureEngine("EURUSD", timeframe="1M")
+    with pytest.raises(ValueError, match="Temporal causality invariant violation"):
+        engine._register_swing(
+            swing_type="HIGH",
+            price=Decimal("1.0850"),
+            candidate_at=BASE_TS + 120,
+            confirmed_at=BASE_TS + 60,  # Invalid: confirmed_at < candidate_at!
+        )
+
+
+def test_structure_authority_violation() -> None:
+    """Verifies that calling process_bar or get_structural_stop_candidate fails closed if AuthorityMatrix capability is revoked."""
+    from src.fractal_flow.domain.authority import CAPABILITIES
+
+    engine = StructureEngine("EURUSD", timeframe="1M")
+    v_local = Decimal("0.0010")
+    b1 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0850", "1.0860", "1.0840", "1.0855")
+
+    # Temporarily revoke WRITE_STRUCTURE_STATE capability
+    allowed = CAPABILITIES["Structure"]["allowed"]
+    allowed.remove("WRITE_STRUCTURE_STATE")
+    try:
+        with pytest.raises(AuthorityViolationException, match="Authority Violation"):
+            engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    finally:
+        allowed.add("WRITE_STRUCTURE_STATE")

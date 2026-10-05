@@ -12,10 +12,11 @@ Structure is strictly an **informational authority**.
   - Structure must **NEVER** act as a trading, risk, or execution authority.
   - Structure must **NEVER** directly construct execution intents, submit orders, adjust positions, set trade sizes, or evaluate account risk.
 
-## 3. Inputs
-The Structure Engine consumes closed-bar observations and local volatility references:
+## 3. Inputs & Configuration
+The Structure Engine consumes closed-bar observations, local volatility references, and versioned configuration:
 - `bar`: Canonical `Bar` (symbol, timeframe, open, high, low, close, timestamps).
 - `v_local`: Exact Decimal local volatility reference ($V_{\text{local}}$), computed via ATR-14 or local bar range floor ($V_{\text{local}} \ge \text{min\_v\_local\_floor}$).
+- `config`: `StructureConfig` instance defining behavioral parameters (`min_reversal_magnitude`, `displacement_threshold_mult`, `persistence_bars_required`, `max_swing_history`, `min_v_local_floor`, `equality_tolerance_pips`, `atr_stop_buffer_mult`).
 - Lineage & Provenance: `root_id`, `parent_id`, `parent_version`, `config_version`, `data_version`, `feature_version`.
 
 ## 4. State Model
@@ -24,40 +25,47 @@ Structure engine maintains three orthogonal state machines registered in `spec/s
 2. `BreakState`: `BREAK_NONE` $\leftrightarrow$ `BREAK_CANDIDATE` $\leftrightarrow$ `BREAK_CONFIRMED` $\leftrightarrow$ `BREAK_ESTABLISHED` / `FAILED_BREAK`.
 3. `StructuralDamageState`: `INTACT` $\leftrightarrow$ `DAMAGE_CANDIDATE` $\leftrightarrow$ `STRUCTURE_BROKEN` $\leftrightarrow$ `RECLAIM_CANDIDATE` $\leftrightarrow$ `RECLAIM_CONFIRMED`.
 
-## 5. Pivot Model
-Swings are detected adaptively using volatility-normalized reversal displacement:
-$$\text{SwingReversalMagnitude} = \frac{\text{ReversalDisplacement}}{V_{\text{local}}}$$
-A swing candidate requires $\text{SwingReversalMagnitude} \ge \text{min\_reversal\_magnitude}$ (default 1.5).
+## 5. Local Causal Pivot Mathematics
+Swings are detected causally from local candidate pivots without any unbounded historical extrema scan or all-time running extrema:
+$$\text{ReversalDisplacement} = \text{CandidatePrice} - \text{CurrentClose} \quad (\text{for High candidate})$$
+$$\text{ReversalMagnitude} = \frac{\text{ReversalDisplacement}}{V_{\text{local}}}$$
+A local candidate pivot is causally confirmed when $\text{ReversalMagnitude} \ge \text{min\_reversal\_magnitude}$.
 - **Pivot Timestamps**:
-  - `pivot_timestamp`: Exact timestamp of the extreme bar where the pivot occurred.
-  - `confirmed_at`: Timestamp of the bar where reversal magnitude was confirmed.
-  - `effective_from`: Causal timestamp when the swing becomes visible downstream ($\text{effective\_from} \ge \text{confirmed\_at} > \text{pivot\_timestamp}$). In M1 closed-bar architecture, $\text{effective\_from} == \text{confirmed\_at}$.
-- **Swing Classifications**:
-  - `HH` (Higher High): High swing price > previous confirmed High swing price.
-  - `LH` (Lower High): High swing price < previous confirmed High swing price.
-  - `HL` (Higher Low): Low swing price > previous confirmed Low swing price.
-  - `LL` (Lower Low): Low swing price < previous confirmed Low swing price.
-  - `NEUTRAL`: First swing or unclassified.
+  - `candidate_at`: Exact timestamp of the bar where the candidate extreme was observed.
+  - `confirmed_at`: Timestamp of the bar where the reversal condition was satisfied.
+  - `effective_from`: Causal timestamp when the swing becomes visible downstream ($\text{effective\_from} == \text{confirmed\_at} \ge \text{candidate\_at}$).
+- **Swing Classifications against Previous Confirmed Swing**:
+  - `HH` (Higher High): High swing price > previous confirmed High swing price + tolerance.
+  - `LH` (Lower High): High swing price < previous confirmed High swing price - tolerance.
+  - `EQUAL_HIGH`: $| \text{price} - \text{prev\_high} | \le \text{equality\_tolerance_pips}$.
+  - `HL` (Higher Low): Low swing price > previous confirmed Low swing price + tolerance.
+  - `LL` (Lower Low): Low swing price < previous confirmed Low swing price - tolerance.
+  - `EQUAL_LOW`: $| \text{price} - \text{prev\_low} | \le \text{equality\_tolerance_pips}$.
+  - `NEUTRAL`: First swing in direction.
 
-## 6. Progression Model
-Directional progression tracks market structure breaks and character changes:
-- `BOS_BULLISH` / `BOS_BEARISH`: Continuation break of protected level in line with current dominant structural direction.
-- `CHOCH_BULLISH` / `CHOCH_BEARISH`: Change of Character break reversing the structural direction.
+## 6. Progression & Ownership Model
+- **Structural Ownership**:
+  - `BULLISH`: Active confirmed high is `HH` or `EQUAL_HIGH` and active low is `HL`.
+  - `BEARISH`: Active confirmed low is `LL` or `EQUAL_LOW` and active high is `LH`.
+  - `AMBIGUOUS`: Divergent or unconfirmed structural evidence.
+- **Break Types**:
+  - `BOS_BULLISH` / `BOS_BEARISH`: Continuation break of protected level in line with active structural ownership.
+  - `CHOCH_BULLISH` / `CHOCH_BEARISH`: Change of Character break reversing active structural ownership.
 
 ## 7. Confirmation Semantics
 A structural break is confirmed if and only if three conditions hold simultaneously:
 $$\text{StructuralBreak} = \text{LevelCross} \times \text{DisplacementConfirmation} \times \text{PersistenceConfirmation}$$
 - `LevelCross`: Bar close exceeds protected high or falls below protected low.
 - `DisplacementConfirmation`: $\text{Displacement} \ge \text{displacement\_threshold\_mult} \times V_{\text{local}}$.
-- `PersistenceConfirmation`: Number of consecutive displacement-confirming bars reaches $\text{persistence\_bars\_required}$ (default 2). High and Low levels maintain isolated persistence counters (`high_persistence_counter`, `low_persistence_counter`).
+- `PersistenceConfirmation`: Number of consecutive displacement-confirming bars reaches $\text{persistence\_bars\_required}$. High and Low levels maintain isolated persistence counters (`high_persistence_counter`, `low_persistence_counter`).
 
-## 8. Invalidation & Reclaim Semantics
+## 8. Invalidation, Failed Breaks & Reclaim Semantics
 - **Structural Invalidation**: Occurs when a confirmed break damages a protected level (`damage_state = STRUCTURE_BROKEN`).
 - **Failed Break**: Occurs when `LevelCross` occurs without displacement/persistence confirmation, and subsequent bar closes back inside the protected level (`BREAK_CANDIDATE` $\rightarrow$ `FAILED_BREAK`).
 - **Reclaim State Machine**: `STRUCTURE_BROKEN` / `DAMAGE_CANDIDATE` $\rightarrow$ `RECLAIM_CANDIDATE` $\rightarrow$ `RECLAIM_CONFIRMED` $\rightarrow$ `INTACT`. Explicit `ReclaimEvent` objects record reclaimed price and timestamp.
 
 ## 9. Bounded-History Policy
-To prevent unbounded memory growth and the historical-extrema flaw:
+To prevent unbounded memory growth:
 - Active confirmed swings are bounded by `max_swing_history` (default 20).
 - Eviction policy: Deterministic FIFO eviction, prioritizing eviction of broken/invalidated swings (`status == SWING_BROKEN`) before oldest confirmed swings.
 
@@ -89,10 +97,10 @@ Verified via `CausalTestFramework`: decision state at $t$ remains invariant unde
 ## 16. Flow Interface
 Structure Engine provides pure structural evidence to Flow Engine:
 - Exposed via `get_confirmed_swings(decision_timestamp)`, `protected_high`, `protected_low`, `bos_type`, `last_choch`, `last_failed_break`, `last_reclaim`.
-- Structure progression metrics ($\text{structure\_progression} \in [-1.0, 1.0]$) feed into `FlowEvidence` without Flow altering structural authority.
+- Structure progression metrics feed into `FlowEvidence` without Flow altering structural authority.
 
 ## 17. PDE Interface
-Structure Engine provides upstream structural facts to the downstream Partial Differential Equation (PDE) engine:
+Structure Engine provides upstream structural facts to the downstream Pullback Detection Engine (PDE):
 - Directional anchors (`protected_high`, `protected_low`).
 - Pivot locations for pullback depth and displacement calculations.
 - Structural invalidation events for resetting PDE impulse states.

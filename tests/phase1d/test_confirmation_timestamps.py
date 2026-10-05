@@ -24,11 +24,11 @@ def test_structure_engine_swing_confirmation_timestamp_equals_confirmation_time(
 
     # Bar 1 (T=60s): Displacement occurs -> SWING_CANDIDATE
     b1 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0805", "1.0825", "1.0805", "1.0820")
-    rec1 = engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    rec1 = engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=2)
 
     # Bar 2 (T=120s): Reversal confirmed -> SWING_CONFIRMED
     b2 = Bar.create("EURUSD", "1M", BASE_TS + 120, BASE_TS + 180, "1.0820", "1.0835", "1.0818", "1.0830")
-    rec2 = engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    rec2 = engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=3)
 
     assert rec2.swing_state == SwingState.SWING_CONFIRMED
 
@@ -38,4 +38,4 @@ def test_structure_engine_swing_confirmation_timestamp_equals_confirmation_time(
 
     assert rec2.timestamp == t_confirmation
     assert rec2.timestamp > t_extreme
-    assert engine.last_extreme_low == Decimal("1.0800")
+    assert engine.protected_low == Decimal("1.0800")
