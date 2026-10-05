@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 from src.fractal_flow.domain.market import Bar
-from src.fractal_flow.domain.structure import StructureEngine
+from src.fractal_flow.domain.structure import StructureEngine, SwingState
 
 BASE_TS = 1700006400
 
@@ -25,8 +25,9 @@ def test_invariant_32_fixed_three_candle_fractals_not_used_in_structure() -> Non
     rec2 = engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=1)
     rec3 = engine.process_bar(b3, v_local, root_id="r1", parent_id="p1", parent_version=1)
 
-    # 3-candle pattern with sub-threshold displacement produces NO SWING
-    assert rec3.swing_state.value == "SWING_NONE"
+    # 3-candle pattern with sub-threshold displacement produces NO CONFIRMED SWING
+    assert len(engine.swings) == 0
+    assert rec3.swing_state != SwingState.SWING_CONFIRMED
 
 
 def test_invariant_35_structural_stops_are_primary() -> None:
