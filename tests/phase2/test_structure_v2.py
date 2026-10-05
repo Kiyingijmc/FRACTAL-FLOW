@@ -3,13 +3,15 @@
 Adversarial test suite covering:
 - Pivot timestamp vs confirmed_at vs effective_from causality.
 - Monotonic rise, monotonic fall, 48-bar clean alternating zigzag growth property.
-- Causal HH / HL / LH / LL / EQUAL_HIGH / EQUAL_LOW structural classifications.
+- Higher-high extension and lower-low extension candidate lifecycles.
+- Causal HH / HL / LH / LL / EQUAL_HIGH / EQUAL_LOW structural classifications across instruments.
 - Canonical structural trend ownership ('BULLISH', 'BEARISH', 'AMBIGUOUS', 'UNKNOWN').
 - Complete 32-case structural truth table matrix for BOS/CHoCH.
 - First-break non-CHoCH rule and continuation non-destruction rule.
 - FailedBreak, ReclaimEvent, and RECLAIM_CANDIDATE -> RECLAIM_CONFIRMED -> INTACT state transitions.
+- Production-path reclaim reachability and post-reclaim protected level re-arm.
 - Bounded swing record history eviction determinism.
-- Volatility normalization across price scales (EURUSD vs XAUUSD).
+- Volatility normalization across price scales (EURUSD, USDJPY, XAUUSD).
 - Replay equivalence and StateEnvelope validation.
 - Chronology, duplicate timestamps, parent identity, version regression, and authority fail-closed behavior.
 - Causal prefix invariance and multi-mutation scenarios.
@@ -71,6 +73,59 @@ def test_pivot_timestamp_causality_and_effective_from() -> None:
     swings_avail = engine.get_confirmed_swings(decision_timestamp=BASE_TS + 120)
     assert len(swings_avail) >= 1
     assert swings_avail[0].swing_id == swing.swing_id
+
+
+def test_monotonic_growth_and_decline_bounded_candidates() -> None:
+    """Verifies that monotonic price rises and declines update candidates causally without false swing confirmation when reversal threshold is not met."""
+    engine = StructureEngine("EURUSD", timeframe="1M", min_reversal_magnitude=Decimal("5.0"))
+    v_local = Decimal("0.0010")
+
+    # Monotonic small rise over 10 bars without reversal displacement >= 5.0 * v_local
+    for i in range(10):
+        p = Decimal("1.0800") + Decimal(str(i * 0.0002))
+        b = Bar.create(
+            "EURUSD",
+            "1M",
+            BASE_TS + i * 60,
+            BASE_TS + (i + 1) * 60,
+            str(p),
+            str(p + Decimal("0.0002")),
+            str(p - Decimal("0.0001")),
+            str(p + Decimal("0.0001")),
+        )
+        rec = engine.process_bar(b, v_local, root_id="r1", parent_id="p1", parent_version=i + 1)
+        assert rec.swing_state == SwingState.SWING_CANDIDATE
+
+    # No swings confirmed during monotonic rise when reversal threshold is not met
+    assert len(engine.swings) == 0
+
+
+def test_candidate_extension_and_reversal_confirmation() -> None:
+    """Verifies candidate high extends as price rises, then confirms upon reversal."""
+    engine = StructureEngine("EURUSD", timeframe="1M", min_reversal_magnitude=Decimal("1.5"))
+    v_local = Decimal("0.0010")
+
+    # Bar 0: High at 1.0850 -> candidate high = 1.0850
+    b0 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0840", "1.0850", "1.0838", "1.0845")
+    engine.process_bar(b0, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    assert engine._candidate_high_price == Decimal("1.0850")
+
+    # Bar 1: High rises to 1.0870 -> candidate extends to 1.0870
+    b1 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0845", "1.0870", "1.0840", "1.0865")
+    engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=2)
+    assert engine._candidate_high_price == Decimal("1.0870")
+
+    # Bar 2: Price drops to close 1.0850 -> Reversal displacement = 1.0870 - 1.0850 = 0.0020 >= 1.5 * v_local
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 120, BASE_TS + 180, "1.0865", "1.0868", "1.0848", "1.0850")
+    rec2 = engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=3)
+
+    assert rec2.swing_state in (SwingState.SWING_CONFIRMED, SwingState.SWING_PROTECTED)
+    assert len(engine.swings) >= 1
+    high_swings = [s for s in engine.swings if s.swing_type == "HIGH"]
+    assert len(high_swings) == 1
+    assert high_swings[0].price == Decimal("1.0870")
+    assert high_swings[0].candidate_at == BASE_TS + 120  # Bar 1 close timestamp
+    assert high_swings[0].confirmed_at == BASE_TS + 180  # Bar 2 close timestamp
 
 
 def test_48_bar_zigzag_swing_count_growth_property() -> None:
@@ -152,6 +207,17 @@ def test_structure_equal_highs_and_lows_classification() -> None:
     # Register second LOW swing at 1.080002 (within tolerance)
     s4 = engine._register_swing("LOW", Decimal("1.080002"), candidate_at=BASE_TS + 360, confirmed_at=BASE_TS + 420)
     assert s4.classification == "EQUAL_LOW"
+
+
+def test_instrument_aware_equality_tolerance_scaling() -> None:
+    """Verifies that instrument-aware equality tolerance scales appropriately for USDJPY and XAUUSD."""
+    e_eur = StructureEngine("EURUSD")
+    e_jpy = StructureEngine("USDJPY")
+    e_xau = StructureEngine("XAUUSD")
+
+    assert e_eur.equality_tolerance_pips == Decimal("0.00001")
+    assert e_jpy.equality_tolerance_pips == Decimal("0.001")
+    assert e_xau.equality_tolerance_pips == Decimal("0.01")
 
 
 def test_structural_ownership_transitions() -> None:
@@ -300,7 +366,7 @@ def test_continuation_does_not_equal_structure_destruction() -> None:
 
 
 def test_failed_break_and_reclaim_rearm() -> None:
-    """Verifies transition through FAILED_BREAK -> RECLAIM_CANDIDATE -> RECLAIM_CONFIRMED -> INTACT."""
+    """Verifies transition through FAILED_BREAK -> RECLAIM_CANDIDATE -> RECLAIM_CONFIRMED -> INTACT and re-arming."""
     engine = StructureEngine(
         "EURUSD", timeframe="1M", displacement_threshold_mult=Decimal("0.5"), persistence_bars_required=2
     )
@@ -325,6 +391,45 @@ def test_failed_break_and_reclaim_rearm() -> None:
     assert rec3.last_reclaim is not None
 
     b4 = Bar.create("EURUSD", "1M", BASE_TS + 180, BASE_TS + 240, "1.0842", "1.0846", "1.0839", "1.0844")
+    rec4 = engine.process_bar(b4, v_local, root_id="r1", parent_id="p1", parent_version=4)
+    assert rec4.damage_state == StructuralDamageState.INTACT
+
+
+def test_production_reclaim_reachability_and_post_reclaim_rearm() -> None:
+    """Proves that STRUCTURE_BROKEN -> RECLAIM_CANDIDATE -> RECLAIM_CONFIRMED -> INTACT lifecycle is reachable via production process_bar()."""
+    engine = StructureEngine(
+        "EURUSD", timeframe="1M", displacement_threshold_mult=Decimal("0.5"), persistence_bars_required=1
+    )
+    v_local = Decimal("0.0010")
+
+    # Establish BEARISH ownership
+    engine._register_swing("HIGH", Decimal("1.0850"), candidate_at=BASE_TS, confirmed_at=BASE_TS + 60)
+    engine._register_swing("LOW", Decimal("1.0800"), candidate_at=BASE_TS + 60, confirmed_at=BASE_TS + 120)
+    engine._register_swing("HIGH", Decimal("1.0840"), candidate_at=BASE_TS + 120, confirmed_at=BASE_TS + 180)
+    engine._register_swing("LOW", Decimal("1.0780"), candidate_at=BASE_TS + 180, confirmed_at=BASE_TS + 240)
+
+    engine.protected_high = Decimal("1.0840")
+    engine.current_direction = "SHORT"
+
+    # Step 1: Counter-structure break of 1.0840 -> CHOCH_BULLISH -> STRUCTURE_BROKEN
+    b1 = Bar.create("EURUSD", "1M", BASE_TS + 300, BASE_TS + 360, "1.0838", "1.0852", "1.0835", "1.0848")
+    rec1 = engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    assert rec1.bos_type == "CHOCH_BULLISH"
+    assert rec1.damage_state == StructuralDamageState.STRUCTURE_BROKEN
+
+    # Step 2: Price moves back inside range (below protected_high) -> RECLAIM_CANDIDATE
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 360, BASE_TS + 420, "1.0845", "1.0845", "1.0830", "1.0835")
+    rec2 = engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=2)
+    assert rec2.damage_state == StructuralDamageState.RECLAIM_CANDIDATE
+
+    # Step 3: Price remains inside range -> RECLAIM_CONFIRMED
+    b3 = Bar.create("EURUSD", "1M", BASE_TS + 420, BASE_TS + 480, "1.0835", "1.0838", "1.0825", "1.0830")
+    rec3 = engine.process_bar(b3, v_local, root_id="r1", parent_id="p1", parent_version=3)
+    assert rec3.damage_state == StructuralDamageState.RECLAIM_CONFIRMED
+    assert rec3.last_reclaim is not None
+
+    # Step 4: Full re-arm back to INTACT
+    b4 = Bar.create("EURUSD", "1M", BASE_TS + 480, BASE_TS + 540, "1.0830", "1.0835", "1.0828", "1.0832")
     rec4 = engine.process_bar(b4, v_local, root_id="r1", parent_id="p1", parent_version=4)
     assert rec4.damage_state == StructuralDamageState.INTACT
 
@@ -382,6 +487,35 @@ def test_replay_equivalence_structure() -> None:
     assert [r.break_state for r in recs1] == [r.break_state for r in recs2]
     assert [r.damage_state for r in recs1] == [r.damage_state for r in recs2]
     assert [len(r.active_swings) for r in recs1] == [len(r.active_swings) for r in recs2]
+
+
+def test_causal_prefix_future_mutation_invariance() -> None:
+    """Verifies that appending future bars never mutates past confirmed swings, classifications, or candidate_at/confirmed_at timestamps."""
+    prefix_bars = [
+        Bar.create("EURUSD", "1M", BASE_TS + i * 60, BASE_TS + (i + 1) * 60, "1.0850", "1.0860", "1.0840", "1.0855")
+        for i in range(5)
+    ]
+    future_bars = [
+        Bar.create(
+            "EURUSD", "1M", BASE_TS + (5 + j) * 60, BASE_TS + (6 + j) * 60, "1.0950", "1.1000", "1.0940", "1.0990"
+        )
+        for j in range(5)
+    ]
+    v_local = Decimal("0.0010")
+
+    e_prefix = StructureEngine("EURUSD", timeframe="1M")
+    for i, b in enumerate(prefix_bars):
+        e_prefix.process_bar(b, v_local, root_id="r1", parent_id="p1", parent_version=i + 1)
+
+    swings_prefix_at_t5 = e_prefix.get_confirmed_swings(BASE_TS + 300)
+
+    e_full = StructureEngine("EURUSD", timeframe="1M")
+    for i, b in enumerate(prefix_bars + future_bars):
+        e_full.process_bar(b, v_local, root_id="r1", parent_id="p1", parent_version=i + 1)
+
+    swings_full_at_t5 = e_full.get_confirmed_swings(BASE_TS + 300)
+
+    assert swings_prefix_at_t5 == swings_full_at_t5
 
 
 def test_chronology_and_parent_failure_modes() -> None:

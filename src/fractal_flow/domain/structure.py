@@ -643,7 +643,7 @@ class StructureEngine:
         if self.break_state != old_break:
             self.previous_break_state = old_break
 
-        # 4. Structural Damage & Reclaim State Machine
+        # 4. Structural Damage & Reclaim State Machine (Strictly matching spec/transitions.yaml)
         old_damage = self.damage_state
         if struct_break.is_confirmed_break:
             if bos_type in ("CHOCH_BULLISH", "CHOCH_BEARISH"):
@@ -655,7 +655,10 @@ class StructureEngine:
                 self.damage_state = StructuralDamageState.INTACT
         elif level_cross:
             self.damage_state = StructuralDamageState.DAMAGE_CANDIDATE
-        elif old_damage == StructuralDamageState.DAMAGE_CANDIDATE and not level_cross:
+        elif (
+            old_damage in (StructuralDamageState.STRUCTURE_BROKEN, StructuralDamageState.DAMAGE_CANDIDATE)
+            and not level_cross
+        ):
             self.damage_state = StructuralDamageState.RECLAIM_CANDIDATE
         elif old_damage == StructuralDamageState.RECLAIM_CANDIDATE and not level_cross:
             self.damage_state = StructuralDamageState.RECLAIM_CONFIRMED
