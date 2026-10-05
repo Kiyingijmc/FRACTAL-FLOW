@@ -1,0 +1,42 @@
+scope_policy:
+  allowed:
+    paths:
+      - "docs/governance/**"
+      - "tools/pfgv/**"
+      - "tests/governance/**"
+      - "artifacts/governance/**"
+      - "pyproject.toml"
+    symbols:
+      - "pfgv"
+      - "PhaseContract"
+      - "PhaseStateMachine"
+      - "InvariantRegistry"
+      - "ScopePolicy"
+      - "AuthorityModel"
+      - "EvidenceRecord"
+    capabilities:
+      - "governance_kernel_implementation"
+      - "deterministic_cli"
+      - "governance_tests"
+
+  forbidden:
+    paths:
+      - "src/fractal_flow/domain/**"
+      - "src/fractal_flow/execution/**"
+      - "src/fractal_flow/persistence/**"
+      - "src/fractal_flow/simulation/**"
+      - "src/fractal_flow/config/**"
+    symbols:
+      - "OrderSend"
+      - "StructureEngine"
+      - "FlowEngine"
+      - "RecoveryEngine"
+    capabilities:
+      - "live_trading"
+      - "order_execution"
+      - "strategy_mutation"
+      - "unilateral_status_override"
+
+  allow_deletions: false
+  allow_new_dependencies: false
+  allow_workflow_changes: false
