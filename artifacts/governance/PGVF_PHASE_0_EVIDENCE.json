@@ -1,0 +1,35 @@
+{
+  "phase_id": "PGVF-PHASE-0",
+  "phase_name": "Governance Kernel",
+  "implementation_status": "COMPLETE",
+  "verification_status": "PHASE-0-LOCAL-VERIFICATION-PASS",
+  "independent_verification": "DEFERRED TO PGVF-PHASE-1",
+  "acceptance_status": "NOT_YET_CLOSED",
+  "target_commit": "74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d",
+  "branch": "jules-10401340650672267190-84b953d2",
+  "hashes": {
+    "contract_hash": "d4bd8210d576350754fa0524eb664e5084d549e2bf56b02e990edd24d0cf807e",
+    "invariant_registry_hash": "15ac944a86645b7a8f6fadb349de5d48633ce6ad6704b695b5371ab497378be4",
+    "scope_policy_hash": "c673edfc3c5398bb4a4b06e8c5b24e2d8f763fb7fb48eb616ccb6aaf5c961975",
+    "authority_model_hash": "687e9354f76a51bdb02b4d60668faaf4e1b102dbe08c48652cb621953a298237"
+  },
+  "test_metrics": {
+    "total_tests": 448,
+    "passed_tests": 448,
+    "failed_tests": 0,
+    "coverage_percent": 87.91
+  },
+  "invariants_verified": [
+    "PGVF-001",
+    "PGVF-002",
+    "PGVF-003",
+    "PGVF-004",
+    "PGVF-005",
+    "PGVF-006",
+    "PGVF-007",
+    "PGVF-008",
+    "PGVF-009",
+    "PGVF-010"
+  ],
+  "tool_neutrality": "PGVF is tool-agnostic. Jules is one possible implementation actor, not a privileged participant in the governance model."
+}

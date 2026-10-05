@@ -1,0 +1,47 @@
+authority_domains:
+  informational:
+    description: "Read-only access to inspect repository, history, and specifications"
+    capabilities:
+      - "read_codebase"
+      - "read_git_history"
+  strategy:
+    description: "Authority to define strategic setups, indicators, and market context"
+    capabilities: []
+  risk:
+    description: "Authority to alter risk parameters, position limits, and lockdown rules"
+    capabilities: []
+  execution:
+    description: "Authority to execute market orders, submit MT5 trades, and alter position state"
+    capabilities: []
+  governance:
+    description: "Authority to validate contracts, invariants, scope, and state transitions"
+    capabilities:
+      - "validate_contract"
+      - "validate_invariants"
+      - "validate_scope"
+      - "validate_authority"
+      - "validate_evidence"
+      - "manage_phase_state"
+  verification:
+    description: "Authority to evaluate verification results and issue verification seals"
+    capabilities:
+      - "verify_local_tests"
+      - "verify_static_analysis"
+
+phase_0_authority:
+  informational:
+    - "read_codebase"
+    - "read_git_history"
+  strategy: []
+  risk: []
+  execution: []
+  governance:
+    - "validate_contract"
+    - "validate_invariants"
+    - "validate_scope"
+    - "validate_authority"
+    - "validate_evidence"
+    - "manage_phase_state"
+  verification:
+    - "verify_local_tests"
+    - "verify_static_analysis"
