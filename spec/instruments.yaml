@@ -1,0 +1,22 @@
+asset_classes:
+  - FX_MAJOR
+  - FX_MINOR
+  - FX_CROSS
+  - METALS
+  - INDICES
+  - CRYPTO
+  - ENERGY
+  - COMMODITIES
+
+trade_modes:
+  - DISABLED
+  - LONG_ONLY
+  - SHORT_ONLY
+  - CLOSE_ONLY
+  - FULL
+
+execution_modes:
+  - REQUEST
+  - INSTANT
+  - MARKET
+  - EXCHANGE
