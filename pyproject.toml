@@ -12,6 +12,9 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.scripts]
+pfgv = "tools.pfgv.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -24,11 +27,21 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-pythonpath = ["."]
+pythonpath = [".", "src", "tools"]
 addopts = "--cov=src/fractal_flow --cov-report=term-missing --cov-fail-under=85"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.poetry]
+packages = [
+    { include = "fractal_flow", from = "src" },
+    { include = "tools" }
+]
+
+[tool.setuptools]
+packages = ["fractal_flow", "tools", "tools.pfgv"]
+
+[tool.setuptools.package-dir]
+"fractal_flow" = "src/fractal_flow"
+"tools" = "tools"
 
 [tool.ruff]
 line-length = 120

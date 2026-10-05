@@ -1,0 +1,173 @@
+invariants:
+  PGVF-001:
+    id: "PGVF-001"
+    name: "agent_non_authority"
+    severity: "P0"
+    category: "governance"
+    statement: "An implementation agent cannot independently authorize its own work as verified."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_agent_assertion_is_not_acceptance"
+    negative_tests:
+      - "test_agent_cannot_force_verified"
+    required_evidence:
+      - "independent_verification"
+    mutation_tests:
+      - "test_mutate_agent_authority_claim"
+
+  PGVF-002:
+    id: "PGVF-002"
+    name: "exact_target_identity"
+    severity: "P0"
+    category: "governance"
+    statement: "Verification must identify an exact repository target including commit SHA and tree SHA."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_exact_head_verification_passes"
+    negative_tests:
+      - "test_mismatched_target_sha_fails"
+    required_evidence:
+      - "target_commit"
+      - "target_tree"
+    mutation_tests:
+      - "test_mutate_commit_sha"
+
+  PGVF-003:
+    id: "PGVF-003"
+    name: "finalization_invalidation"
+    severity: "P0"
+    category: "governance"
+    statement: "Any change to the repository after final-head freeze invalidates the finalization."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_frozen_head_integrity_passes"
+    negative_tests:
+      - "test_post_freeze_change_invalidates_finalization"
+    required_evidence:
+      - "finalization_record"
+    mutation_tests:
+      - "test_mutate_tree_after_freeze"
+
+  PGVF-004:
+    id: "PGVF-004"
+    name: "contract_integrity"
+    severity: "P0"
+    category: "governance"
+    statement: "A phase cannot satisfy acceptance against a different contract than the one used for authorization."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_contract_hash_match_passes"
+    negative_tests:
+      - "test_contract_hash_mismatch_fails"
+    required_evidence:
+      - "contract_hash"
+    mutation_tests:
+      - "test_mutate_contract_fields"
+
+  PGVF-005:
+    id: "PGVF-005"
+    name: "evidence_provenance"
+    severity: "P0"
+    category: "governance"
+    statement: "Evidence must identify producer, timestamp, target SHA, and tool/version."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_complete_evidence_provenance_passes"
+    negative_tests:
+      - "test_missing_evidence_provenance_fails"
+    required_evidence:
+      - "producer"
+      - "timestamp"
+      - "target_commit"
+    mutation_tests:
+      - "test_strip_evidence_producer"
+
+  PGVF-006:
+    id: "PGVF-006"
+    name: "contradiction_blocking"
+    severity: "P0"
+    category: "governance"
+    statement: "Contradictory acceptance evidence cannot produce VERIFIED status."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_consistent_evidence_passes"
+    negative_tests:
+      - "test_contradictory_evidence_blocks_verification"
+    required_evidence:
+      - "contradiction_analysis"
+    mutation_tests:
+      - "test_inject_conflicting_test_counts"
+
+  PGVF-007:
+    id: "PGVF-007"
+    name: "forbidden_scope"
+    severity: "P0"
+    category: "governance"
+    statement: "A phase cannot be accepted if forbidden scope is violated."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_allowed_scope_passes"
+    negative_tests:
+      - "test_forbidden_scope_violation_fails"
+    required_evidence:
+      - "scope_check_result"
+    mutation_tests:
+      - "test_add_forbidden_path_change"
+
+  PGVF-008:
+    id: "PGVF-008"
+    name: "authority_integrity"
+    severity: "P0"
+    category: "governance"
+    statement: "An undeclared authority delta blocks acceptance."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_matching_authority_passes"
+    negative_tests:
+      - "test_undeclared_authority_expansion_fails"
+    required_evidence:
+      - "authority_delta_analysis"
+    mutation_tests:
+      - "test_add_undeclared_execution_authority"
+
+  PGVF-009:
+    id: "PGVF-009"
+    name: "closed_state_immutability"
+    severity: "P0"
+    category: "governance"
+    statement: "A CLOSED phase cannot silently transition back to an active state."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_closed_state_is_terminal"
+    negative_tests:
+      - "test_transition_out_of_closed_fails"
+    required_evidence:
+      - "phase_state_history"
+    mutation_tests:
+      - "test_force_state_from_closed_to_implementing"
+
+  PGVF-010:
+    id: "PGVF-010"
+    name: "governance_integrity"
+    severity: "P0"
+    category: "governance"
+    statement: "The implementation agent cannot weaken or bypass PGVF acceptance rules merely to satisfy the phase."
+    blocking: true
+    authority: "governance"
+    positive_tests:
+      - "test_governance_tampering_detected"
+    negative_tests:
+      - "test_unauthorized_governance_mutation_fails"
+    required_evidence:
+      - "governance_change_declaration"
+    mutation_tests:
+      - "test_disable_blocking_flag_on_invariant"

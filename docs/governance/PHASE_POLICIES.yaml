@@ -1,0 +1,12 @@
+governance_policies:
+  fail_closed: true
+  strict_type_checking: true
+  zero_unexpected_files: true
+  zero_unauthorized_deletions: true
+  tool_neutrality:
+    statement: "PGVF is tool-agnostic. Jules is one possible implementation actor, not a privileged participant in the governance model."
+  integrity_rules:
+    - "No self-approval of implementation claims"
+    - "No modification of governance files without explicit governance_change declaration"
+    - "No acceptance on contradictory evidence"
+    - "No silent state regression from terminal states"
