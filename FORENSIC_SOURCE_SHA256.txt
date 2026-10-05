@@ -1,0 +1,4 @@
+Artifact: FRACTAL-FLOW-v2.3.4-PHASE3-FINAL-CLOSURE.zip
+Archive SHA-256: 3b04176c6ac7ed8cfa16b1792c3691b4faf58b07104435132258c0da04861fbb
+Source tree: extracted from the exact archive above
+Reference branch: forensic/v2.3.4-phase3-final-closure-reference
