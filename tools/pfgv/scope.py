@@ -3,6 +3,7 @@
 import fnmatch
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -92,9 +93,19 @@ class ScopePolicy:
 
         return cls.from_dict(parsed)
 
+    def _normalize_path(self, file_path: str) -> str:
+        """Normalizes a file path, resolving path traversal dots and slashes."""
+        p = file_path.replace("\\", "/")
+        if p.startswith("/"):
+            p = p.lstrip("/")
+        norm = os.path.normpath(p).replace("\\", "/")
+        if norm.startswith("../") or norm == "..":
+            raise ScopeViolationError(f"Path traversal attempt detected: {file_path}")
+        return norm
+
     def _matches_patterns(self, file_path: str, patterns: List[str]) -> bool:
         """Helper to match a file path against a list of glob patterns or prefix matches."""
-        norm_path = file_path.replace("\\", "/")
+        norm_path = self._normalize_path(file_path)
         for pattern in patterns:
             norm_pat = pattern.replace("\\", "/")
             if fnmatch.fnmatch(norm_path, norm_pat):

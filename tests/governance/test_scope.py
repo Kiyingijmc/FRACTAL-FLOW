@@ -58,3 +58,19 @@ def test_malformed_scope_policy_fails() -> None:
     bad_data = {"scope_policy": "INVALID_TYPE"}
     with pytest.raises(ScopeViolationError, match="Malformed scope policy block"):
         ScopePolicy.from_dict(bad_data)
+
+
+def test_path_traversal_and_normalization_blocking() -> None:
+    policy = ScopePolicy.from_file("docs/governance/SCOPE_POLICY.yaml")
+
+    # Path traversal attempting to escape repository root
+    with pytest.raises(ScopeViolationError, match="Path traversal attempt detected"):
+        policy.validate_changes(changed_files=["../../etc/passwd"])
+
+    # Path traversal attempt to reach forbidden scope path is normalized and caught by forbidden path rules
+    with pytest.raises(ScopeViolationError, match="File change in forbidden scope path"):
+        policy.validate_changes(changed_files=["docs/governance/../../src/fractal_flow/domain/models.py"])
+
+    # Double slash normalized and matched against forbidden scope
+    with pytest.raises(ScopeViolationError, match="File change in forbidden scope path"):
+        policy.validate_changes(changed_files=["src//fractal_flow//domain//structure.py"])
