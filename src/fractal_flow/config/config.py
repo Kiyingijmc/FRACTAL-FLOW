@@ -56,6 +56,25 @@ class BaseConfig:
 
 
 @dataclass(frozen=True)
+class StructureConfig:
+    version: int = 1
+    min_reversal_magnitude: Decimal = field(default_factory=lambda: Decimal("1.5"))
+    displacement_threshold_mult: Decimal = field(default_factory=lambda: Decimal("0.5"))
+    persistence_bars_required: int = 2
+    max_swing_history: int = 20
+    min_v_local_floor: Decimal = field(default_factory=lambda: Decimal("0.0001"))
+    equality_tolerance_pips: Decimal = field(default_factory=lambda: Decimal("0.00001"))
+    atr_stop_buffer_mult: Decimal = field(default_factory=lambda: Decimal("0.5"))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "min_reversal_magnitude", _to_decimal(self.min_reversal_magnitude))
+        object.__setattr__(self, "displacement_threshold_mult", _to_decimal(self.displacement_threshold_mult))
+        object.__setattr__(self, "min_v_local_floor", _to_decimal(self.min_v_local_floor))
+        object.__setattr__(self, "equality_tolerance_pips", _to_decimal(self.equality_tolerance_pips))
+        object.__setattr__(self, "atr_stop_buffer_mult", _to_decimal(self.atr_stop_buffer_mult))
+
+
+@dataclass(frozen=True)
 class SymbolOverlay:
     symbol: str
     max_spread_pips: Decimal | None = None
