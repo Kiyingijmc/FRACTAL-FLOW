@@ -87,7 +87,8 @@ def test_structure_chronology_duplicate_timestamp_idempotency():
 
     assert rec1.timestamp == 1700000060
     assert rec2.timestamp == 1700000060
-    assert engine.state_version == 2
+    assert rec1 == rec2
+    assert engine.state_version == 1
 
 
 def test_structure_chronology_causal_prefix_invariance():
