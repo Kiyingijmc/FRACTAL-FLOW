@@ -331,18 +331,14 @@ class StructureEngine:
         latest_high = high_swings[-1]
         latest_low = low_swings[-1]
 
-        if latest_high.classification in ("HH", "EQUAL_HIGH") and latest_low.classification in ("HL", "NEUTRAL"):
+        if (latest_high.classification in ("HH", "EQUAL_HIGH")) and (latest_low.classification in ("HL", "NEUTRAL")):
             return "BULLISH"
-        elif latest_low.classification in ("LL", "EQUAL_LOW") and latest_high.classification in ("LH", "NEUTRAL"):
+        elif (latest_low.classification in ("LL", "EQUAL_LOW")) and (latest_high.classification in ("LH", "NEUTRAL")):
             return "BEARISH"
         elif latest_high.classification == "HH" and latest_low.classification == "LL":
             return "AMBIGUOUS"
         elif latest_high.classification == "LH" and latest_low.classification == "HL":
             return "AMBIGUOUS"
-        elif latest_high.classification in ("HH", "HL"):
-            return "BULLISH"
-        elif latest_low.classification in ("LL", "LH"):
-            return "BEARISH"
 
         return "AMBIGUOUS"
 
@@ -423,25 +419,43 @@ class StructureEngine:
         reclaim_type = "NONE"
 
         # 1. Independent Local Candidate Pivot Maintenance & Extension
-        if self._high_candidate is None or bar.high >= self._high_candidate.price:
-            created_ts = self._high_candidate.created_from_timestamp if self._high_candidate else bar.close_timestamp
+        if self._high_candidate is None:
             self._high_candidate = PivotCandidate(
                 side="HIGH",
                 price=bar.high,
                 candidate_at=bar.close_timestamp,
-                created_from_timestamp=created_ts,
+                created_from_timestamp=bar.close_timestamp,
+                status=SwingState.SWING_CANDIDATE,
+                v_local_at_candidate=effective_v_local,
+                version=self.state_version + 1,
+            )
+        elif bar.high > self._high_candidate.price:
+            self._high_candidate = PivotCandidate(
+                side="HIGH",
+                price=bar.high,
+                candidate_at=bar.close_timestamp,
+                created_from_timestamp=self._high_candidate.created_from_timestamp,
                 status=SwingState.SWING_CANDIDATE,
                 v_local_at_candidate=effective_v_local,
                 version=self.state_version + 1,
             )
 
-        if self._low_candidate is None or bar.low <= self._low_candidate.price:
-            created_ts = self._low_candidate.created_from_timestamp if self._low_candidate else bar.close_timestamp
+        if self._low_candidate is None:
             self._low_candidate = PivotCandidate(
                 side="LOW",
                 price=bar.low,
                 candidate_at=bar.close_timestamp,
-                created_from_timestamp=created_ts,
+                created_from_timestamp=bar.close_timestamp,
+                status=SwingState.SWING_CANDIDATE,
+                v_local_at_candidate=effective_v_local,
+                version=self.state_version + 1,
+            )
+        elif bar.low < self._low_candidate.price:
+            self._low_candidate = PivotCandidate(
+                side="LOW",
+                price=bar.low,
+                candidate_at=bar.close_timestamp,
+                created_from_timestamp=self._low_candidate.created_from_timestamp,
                 status=SwingState.SWING_CANDIDATE,
                 v_local_at_candidate=effective_v_local,
                 version=self.state_version + 1,
@@ -639,6 +653,8 @@ class StructureEngine:
                 attempt_timestamp=bar.close_timestamp,
                 failed_at=bar.close_timestamp,
             )
+        elif not level_cross:
+            self.break_state = BreakState.BREAK_NONE
 
         if self.break_state != old_break:
             self.previous_break_state = old_break

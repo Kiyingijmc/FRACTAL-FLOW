@@ -2,6 +2,7 @@
 
 Adversarial test suite covering:
 - Pivot timestamp vs confirmed_at vs effective_from causality.
+- Running-extreme defeat fixture (High A -> Higher High B -> Higher High C -> Reversal).
 - Monotonic rise, monotonic fall, 48-bar clean alternating zigzag growth property.
 - Higher-high extension and lower-low extension candidate lifecycles.
 - Causal HH / HL / LH / LL / EQUAL_HIGH / EQUAL_LOW structural classifications across instruments.
@@ -73,6 +74,47 @@ def test_pivot_timestamp_causality_and_effective_from() -> None:
     swings_avail = engine.get_confirmed_swings(decision_timestamp=BASE_TS + 120)
     assert len(swings_avail) >= 1
     assert swings_avail[0].swing_id == swing.swing_id
+
+
+def test_running_extreme_defeat_fixture() -> None:
+    """Fixture designed to defeat a running-extreme implementation:
+
+    High A (1.0850) -> Reversal -> Higher High B (1.0880) -> Reversal -> Higher High C (1.0920) -> Reversal.
+    Proves that candidate high is consumed and re-anchored on each confirmation rather than behaving as an unbounded running maximum.
+    """
+    engine = StructureEngine("EURUSD", timeframe="1M", min_reversal_magnitude=Decimal("1.5"))
+    v_local = Decimal("0.0010")
+
+    # Cycle A: High at 1.0850
+    b0 = Bar.create("EURUSD", "1M", BASE_TS, BASE_TS + 60, "1.0840", "1.0850", "1.0838", "1.0848")
+    engine.process_bar(b0, v_local, root_id="r1", parent_id="p1", parent_version=1)
+    b1 = Bar.create("EURUSD", "1M", BASE_TS + 60, BASE_TS + 120, "1.0845", "1.0848", "1.0828", "1.0830")
+    engine.process_bar(b1, v_local, root_id="r1", parent_id="p1", parent_version=2)
+    assert len(engine.swings) == 1
+    assert engine.swings[0].price == Decimal("1.0850")
+    assert engine._high_candidate is None  # Consumed upon confirmation!
+
+    # Cycle B: Higher High B at 1.0880 (also confirms intervening LOW swing at 1.0828)
+    b2 = Bar.create("EURUSD", "1M", BASE_TS + 120, BASE_TS + 180, "1.0835", "1.0880", "1.0830", "1.0875")
+    engine.process_bar(b2, v_local, root_id="r1", parent_id="p1", parent_version=3)
+    b3 = Bar.create("EURUSD", "1M", BASE_TS + 180, BASE_TS + 240, "1.0870", "1.0872", "1.0850", "1.0855")
+    engine.process_bar(b3, v_local, root_id="r1", parent_id="p1", parent_version=4)
+    high_swings = [s for s in engine.swings if s.swing_type == "HIGH"]
+    assert len(high_swings) == 2
+    assert high_swings[1].price == Decimal("1.0880")
+    assert high_swings[1].classification == "HH"
+    assert engine._high_candidate is None  # Consumed upon confirmation!
+
+    # Cycle C: Higher High C at 1.0920 (also confirms intervening LOW swing)
+    b4 = Bar.create("EURUSD", "1M", BASE_TS + 240, BASE_TS + 300, "1.0860", "1.0920", "1.0858", "1.0915")
+    engine.process_bar(b4, v_local, root_id="r1", parent_id="p1", parent_version=5)
+    b5 = Bar.create("EURUSD", "1M", BASE_TS + 300, BASE_TS + 360, "1.0910", "1.0912", "1.0890", "1.0895")
+    engine.process_bar(b5, v_local, root_id="r1", parent_id="p1", parent_version=6)
+    high_swings_c = [s for s in engine.swings if s.swing_type == "HIGH"]
+    assert len(high_swings_c) == 3
+    assert high_swings_c[2].price == Decimal("1.0920")
+    assert high_swings_c[2].classification == "HH"
+    assert engine._high_candidate is None  # Consumed upon confirmation!
 
 
 def test_monotonic_growth_and_decline_bounded_candidates() -> None:
@@ -261,7 +303,12 @@ def test_complete_32_case_structural_truth_table_matrix() -> None:
             for cross in crosses:
                 for conf in confirmations:
                     case_count += 1
-                    engine = StructureEngine("EURUSD", timeframe="1M")
+                    engine = StructureEngine(
+                        "EURUSD",
+                        timeframe="1M",
+                        displacement_threshold_mult=Decimal("0.5"),
+                        persistence_bars_required=1,
+                    )
 
                     if own == "BULLISH":
                         engine._register_swing(
@@ -276,6 +323,7 @@ def test_complete_32_case_structural_truth_table_matrix() -> None:
                         engine._register_swing(
                             "LOW", Decimal("1.0820"), candidate_at=BASE_TS + 180, confirmed_at=BASE_TS + 240
                         )
+                        engine.current_direction = "LONG"
                     elif own == "BEARISH":
                         engine._register_swing(
                             "HIGH", Decimal("1.0850"), candidate_at=BASE_TS, confirmed_at=BASE_TS + 60
@@ -289,6 +337,7 @@ def test_complete_32_case_structural_truth_table_matrix() -> None:
                         engine._register_swing(
                             "LOW", Decimal("1.0780"), candidate_at=BASE_TS + 180, confirmed_at=BASE_TS + 240
                         )
+                        engine.current_direction = "SHORT"
                     elif own == "AMBIGUOUS":
                         engine._register_swing(
                             "HIGH", Decimal("1.0850"), candidate_at=BASE_TS, confirmed_at=BASE_TS + 60
@@ -323,20 +372,32 @@ def test_complete_32_case_structural_truth_table_matrix() -> None:
 
                     # Construct bar matching case conditions
                     v_loc = Decimal("0.0010")
-                    close_p = (
-                        Decimal("1.0890")
-                        if (lvl == "HIGH" and cross and conf)
-                        else (Decimal("1.0770") if (lvl == "LOW" and cross and conf) else Decimal("1.0850"))
-                    )
+                    if lvl == "HIGH":
+                        if cross and conf:
+                            close_p = Decimal("1.0890") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0850")
+                        elif cross and not conf:
+                            close_p = Decimal("1.0881") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0841")
+                        else:
+                            close_p = Decimal("1.0850") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0820")
+                    else:  # LOW
+                        if cross and conf:
+                            close_p = Decimal("1.0810") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0770")
+                        elif cross and not conf:
+                            close_p = Decimal("1.0819") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0779")
+                        else:
+                            close_p = Decimal("1.0850") if own in ("BULLISH", "AMBIGUOUS") else Decimal("1.0820")
+
                     open_p = close_p
-                    high_p = close_p + Decimal("0.0005")
-                    low_p = close_p - Decimal("0.0005")
+                    high_p = close_p + Decimal("0.0002")
+                    low_p = close_p - Decimal("0.0002")
                     bar = Bar.create(
                         "EURUSD", "1M", BASE_TS + 300, BASE_TS + 360, str(open_p), str(high_p), str(low_p), str(close_p)
                     )
 
-                    if own in ("UNKNOWN", "AMBIGUOUS"):
-                        assert engine.structural_ownership in ("UNKNOWN", "AMBIGUOUS")
+                    rec = engine.process_bar(bar, v_loc, root_id="r1", parent_id="p1", parent_version=5)
+                    assert rec.bos_type == expected, (
+                        f"Case failure: own={own}, lvl={lvl}, cross={cross}, conf={conf}: got {rec.bos_type}, expected {expected}"
+                    )
 
     assert case_count == 32
 
