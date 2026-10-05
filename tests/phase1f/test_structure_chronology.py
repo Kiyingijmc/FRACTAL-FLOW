@@ -56,8 +56,8 @@ def test_structure_chronology_out_of_order_rejection_and_atomic_immutability():
     swing_before = engine.swing_state
     break_before = engine.break_state
     damage_before = engine.damage_state
-    high_before = engine.last_extreme_high
-    low_before = engine.last_extreme_low
+    cand_high_before = engine._candidate_high_price
+    cand_low_before = engine._candidate_low_price
     protected_high_before = engine.protected_high
     protected_low_before = engine.protected_low
     persistence_before = engine.persistence_counter
@@ -70,8 +70,8 @@ def test_structure_chronology_out_of_order_rejection_and_atomic_immutability():
     assert engine.swing_state == swing_before
     assert engine.break_state == break_before
     assert engine.damage_state == damage_before
-    assert engine.last_extreme_high == high_before
-    assert engine.last_extreme_low == low_before
+    assert engine._candidate_high_price == cand_high_before
+    assert engine._candidate_low_price == cand_low_before
     assert engine.protected_high == protected_high_before
     assert engine.protected_low == protected_low_before
     assert engine.persistence_counter == persistence_before
@@ -87,7 +87,8 @@ def test_structure_chronology_duplicate_timestamp_idempotency():
 
     assert rec1.timestamp == 1700000060
     assert rec2.timestamp == 1700000060
-    assert engine.state_version == 2
+    assert rec1 == rec2
+    assert engine.state_version == 1
 
 
 def test_structure_chronology_causal_prefix_invariance():
