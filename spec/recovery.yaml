@@ -1,0 +1,15 @@
+recovery_states:
+  - NORMAL
+  - RECOVERY_REQUIRED
+  - RECOVERING
+  - RECONCILING
+  - RECOVERY_COMPLETE
+  - SAFE
+
+reconciliation_mismatches:
+  - MATCH
+  - LOCAL_ONLY
+  - BROKER_ONLY
+  - STATE_MISMATCH
+  - VOLUME_MISMATCH
+  - ORPHANED_BROKER

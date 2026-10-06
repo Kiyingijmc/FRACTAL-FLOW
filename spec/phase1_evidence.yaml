@@ -1,0 +1,594 @@
+phase1_evidence:
+- id: 1
+  title: pipeline_data_flow_layers
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/domain/market.py
+  - src/fractal_flow/domain/data_quality.py
+  - src/fractal_flow/domain/volatility.py
+  - src/fractal_flow/domain/structure.py
+  test_refs:
+  - tests/phase1d/test_future_mutations.py::test_1_future_price_spike
+  evidence_type: SYSTEM_PIPELINE
+  limitation: Evaluates tick -> bar -> dq -> vol -> structure pipeline integration
+    across M1 boundaries
+  scope: Phase 1 Core Pipeline
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.market.BarAggregator.process_tick
+  - src.fractal_flow.domain.data_quality.DataQualityEngine.evaluate_tick
+  - src.fractal_flow.domain.volatility.VolatilityEngine.update_bar
+  - src.fractal_flow.domain.structure.StructureEngine.process_bar
+  integration_level: SYSTEM_INTEGRATION
+- id: 2
+  title: strategy_engines_no_direct_orders
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/authority.py
+  test_refs:
+  - tests/test_phase4_foundation.py::test_confidence_cannot_authorize_failed_gate
+  evidence_type: PHASE4_EXECUTABLE
+  limitation: Phase 4 canonical parent implementation and executable regression evidence.
+  scope: Phase 4
+  ci_required: false
+  production_path:
+  - src/fractal_flow/domain/authority.py
+  integration_level: SPECIFICATION_ONLY
+- id: 3
+  title: pde_cannot_call_ordersend
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/authority.py
+  test_refs:
+  - tests/test_phase4_foundation.py::test_confidence_cannot_authorize_failed_gate
+  evidence_type: PHASE4_EXECUTABLE
+  limitation: Phase 4 canonical parent implementation and executable regression evidence.
+  scope: Phase 4
+  ci_required: false
+  production_path:
+  - src/fractal_flow/domain/authority.py
+  integration_level: SPECIFICATION_ONLY
+- id: 4
+  title: flow_cannot_open_position
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/authority.py
+  test_refs:
+  - tests/test_phase4_foundation.py::test_confidence_cannot_authorize_failed_gate
+  evidence_type: PHASE4_EXECUTABLE
+  limitation: Phase 4 canonical parent implementation and executable regression evidence.
+  scope: Phase 4
+  ci_required: false
+  production_path:
+  - src/fractal_flow/domain/authority.py
+  integration_level: SPECIFICATION_ONLY
+- id: 5
+  title: risk_cannot_manufacture_signal
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Risk strategy engine belongs to future Layer 4 and does not exist in
+    Phase 1
+  scope: Layer 4 Risk Engine (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 6
+  title: portfolio_cannot_manufacture_direction
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Portfolio arbitration engine belongs to future Layer 4 and does not
+    exist in Phase 1
+  scope: Layer 4 Portfolio (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 7
+  title: execution_cannot_reinterpret_strategy
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_invariant_enforcement.py::test_invariant_7_execution_cannot_reinterpret_strategy
+  evidence_type: GATED_AUTHORIZATION
+  limitation: TradeDecision authorization fail-closed validates strategy parameters
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: UNIT_TEST
+- id: 8
+  title: news_shield_cannot_manufacture_trades
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: News Shield engine belongs to future Layer 5 and does not exist in Phase
+    1
+  scope: Layer 5 News Shield (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 9
+  title: confidence_cannot_override_validity
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_invariant_enforcement.py::test_invariant_9_confidence_cannot_override_validity
+  evidence_type: GATED_AUTHORIZATION
+  limitation: High score or confidence cannot override invalid state envelope
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: UNIT_TEST
+- id: 10
+  title: mandatory_validity_gates_unbypassable
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_invariant_enforcement.py::test_invariant_10_mandatory_validity_gates_unbypassable
+  evidence_type: GATED_AUTHORIZATION
+  limitation: Mandatory validity gates fail closed regardless of secondary parameters
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: UNIT_TEST
+- id: 11
+  title: valid_lineage_required
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_lineage_exact_version_accepted
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Lineage graph enforces exact parent/child version binding
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage.validate_child_action
+  integration_level: UNIT_TEST
+- id: 12
+  title: child_carries_lineage_ids
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_child_carries_lineage_ids
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Dataclasses require explicit root_id, parent_id, parent_version
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage
+  integration_level: UNIT_TEST
+- id: 13
+  title: child_blocked_on_invalid_parent
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_stale_parent_version_rejected
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Stale or modified parent version immediately invalidates child
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage.validate_child_action
+  integration_level: UNIT_TEST
+- id: 14
+  title: orphaned_signals_never_execute
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_illegal_lineage_edge_skipped_parent_rejected
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Lineage directed graph rejects skipped parent tiers
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage.validate_child_action
+  integration_level: UNIT_TEST
+- id: 15
+  title: orphaned_orders_reconciled
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/execution/reconciliation.py
+  test_refs:
+  - tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
+  evidence_type: RECONCILIATION_ENGINE
+  limitation: Multi-directional discovery resolves orphaned broker state
+  scope: Phase 1 Execution
+  ci_required: true
+  production_path:
+  - src.fractal_flow.execution.reconciliation.ReconciliationEngine.reconcile_broker_wide
+  integration_level: INTEGRATION_TEST
+- id: 16
+  title: orphaned_positions_protectively_managed
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/execution/reconciliation.py
+  test_refs:
+  - tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
+  evidence_type: RECONCILIATION_ENGINE
+  limitation: Orphaned positions are quarantined or protectively closed
+  scope: Phase 1 Execution
+  ci_required: true
+  production_path:
+  - src.fractal_flow.execution.reconciliation.ReconciliationEngine.reconcile_broker_wide
+  integration_level: INTEGRATION_TEST
+- id: 17
+  title: uncertain_state_no_new_exposure
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_provenance_authorization.py::test_news_lockdown_blocks_trade_decision_authorization
+  evidence_type: GATED_AUTHORIZATION
+  limitation: Uncertain or un-reconciled broker state blocks new trade authorization
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: UNIT_TEST
+- id: 18
+  title: strategy_offline_protection_active
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/simulation/simulator.py
+  test_refs:
+  - tests/test_simulator.py::test_broker_simulator_stop_loss_tighten_ratchet
+  evidence_type: SIMULATOR_PROTECTION
+  limitation: Protective stops managed independently of strategy engine availability
+  scope: Phase 1 Simulation
+  ci_required: true
+  production_path:
+  - src.fractal_flow.simulation.simulator.DeterministicBrokerSimulator.modify_stop_loss
+  integration_level: INTEGRATION_TEST
+- id: 19
+  title: protective_stops_never_loosened
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/simulation/simulator.py
+  test_refs:
+  - tests/test_simulator.py::test_broker_simulator_stop_loss_tighten_ratchet
+  evidence_type: SIMULATOR_PROTECTION
+  limitation: Stop loss ratchet raises ValueError on attempt to widen stop
+  scope: Phase 1 Simulation
+  ci_required: true
+  production_path:
+  - src.fractal_flow.simulation.simulator.DeterministicBrokerSimulator.modify_stop_loss
+  integration_level: UNIT_TEST
+- id: 20
+  title: no_strategic_exposure_in_news_lockdown
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_invariants.py::test_invariant_news_lockdown_blocks_strategic_exposure
+  evidence_type: GATED_AUTHORIZATION
+  limitation: TradeDecision.is_authorized returns False when news_state is NEWS_LOCKDOWN
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: UNIT_TEST
+- id: 21
+  title: scheduled_news_vs_observed_shock_separate
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Scheduled news overlay deferred to Layer 5 implementation
+  scope: Layer 5 News Shield (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 22
+  title: ten_min_post_news_checkpoint
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: News checkpoint timer deferred to Layer 5 implementation
+  scope: Layer 5 News Shield (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 23
+  title: no_future_data_lookahead
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/simulation/causal_framework.py
+  - src/fractal_flow/domain/data_quality.py
+  - src/fractal_flow/domain/volatility.py
+  - src/fractal_flow/domain/structure.py
+  test_refs:
+  - tests/phase1d/test_future_mutations.py::test_1_future_price_spike
+  evidence_type: CAUSAL_SUITE
+  limitation: 12-scenario causal test suite verifies decision state invariance at
+    time t
+  scope: Phase 1 Simulation & Pipeline
+  ci_required: true
+  production_path:
+  - src.fractal_flow.simulation.causal_framework.CausalTestFramework.verify_causality
+  integration_level: SYSTEM_INTEGRATION
+- id: 24
+  title: decisions_use_past_data
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_provenance_authorization.py::test_provenance_snapshots_preserved
+  evidence_type: AUDIT_PROVENANCE
+  limitation: TradeDecision quote timestamp and market snapshot bound to <= decision_time
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision
+  integration_level: INTEGRATION_TEST
+- id: 25
+  title: pullbacks_hierarchical_m1_micro
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_legal_lineage_edges_all_valid
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Lineage directed graph strictly classifies M1 micro pullbacks
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage
+  integration_level: UNIT_TEST
+- id: 26
+  title: primary_pullback_higher_tf
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/phase4.py
+  test_refs:
+  - tests/test_phase4_foundation.py::test_timeframe_migration_is_explicit_and_bounded
+  evidence_type: PHASE4_EXECUTABLE
+  limitation: Phase 4 canonical parent implementation and executable regression evidence.
+  scope: Phase 4
+  ci_required: false
+  production_path:
+  - src/fractal_flow/domain/phase4.py
+  integration_level: SPECIFICATION_ONLY
+- id: 27
+  title: lower_tf_pullback_explicit_micro
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/lineage.py
+  test_refs:
+  - tests/test_lineage.py::test_legal_lineage_edges_all_valid
+  evidence_type: LINEAGE_VALIDATOR
+  limitation: Lower timeframe pullbacks explicitly tagged as micro tier in lineage
+    graph
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.lineage.Lineage
+  integration_level: UNIT_TEST
+- id: 28
+  title: flipping_requires_structural_reversal
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Position flipping logic deferred to Layer 4 Portfolio Arbitration
+  scope: Layer 4 Portfolio (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 29
+  title: liquidity_sweeps_trigger_modifiers
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/phase4.py
+  test_refs:
+  - tests/test_phase4_foundation.py::test_opportunity_identity_is_deterministic_and_sweep_is_modifier
+  evidence_type: PHASE4_EXECUTABLE
+  limitation: Phase 4 canonical parent implementation and executable regression evidence.
+  scope: Phase 4
+  ci_required: false
+  production_path:
+  - src/fractal_flow/domain/phase4.py
+  integration_level: SPECIFICATION_ONLY
+- id: 30
+  title: compression_is_state
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/volatility.py
+  test_refs:
+  - tests/test_spec_parity.py::test_states_exact_parity
+  evidence_type: STATE_REGISTRY
+  limitation: VOL_COMPRESSION represented purely as state in VolatilityState enum
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.volatility.VolatilityEngine
+  integration_level: UNIT_TEST
+- id: 31
+  title: static_ema_crossover_not_core
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/structure.py
+  test_refs:
+  - tests/phase1f/test_structure_transitions.py::test_adaptive_swing_reversal_magnitude_transitions
+  evidence_type: ENGINE_FORMULA
+  limitation: StructureEngine uses adaptive V_local volatility displacement rather
+    than EMA crossover
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.structure.StructureEngine.process_bar
+  integration_level: UNIT_TEST
+- id: 32
+  title: fixed_fractals_not_core_structure
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/structure.py
+  test_refs:
+  - tests/phase1h/test_invariant_failure_modes.py::test_invariant_32_fixed_three_candle_fractals_not_used_in_structure
+  evidence_type: ENGINE_FORMULA
+  limitation: StructureEngine uses adaptive swing reversal magnitude rather than fixed
+    three-candle fractals
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.structure.StructureEngine.process_bar
+  integration_level: UNIT_TEST
+- id: 33
+  title: fixed_fibonacci_not_constitutional
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/pde.py
+  - spec/invariants.yaml
+  test_refs:
+  - tests/phase2v3/test_phase2_substrate_stabilization.py::test_pde_pullback_rules_exclude_fibonacci_and_fixed_candle_thresholds
+  evidence_type: TEST
+  limitation: Guard is source-level and constrains the constitutional PDE pullback
+    implementation; it does not claim Fibonacci has no descriptive research value
+    outside the constitutional engine.
+  scope: Layer 2 PDE constitutional pullback semantics
+  ci_required: true
+  production_path:
+  - src/fractal_flow/domain/pde.py
+  integration_level: UNIT_TEST
+- id: 34
+  title: fixed_candle_count_not_constitutional
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/pde.py
+  - spec/invariants.yaml
+  test_refs:
+  - tests/phase2v3/test_phase2_substrate_stabilization.py::test_pde_pullback_rules_exclude_fibonacci_and_fixed_candle_thresholds
+  evidence_type: TEST
+  limitation: Finite episode lifetime remains bar-count bounded; the guard specifically
+    excludes bar-count dependence from pullback/resumption semantics.
+  scope: Layer 2 PDE constitutional pullback semantics
+  ci_required: true
+  production_path:
+  - src/fractal_flow/domain/pde.py
+  integration_level: UNIT_TEST
+- id: 35
+  title: structural_stops_primary
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/structure.py
+  test_refs:
+  - tests/phase1h/test_invariant_failure_modes.py::test_invariant_35_structural_stops_are_primary
+  evidence_type: ENGINE_FORMULA
+  limitation: Structural stops anchored to protected structural levels with ATR buffer
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.structure.StructureEngine.get_structural_stop_candidate
+  integration_level: UNIT_TEST
+- id: 36
+  title: finite_lifetime_ttl
+  status: INTEGRATION_VERIFIED
+  implementation_refs:
+  - src/fractal_flow/domain/models.py
+  test_refs:
+  - tests/test_provenance_authorization.py::test_news_lockdown_blocks_trade_decision_authorization
+  evidence_type: GATED_AUTHORIZATION
+  limitation: Finite TTL enforced on TradeDecision authorization
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.models.TradeDecision.is_authorized
+  integration_level: INTEGRATION_TEST
+- id: 37
+  title: portfolio_currency_and_correlation_aware
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Correlation exposure rules deferred to Layer 4 Portfolio Engine
+  scope: Layer 4 Portfolio (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 38
+  title: account_feasibility_checked
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Account margin/feasibility checks deferred to Layer 4 Risk Engine
+  scope: Layer 4 Risk (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 39
+  title: configuration_versioned_and_reproducible
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/config/config.py
+  test_refs:
+  - tests/test_units_broker.py::test_effective_configuration_reproducible_identity
+  evidence_type: CONFIGURATION_IDENTITY
+  limitation: EffectiveConfiguration SHA256 canonical fingerprint identity calculation
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.config.config.EffectiveConfiguration
+  integration_level: UNIT_TEST
+- id: 40
+  title: reconciliation_completes_before_auth
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/execution/recovery.py
+  test_refs:
+  - tests/test_persistence_adversarial.py::test_reconciliation_and_recovery_idempotency_stability
+  evidence_type: RECOVERY_GATE
+  limitation: RecoveryEngine validates evidence before strategic authorization is
+    permitted
+  scope: Phase 1 Execution
+  ci_required: true
+  production_path:
+  - src.fractal_flow.execution.recovery.RecoveryEngine.complete_recovery_with_evidence
+  integration_level: INTEGRATION_TEST
+- id: 41
+  title: research_tests_information_value
+  status: SPECIFIED_ONLY
+  implementation_refs:
+  - spec/invariants.yaml
+  test_refs: []
+  evidence_type: SPECIFICATION
+  limitation: Information value backtesting rules deferred to Layer 8 Research Track
+  scope: Layer 8 Research Track (Deferred)
+  ci_required: false
+  production_path: []
+  integration_level: SPECIFICATION_ONLY
+- id: 42
+  title: constitutional_rules_never_optimized
+  status: ENFORCED
+  implementation_refs:
+  - src/fractal_flow/domain/authority.py
+  test_refs:
+  - tests/test_invariants.py::test_invariant_42_constitutional_rules_never_optimized
+  evidence_type: AUTHORITY_GUARD
+  limitation: AuthorityMatrix fail-closed capability checks cannot be disabled
+  scope: Phase 1 Core
+  ci_required: true
+  production_path:
+  - src.fractal_flow.domain.authority.AuthorityMatrix.verify_capability
+  integration_level: UNIT_TEST
