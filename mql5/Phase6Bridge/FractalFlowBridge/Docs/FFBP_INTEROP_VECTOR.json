@@ -1,0 +1,8 @@
+{
+  "secret": "test-secret",
+  "canonical_body_without_mac": "{\"account_id\":\"ACT_TEST\",\"ack\":0,\"channel\":\"CONTROL\",\"cmd_id\":null,\"correlation_id\":null,\"deadline_ms\":null,\"flags\":0,\"payload\":{\"client_nonce\":\"nonce-001\",\"lane_id\":\"PRIMARY\"},\"sent_at_ms\":1700000000000,\"seq\":1,\"session_id\":\"sess-001\",\"type\":\"HELLO\",\"v\":\"FFBP/1\"}",
+  "hmac_sha256": "d626bf7a97c099637bb7a0c07b2c4aa913830b2a2ff32f5cbcf947c4aba198e6",
+  "canonical_wire_body": "{\"account_id\":\"ACT_TEST\",\"ack\":0,\"channel\":\"CONTROL\",\"cmd_id\":null,\"correlation_id\":null,\"deadline_ms\":null,\"flags\":0,\"mac\":\"d626bf7a97c099637bb7a0c07b2c4aa913830b2a2ff32f5cbcf947c4aba198e6\",\"payload\":{\"client_nonce\":\"nonce-001\",\"lane_id\":\"PRIMARY\"},\"sent_at_ms\":1700000000000,\"seq\":1,\"session_id\":\"sess-001\",\"type\":\"HELLO\",\"v\":\"FFBP/1\"}",
+  "wire_body_bytes": 337,
+  "frame_prefix_hex": "00000151"
+}

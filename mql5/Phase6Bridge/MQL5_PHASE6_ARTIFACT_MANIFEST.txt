@@ -1,0 +1,20 @@
+FRACTAL-FLOW Phase 6 — MQL5 Bridge Artifacts v1.1.2
+
+Purpose:
+  Manual MetaEditor compilation and MT5 runtime verification candidate.
+
+This revision incorporates corrections from the first MetaEditor compiler report:
+  - MQL5 include search paths use <FFBP_*.mqh> for files installed under MQL5\\Include.
+  - FileWriteLong/FileReadLong use their actual MQL5 signatures.
+  - FileIsExist uses FILE_COMMON for common-folder persistence.
+  - Removed invalid C-style (void) parameter expressions from OnTradeTransaction.
+
+Verification status:
+  SOURCE PATCHED: YES
+  METAEDITOR COMPILE: UNVERIFIED — USER MUST COMPILE
+  MT5 RUNTIME: UNVERIFIED
+  LIVE EXECUTION AUTHORITY: NOT AUTHORIZED
+
+The adapter remains fail-closed for effectful COMMAND processing until the
+Python/MT5 handshake, durable command journal, broker reconciliation, and
+protective management are runtime-verified.

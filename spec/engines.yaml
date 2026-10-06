@@ -1,0 +1,151 @@
+engines:
+  DataQuality:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - WRITE_DATA_QUALITY_STATE
+    - ASSIGN_REASON_CODES
+    - BLOCK_EXPOSURE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - ALLOCATE_RISK
+    - MANUFACTURE_DIRECTION
+  Volatility:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - WRITE_VOLATILITY_STATE
+    - COMPUTE_VOLATILITY_METRICS
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - ALLOCATE_RISK
+    - MANUFACTURE_DIRECTION
+  Structure:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_VOLATILITY
+    - WRITE_STRUCTURE_STATE
+    - INVALIDATE_PARENT_STATE
+    - OUTPUT_STRUCTURAL_STOP_CANDIDATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - ALLOCATE_RISK
+    - SIZE_TRADE
+    - AUTHORIZE_TRADE
+  PDE:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_FEATURES
+    - WRITE_PDE_STATE
+    - CREATE_PULLBACK_OBJECT
+    - INVALIDATE_SUBORDINATE_CHILDREN
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION_STRATEGICALLY
+  Flow:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_FEATURES
+    - WRITE_FLOW_STATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION_STRATEGICALLY
+  Regime:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_FEATURES
+    - WRITE_REGIME_STATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION_STRATEGICALLY
+  Role:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_FEATURES
+    - WRITE_ROLE_STATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION_STRATEGICALLY
+  Location:
+    allowed_capabilities:
+    - READ_MARKET_STATE
+    - READ_FEATURES
+    - WRITE_LOCATION_STATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION_STRATEGICALLY
+  EntryPolicy:
+    allowed_capabilities:
+    - READ_OPPORTUNITY
+    - READ_SIGNAL
+    - READ_STRUCTURE
+    - READ_PULLBACK
+    - READ_TRADEABILITY
+    - READ_RISK
+    - READ_PORTFOLIO
+    - READ_NEWS
+    - READ_BROKER_CONSTRAINTS
+    - CREATE_ENTRY_PLAN
+    - INVALIDATE_ENTRY_PLAN
+    forbidden_capabilities:
+    - SUBMIT_ORDER
+    - MODIFY_POSITION
+    - CLOSE_POSITION
+    - MANUFACTURE_DIRECTION
+    - OVERRIDE_RISK
+    - OVERRIDE_PORTFOLIO
+    - OVERRIDE_NEWS
+  NewsShield:
+    allowed_capabilities:
+    - READ_CALENDAR
+    - WRITE_NEWS_STATE
+    - ENFORCE_PROTECTIVE_STOPS
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - MANUFACTURE_DIRECTION
+  Risk:
+    allowed_capabilities:
+    - ALLOCATE_RISK
+    - ASSESS_ACCOUNT_FEASIBILITY
+    - REJECT_EXCESSIVE_RISK
+    forbidden_capabilities:
+    - MANUFACTURE_DIRECTION
+    - CREATE_SIGNAL
+  Portfolio:
+    allowed_capabilities:
+    - ARBITRATE_EXPOSURE
+    - ENFORCE_CURRENCY_LIMITS
+    - ENFORCE_CORRELATION_LIMITS
+    forbidden_capabilities:
+    - MANUFACTURE_DIRECTION
+    - CREATE_SIGNAL
+  Execution:
+    allowed_capabilities:
+    - SUBMIT_AUTHORIZED_INTENT
+    - RECONCILE_ORDERS
+    forbidden_capabilities:
+    - REINTERPRET_STRATEGY
+    - ALTER_RISK_PARAMETERS
+  Phase3Orchestrator:
+    allowed_capabilities:
+    - READ_PHASE2_EVIDENCE
+    - WRITE_OPPORTUNITY_STATE
+    - CREATE_OPPORTUNITY_CANDIDATE
+    forbidden_capabilities:
+    - CREATE_EXECUTION_INTENT
+    - SUBMIT_ORDER
+    - ALLOCATE_RISK
+    - AUTHORIZE_TRADE
+    - MANUFACTURE_DIRECTION

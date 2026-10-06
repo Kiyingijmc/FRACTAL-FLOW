@@ -1,0 +1,2 @@
+a04c86904b1739f7ee0b9edefbafefcec3f966c4e4202671e28bce6c91235fa3  /tmp/ff-current-package/mql5/Phase6Bridge/FractalFlowBridge/FractalFlowBridgeEA.mq5
+0a0674037185b9dd30e6fafc273a54901352a50440e58190f84c6236870baed7  /tmp/ff-current-package/mql5/Phase6Bridge/FractalFlowBridgeTests/FFBP_CryptoSelfTest.mq5
