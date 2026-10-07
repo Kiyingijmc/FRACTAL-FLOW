@@ -1,0 +1,26 @@
+2026.10.08 00:57:32.314 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: entered
+2026.10.08 00:57:32.314 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: validating identity
+2026.10.08 00:57:32.314 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: identity OK account=104838909 lane=test allow_real=false
+2026.10.08 00:57:32.314 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: TimerMs=50 MaxFrameBytes=65536 MaxDrainPerTimer=16 ConnectTimeoutMs=1000
+2026.10.08 00:57:32.314 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: input validation OK
+2026.10.08 00:57:32.315 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: fence loaded epoch=32
+2026.10.08 00:57:32.325 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: fence saved epoch=33
+2026.10.08 00:57:32.325 FractalFlowBridgeEA (ETHUSD,H4) FFBP INIT: connecting bridge host=127.0.0.1 port=39001
+2026.10.08 00:57:32.381 FractalFlowBridgeEA (ETHUSD,H4) FFBP CONNECT: TCP connection established
+2026.10.08 00:57:32.473 FractalFlowBridgeEA (ETHUSD,H4) FFBP HELLO: session_id=76297531-67057517358372
+2026.10.08 00:57:32.473 FractalFlowBridgeEA (ETHUSD,H4) FFBP HELLO: client_nonce generated length=64
+2026.10.08 00:57:32.610 FractalFlowBridgeEA (ETHUSD,H4) FFBP SEND TRACE: SocketSend returned=471 requested=471 error=0
+2026.10.08 00:57:32.780 FractalFlowBridgeEA (ETHUSD,H4) FFBP RX: type=CHALLENGE seq=1 ack=0
+2026.10.08 00:57:32.781 FractalFlowBridgeEA (ETHUSD,H4) FFBP SESSION DIAG: server_nonce=71196e784735fe382eae38ebff5efacfd6003791ab539eb80e85eb3b0b3f77ab
+2026.10.08 00:57:32.781 FractalFlowBridgeEA (ETHUSD,H4) FFBP AUTH DIAG: transcript_utf8_len=242
+2026.10.08 00:57:32.781 FractalFlowBridgeEA (ETHUSD,H4) FFBP SESSION: sending AUTH
+2026.10.08 00:57:32.781 FractalFlowBridgeEA (ETHUSD,H4) FFBP SEND TRACE: SocketSend returned=379 requested=379 error=0
+2026.10.08 00:57:32.781 FractalFlowBridgeEA (ETHUSD,H4) FFBP SESSION: AUTH sent
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP RX: type=SESSION_ESTABLISHED seq=2 ack=2
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP SESSION: SESSION_ESTABLISHED received
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP SESSION: authenticated session established
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP RX: type=HEARTBEAT seq=3 ack=0
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP SEND TRACE: begin authenticated=true body_chars=225
+2026.10.08 00:57:32.782 FractalFlowBridgeEA (ETHUSD,H4) FFBP SEND TRACE: SocketSend returned=302 requested=302 error=0
+2026.10.08 00:57:32.783 FractalFlowBridgeEA (ETHUSD,H4) FFBP READ: SocketRead failed n=-1 error=5273 received=0 wanted=4
+2026.10.08 00:57:32.783 FractalFlowBridgeEA (ETHUSD,H4) FFBP TIMER: transport closed/failed; entering quarantine

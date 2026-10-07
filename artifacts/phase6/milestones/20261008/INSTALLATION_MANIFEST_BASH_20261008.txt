@@ -1,0 +1,11 @@
+FRACTAL-FLOW Phase 6 Milestone Installation Manifest
+Installed: 2026-10-08T01:38:42+03:00
+Repository: /home/kiyingijmc/projects/FractalFlow
+Branch: phase6-forensic-baseline
+Remote: origin
+Remote URL: https://github.com/Kiyingijmc/FRACTAL-FLOW.git
+Source ZIP: /mnt/c/Users/danie/Downloads/FRACTAL-FLOW-PHASE6-MILESTONE-20261008.zip
+Source ZIP SHA-256: 91fe220cf183f97f38727707577153208d2fa99a9a4f732eb9a6b620afb43345
+Evidence directory: artifacts/phase6/milestones/20261008
+Preserved ZIP: artifacts/phase6/milestones/FRACTAL-FLOW-PHASE6-MILESTONE-20261008.zip
+Scope: milestone documentation/evidence only.
