@@ -88,19 +88,49 @@ bool FFBP_ParseUInt64(const string json,const string key,ulong &value)
 {
    int p;
    if(!FFBP_FindKey(json,key,p)) return false;
+
    int start=p;
    int n=StringLen(json);
+
    while(p<n)
    {
       ushort c=StringGetCharacter(json,p);
       if(c<'0'||c>'9') break;
       p++;
    }
+
    if(p==start) return false;
-   string t=StringSubstr(json,start,p-start);
-   long v=StringToInteger(t);
-   if(v<0) return false;
-   value=(ulong)v;
+
+   // Build the full unsigned 64-bit value digit by digit.
+   // UINT64_MAX = 18446744073709551615.
+   //
+   // The final 20-digit boundary is checked lexicographically so
+   // no overflowing integer literal is required.
+   int digits=p-start;
+
+   if(digits>20)
+      return false;
+
+   if(digits==20)
+   {
+      string max_uint64="18446744073709551615";
+      string candidate=StringSubstr(json,start,20);
+
+      if(StringCompare(candidate,max_uint64)>0)
+         return false;
+   }
+
+   ulong acc=0;
+
+   // For values within the proven decimal domain, multiplication
+   // remains within ulong.
+   for(int i=start;i<p;i++)
+   {
+      ulong digit=(ulong)(StringGetCharacter(json,i)-'0');
+      acc=acc*(ulong)10+digit;
+   }
+
+   value=acc;
    return true;
 }
 
@@ -108,20 +138,79 @@ bool FFBP_ParseInt64OrNull(const string json,const string key,long &value,bool &
 {
    int p;
    if(!FFBP_FindKey(json,key,p)) return false;
-   if(StringSubstr(json,p,4)=="null") { is_null=true; value=0; return true; }
+
+   if(StringSubstr(json,p,4)=="null")
+   {
+      is_null=true;
+      value=0;
+      return true;
+   }
+
    is_null=false;
+
    bool neg=(StringGetCharacter(json,p)=='-');
-   if(neg) p++;
+   if(neg)
+      p++;
+
    int start=p;
-   while(p<StringLen(json))
+   int n=StringLen(json);
+
+   while(p<n)
    {
       ushort c=StringGetCharacter(json,p);
       if(c<'0'||c>'9') break;
       p++;
    }
-   if(p==start) return false;
-   long v=StringToInteger(StringSubstr(json,start,p-start));
-   value=neg?-v:v;
+
+   if(p==start)
+      return false;
+
+   int digits=p-start;
+
+   // INT64_MAX  =  9223372036854775807
+   // INT64_MIN magnitude = 9223372036854775808
+   string limit=neg
+      ? "9223372036854775808"
+      : "9223372036854775807";
+
+   if(digits>19)
+      return false;
+
+   if(digits==19)
+   {
+      string candidate=StringSubstr(json,start,19);
+
+      if(StringCompare(candidate,limit)>0)
+         return false;
+   }
+
+   ulong magnitude=0;
+
+   for(int i=start;i<p;i++)
+   {
+      ulong digit=(ulong)(StringGetCharacter(json,i)-'0');
+      magnitude=magnitude*(ulong)10+digit;
+   }
+
+   if(neg)
+   {
+      // INT64_MIN is represented without attempting to negate
+      // its magnitude as a signed value.
+      if(digits==19 &&
+         StringSubstr(json,start,19)=="9223372036854775808")
+      {
+         value=LONG_MIN;
+      }
+      else
+      {
+         value=-(long)magnitude;
+      }
+   }
+   else
+   {
+      value=(long)magnitude;
+   }
+
    return true;
 }
 

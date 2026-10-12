@@ -1,0 +1,28 @@
+## phase6-forensic-baseline
+ M .gitignore
+ M artifacts/phase5/FINAL_HARDENING_HPL.md
+ M artifacts/phase5/evidence.md
+ M docs/DECISION_LOG.md
+ M tools/phase4_semantic_mutation.py
+?? .phase6-reconcile-backup-20261007T181311Z/
+?? artifacts/phase5/R5_FINAL_GREEN_EVIDENCE.md
+?? artifacts/phase5/R5_VERIFICATION_LIFECYCLE_HPL.md
+?? artifacts/phase6/PHASE6_IMPLEMENTATION_EVIDENCE.md
+?? artifacts/phase6/PHASE6_IMPLEMENTATION_HPL.md
+?? artifacts/phase6/PHASE6_LOCAL_VERIFICATION_EVIDENCE.md
+?? mql5/Phase6Bridge/LOCAL_SHA256SUMS.txt
+?? mql5/Phase6Bridge/LOCAL_WSL_MT5_TEST_PLAN.md
+?? src/fractal_flow/execution/broker_truth.py
+?? src/fractal_flow/execution/command_ledger.py
+?? src/fractal_flow/execution/ffbp_protocol.py
+?? src/fractal_flow/execution/ffbp_session.py
+?? src/fractal_flow/execution/protective_authority.py
+?? tests/test_broker_truth.py
+?? tests/test_command_ledger.py
+?? tests/test_ffbp_interop_vector.py
+?? tests/test_ffbp_protocol.py
+?? tests/test_ffbp_session.py
+?? tests/test_protective_authority.py
+?? tests/test_r5_verification_runner.py
+?? tools/r5_verification_runner.py
+?? tools/run_phase6_local_gate.sh

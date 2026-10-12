@@ -1,0 +1,78 @@
+--- a/FractalFlowBridgeEA.mq5
++++ b/FractalFlowBridgeEA.mq5
+@@ -107,6 +107,64 @@
+           (uint)b[offset+3];
+ }
+ 
++// Strict RFC 3629 UTF-8 validation over the length-delimited wire bytes.
++// Rejects overlong encodings, surrogate code points, values above U+10FFFF,
++// stray continuation bytes, and truncated multibyte sequences before decoding.
++bool FFBP_IsValidUtf8(const uchar &bytes[],const int offset,const int count)
++{
++   if(offset<0 || count<0 || offset+count>ArraySize(bytes))
++      return false;
++
++   int i=offset;
++   int end=offset+count;
++   while(i<end)
++   {
++      uint c=(uint)bytes[i++];
++      if(c<=0x7F)
++         continue;
++
++      if(c>=0xC2 && c<=0xDF)
++      {
++         if(i>=end) return false;
++         uint c1=(uint)bytes[i++];
++         if(c1<0x80 || c1>0xBF) return false;
++         continue;
++      }
++
++      if(c>=0xE0 && c<=0xEF)
++      {
++         if(i+1>=end) return false;
++         uint c1=(uint)bytes[i++];
++         uint c2=(uint)bytes[i++];
++         if(c2<0x80 || c2>0xBF) return false;
++         if(c==0xE0)
++         { if(c1<0xA0 || c1>0xBF) return false; }
++         else if(c==0xED)
++         { if(c1<0x80 || c1>0x9F) return false; }
++         else if(c1<0x80 || c1>0xBF) return false;
++         continue;
++      }
++
++      if(c>=0xF0 && c<=0xF4)
++      {
++         if(i+2>=end) return false;
++         uint c1=(uint)bytes[i++];
++         uint c2=(uint)bytes[i++];
++         uint c3=(uint)bytes[i++];
++         if(c2<0x80 || c2>0xBF || c3<0x80 || c3>0xBF) return false;
++         if(c==0xF0)
++         { if(c1<0x90 || c1>0xBF) return false; }
++         else if(c==0xF4)
++         { if(c1<0x80 || c1>0x8F) return false; }
++         else if(c1<0x80 || c1>0xBF) return false;
++         continue;
++      }
++
++      return false;
++   }
++   return true;
++}
++
+ // Nonblocking receive framing with persistent buffering across timer callbacks.
+ // Return: 1=complete frame, 0=idle/incomplete-but-within-deadline, -1=fatal.
+ int ExtractBufferedFrame(string &body)
+@@ -124,6 +182,10 @@
+    if(buffered<frame_size)
+       return 0;
+ 
++   // Validate wire bytes before MQL5's decoder can normalize malformed input.
++   if(!FFBP_IsValidUtf8(g_rx_buffer,4,(int)len))
++      return -1;
++
+    body=CharArrayToString(g_rx_buffer,4,(int)len,CP_UTF8);
+    if(StringLen(body)==0)
+       return -1;

@@ -1,0 +1,27 @@
+FRACTAL-FLOW Phase 6 — current wire failure
+Date: 2026-10-07
+
+Python smoke server output:
+
+FFBP_SMOKE_LISTEN host=0.0.0.0 port=39001
+FFBP_SMOKE_ACCEPT peer=127.0.0.1:65022
+Traceback (most recent call last):
+  File "/home/kiyingijmc/projects/phase6-work/src/fractal_flow/execution/ffbp_protocol.py", line 147, in decode_envelope
+    wire = json.loads(frame[4:].decode("utf-8"))
+  ...
+json.decoder.JSONDecodeError: Extra data: line 1 column 468 (char 467)
+...
+src.fractal_flow.execution.ffbp_protocol.ProtocolError: invalid UTF-8/JSON frame
+
+Interpretation at session boundary:
+- TCP connection is established.
+- MT5 HELLO is sent.
+- Python accepts the TCP connection.
+- Python fails while parsing the received application payload as JSON.
+- This failure occurs before HMAC verification, challenge processing, AUTH, or session-key establishment.
+- Do not classify this as an HMAC/HKDF failure.
+- Do not change crypto until the raw frame bytes and exact-length framing are independently inspected.
+
+Immediate diagnostic objective:
+Capture declared frame length, actual payload length, and a bounded tail hex/repr immediately before decode_envelope().
+Determine whether the payload contains a trailing NUL, a length mismatch, duplicated/trailing JSON data, or a receiver-side framing defect.

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fractal-flow"
+version = "0.1.0"
+description = "Hierarchical, state-driven Forex scalping system foundation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "types-pyyaml>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "--cov=src/fractal_flow --cov-report=term-missing --cov-fail-under=85"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+# Preserves canonical Pass 4.2 historical baseline artifacts byte-for-byte
+# using explicit file paths rather than unconstrained wildcards,
+# while enforcing strict quality gates on all active Phase 0 code and new additions.
+extend-exclude = [
+    "src/fractal_flow/execution/recovery.py",
+    "src/fractal_flow/execution/reconciliation.py",
+    "src/fractal_flow/persistence/interfaces.py",
+    "src/fractal_flow/persistence/journal.py",
+    "src/fractal_flow/persistence/snapshot.py",
+    "tests/test_pass_4_2_authority_graph_issuance_closure.py",
+    "tests/test_pass_4_2_authority_provenance_hardening.py",
+    "tests/test_pass_4_2_authority_root_closure.py",
+    "tests/test_pass_4_2_forensic_authority_closure.py",
+    "tests/test_pass_4_2_production_authority_lifecycle_closure.py",
+    "tests/test_pass_4_2_production_bootstrap_boundary_closure.py",
+    "tests/test_persistence_adversarial.py",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "F841"]
+
+[dependency-groups]
+dev = [
+    "pytest-cov (>=7.1.0,<8.0.0)",
+    "types-pyyaml (>=6.0.12.20260906,<7.0.0.0)"
+]

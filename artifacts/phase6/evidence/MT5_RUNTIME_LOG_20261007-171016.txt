@@ -1,0 +1,240 @@
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	==================================================
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: entered
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	==================================================
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: validating identity
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: identity OK account=104838909 lane=test allow_real=false
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: TimerMs=50 MaxFrameBytes=65536 MaxDrainPerTimer=16 ConnectTimeoutMs=1000
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: input validation OK
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: loading fence account=104838909 lane=test
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: fence loaded epoch=11
+2026.10.07 17:10:16.452	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: saving fence epoch=12
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: fence saved epoch=12
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: connecting bridge host=127.0.0.1 port=39001
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: entered
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: creating socket
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: socket created handle=1
+2026.10.07 17:10:16.455	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: connecting to 127.0.0.1:39001 timeout=1000
+2026.10.07 17:10:16.466	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: TCP connection established
+2026.10.07 17:10:16.466	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: sending HELLO
+2026.10.07 17:10:16.466	FractalFlowBridgeEA (ETHUSD,H4)	FFBP HELLO: preparing HELLO
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP HELLO: session_id=48261421-67057517358372
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP HELLO: client_nonce generated length=64
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP HELLO: sending envelope
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP HELLO: sent
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP CONNECT: HELLO sent
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: bridge connected and HELLO sent
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: installing timer interval=50 ms
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	FFBP INIT: SUCCESS
+2026.10.07 17:10:16.467	FractalFlowBridgeEA (ETHUSD,H4)	==================================================
+2026.10.07 17:10:16.530	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.578	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.624	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.671	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.719	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.783	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.830	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.878	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.925	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:16.973	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.036	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.084	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.131	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.179	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.226	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.289	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.337	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.385	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.433	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.481	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.544	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.591	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.639	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.670	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.717	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.780	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.827	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.874	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.920	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:17.968	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.032	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.080	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.126	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.174	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.220	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.285	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.331	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.380	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.426	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.473	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.536	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.584	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.631	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.678	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.725	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.789	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.836	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.884	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.932	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:18.981	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.044	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.092	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.124	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.171	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.218	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.281	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.329	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.376	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.424	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.472	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.536	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.584	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.630	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.678	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.726	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.790	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.837	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.886	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.934	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:19.982	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.045	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.078	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.127	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.174	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.221	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.284	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.331	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.377	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.425	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.471	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.534	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.583	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.631	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.679	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.726	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.789	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.837	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.884	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.933	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:20.981	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.044	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.091	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.138	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.185	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.217	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.280	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.329	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.376	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.425	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.472	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.535	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.583	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.631	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.678	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.727	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.791	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.838	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.884	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.933	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:21.979	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.043	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.090	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.138	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.185	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.217	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.280	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.328	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.376	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.422	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.469	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.532	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.579	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.627	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.674	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.722	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.785	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.834	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.882	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.929	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:22.976	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.039	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.086	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.134	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.183	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.230	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.293	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.340	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.389	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.420	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.468	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.530	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.578	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.627	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.673	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.720	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.783	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.831	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.878	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.926	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:23.972	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.035	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.083	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.130	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.177	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.226	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.289	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.337	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.384	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.432	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.478	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.542	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.589	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.636	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.683	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.730	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.792	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.840	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.886	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.935	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:24.967	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.044	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.091	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.139	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.171	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.217	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.281	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.328	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.377	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.425	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.473	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.535	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.582	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.630	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.679	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.727	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.790	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.836	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.884	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.931	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:25.978	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.042	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.090	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.137	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.184	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.231	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.294	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.342	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.374	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.421	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.469	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.531	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.580	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.626	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.674	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.720	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.783	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.832	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.880	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.926	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:26.974	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:27.037	FractalFlowBridgeEA (ETHUSD,H4)	FFBP TIMER: frame processing failure; entering quarantine
+2026.10.07 17:10:27.082	FractalFlowBridgeEA (ETHUSD,H4)	FFBP DEINIT: reason=1

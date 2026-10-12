@@ -774,3 +774,15 @@ All earlier verification values in this evidence file are historical unless expl
 - Git provenance: **UNVERIFIED — ENVIRONMENTAL EXCEPTION**
 
 **🟢 FINAL GREEN — ARTIFACT MAY BE GENERATED**
+
+## CANONICAL CURRENT R5 RECONCILIATION — 2026-10-07
+
+The previous `13 passed` R5 complete-module claim is now **HISTORICAL / SUPERSEDED** for current gate purposes. Independent forensic execution reproduced a timeout in test 7 under the prior monolithic timing model. Tests 8 and 9 individually pass but are dominated by real synchronous filesystem durability latency. The root cause is classified as a verification-lifecycle/storage-latency issue, not a demonstrated Phase2/Phase3 correctness defect.
+
+R5 verification-lifecycle remediation was implemented without changing production persistence semantics. `tools/r5_verification_runner.py` partitions the same 13 tests into R5-A normal (7 tests), R5-B durable (3 tests), and R5-C explicit gate-return (3 tests), with separate configurable budgets and process-group cleanup. Population-scale stress environment variables are explicitly removed from canonical child execution. The runner records wall time, CPU time, filesystem type, exit status, and cleanup state.
+
+Early implementation verification: runner contract tests **2 passed**; R5-C gate lane **3 passed** in the implementation environment. These are not WSL2 R5 closure evidence.
+
+Current R5 classification: **🟠 IMPLEMENTED + EARLY-VERIFIED, COMPLETE VERIFICATION PENDING**.
+
+Required next evidence: run the canonical three-lane R5 runner on the WSL2 repository with R5-A, R5-B, and R5-C completing successfully and with no residual process-group resources. Until that evidence exists, the Phase 5 final gate remains blocked.

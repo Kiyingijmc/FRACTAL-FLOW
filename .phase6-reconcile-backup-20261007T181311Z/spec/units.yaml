@@ -1,0 +1,42 @@
+units:
+  Price:
+    type: float64
+    unit: absolute_quote_price
+    min: 0.0
+  PriceDistance:
+    type: float64
+    unit: absolute_price_difference
+    min: 0.0
+  PricePips:
+    type: float64
+    unit: pips
+  Points:
+    type: float64
+    unit: points
+  Ticks:
+    type: int64
+    unit: ticks
+  Volume:
+    type: float64
+    unit: standard_lots
+    min: 0.0
+  CurrencyAmount:
+    type: float64
+    unit: account_currency
+    min: 0.0
+  DurationNs:
+    type: uint64
+    unit: nanoseconds
+    min: 0
+  Timestamp:
+    type: uint64
+    unit: nanoseconds_utc_epoch
+    min: 0
+  Ratio:
+    type: float64
+    unit: ratio
+  Score:
+    type: float64
+    unit: score
+    min: 0.0
+    max: 1.0

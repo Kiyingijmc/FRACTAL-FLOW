@@ -1,11 +1,26 @@
-FRACTAL-FLOW PHASE 6 CURRENT SNAPSHOT
+# FRACTAL-FLOW PHASE 6 — CANONICAL RECONCILED SNAPSHOT
 
-Base: FRACTAL-FLOW-PHASE5-PART-B-FINAL-HARDENED-GREEN(3).zip
-MQL5 overlay: FRACTAL-FLOW-Phase6-MQL5-Bridge-Artifacts-v1.1.2.zip
+Date: 2026-10-07
 
-External verification recorded:
-- FractalFlowBridgeEA.mq5: 0 errors, 0 warnings
-- FFBP_CryptoSelfTest.mq5: 0 errors, 0 warnings
-- MT5 HMAC RFC 4231-style known-answer test: PASS
+This package is the canonical reconciliation of the supplied Phase 6 fresh-session handoff and session-final-state snapshot.
 
-This is not a final Phase 6 release artifact.
+Canonical base:
+- Fresh-session handoff project tree.
+
+Source overlay:
+- Later session-final-state MQL5 EA candidate.
+- Later session-final-state MQL5 crypto include.
+
+Codex:
+- Out of scope and omitted from the active package.
+
+Runtime truth:
+- Last preserved live runtime evidence shows MT5 HELLO reaching Python and Python rejecting the received payload with JSONDecodeError: Extra data at char 467.
+- The later source remediation has not been promoted to live runtime verification because no post-remediation terminal trace was supplied.
+
+Gate:
+- FINAL GATE BLOCKED.
+- No live trading.
+- No effectful command path.
+
+The live WSL repository remains authoritative for repository provenance; this archive is a reconciled working artifact, not a Git repository snapshot.

@@ -28,16 +28,45 @@ bool FFBP_NormalizeVolume(const string symbol,const double requested,double &vol
 
 bool FFBP_ProtectivePosition(const ulong ticket,const double stop_loss,const double take_profit)
 {
-   if(!PositionSelectByTicket(ticket)) return false;
+   // Fail closed: never submit a request that removes the protective stop.
+   if(ticket==0 || !MathIsValidNumber(stop_loss) || !MathIsValidNumber(take_profit) ||
+      stop_loss<=0.0 || take_profit<0.0)
+      return false;
+
+   if(!PositionSelectByTicket(ticket))
+      return false;
+
+   string symbol=PositionGetString(POSITION_SYMBOL);
+   if(symbol=="")
+      return false;
+
    double current_sl=PositionGetDouble(POSITION_SL);
-   double current_tp=PositionGetDouble(POSITION_TP);
    long type=PositionGetInteger(POSITION_TYPE);
+   double bid=SymbolInfoDouble(symbol,SYMBOL_BID);
+   double ask=SymbolInfoDouble(symbol,SYMBOL_ASK);
+   if(!MathIsValidNumber(bid) || !MathIsValidNumber(ask) || bid<=0.0 || ask<=0.0)
+      return false;
 
-   // Autonomous protection can tighten but never loosen an existing stop.
-   if(type==POSITION_TYPE_BUY && current_sl>0.0 && stop_loss<current_sl) return false;
-   if(type==POSITION_TYPE_SELL && current_sl>0.0 && stop_loss>current_sl) return false;
+   if(type==POSITION_TYPE_BUY)
+   {
+      if(stop_loss>=bid || (take_profit>0.0 && take_profit<=ask)) return false;
+      if(current_sl>0.0 && stop_loss<current_sl) return false;
+   }
+   else if(type==POSITION_TYPE_SELL)
+   {
+      if(stop_loss<=ask || (take_profit>0.0 && take_profit>=bid)) return false;
+      if(current_sl>0.0 && stop_loss>current_sl) return false;
+   }
+   else return false;
 
-   return g_ffbp_trade.PositionModify(ticket,stop_loss,take_profit);
+   ResetLastError();
+   if(!g_ffbp_trade.PositionModify(ticket,stop_loss,take_profit))
+      return false;
+
+   // CTrade's bool is not broker-effect confirmation. Accept only explicit
+   // server outcomes meaning applied or already unchanged.
+   uint retcode=g_ffbp_trade.ResultRetcode();
+   return (retcode==TRADE_RETCODE_DONE || retcode==TRADE_RETCODE_NO_CHANGES);
 }
 
 #endif

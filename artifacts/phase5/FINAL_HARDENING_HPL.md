@@ -1,5 +1,8 @@
 # FRACTAL-FLOW — Phase 5 Part B Final Hardening HPL
 
+> **CURRENT R5 RECONCILIATION — 2026-10-07:** The historical R5 `13 passed` claim below is superseded for current gate purposes. Independent forensic execution reproduced a test-7 timeout under the monolithic timing model. See `artifacts/phase5/R5_VERIFICATION_LIFECYCLE_HPL.md` for the canonical current R5 HPL. The historical Part-B scope remains historical evidence; it does not establish current R5 closure.
+
+
 Date: 2026-10-06
 Status: **GREEN — declared Part-B hardening scope verified**
 

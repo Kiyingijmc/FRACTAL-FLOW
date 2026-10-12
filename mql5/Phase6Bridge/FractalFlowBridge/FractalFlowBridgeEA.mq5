@@ -30,7 +30,18 @@ string g_session_id="";
 string g_server_nonce="";
 string g_client_nonce="";
 uchar g_session_key[];
+uchar g_c2s_key[];
+uchar g_s2c_key[];
 uchar g_rx_buffer[];
+ulong g_rx_frame_started_ms=0;
+string g_rx_failure_reason="";
+int g_rx_failure_error=0;
+
+#define FFBP_FRAME_ASSEMBLY_TIMEOUT_MS 2000
+
+// -----------------------------------------------------------------------------
+// Time / identity
+// -----------------------------------------------------------------------------
 
 ulong NowMs()
 {
@@ -45,243 +56,1194 @@ string NewInstanceId()
 
 bool ValidateIdentity()
 {
-   if(StringLen(InpAccountId)==0 || StringLen(InpLaneId)==0) return false;
-   if(StringLen(InpSharedSecret)==0) return false;
-   if(!InpAllowReal && AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL) return false;
+   if(StringLen(InpAccountId)==0 || StringLen(InpLaneId)==0)
+      return false;
+
+   if(StringLen(InpSharedSecret)==0)
+      return false;
+
+   // The configured account is an execution boundary, not informational metadata.
+   // Require an exact canonical decimal match to the terminal login.
+   long actual_login=AccountInfoInteger(ACCOUNT_LOGIN);
+   if(actual_login<=0 || InpAccountId!=StringFormat("%I64d",actual_login))
+   {
+      Print("FFBP INIT FAIL: configured account does not match terminal login");
+      return false;
+   }
+
+   if(!InpAllowReal &&
+      AccountInfoInteger(ACCOUNT_TRADE_MODE)==ACCOUNT_TRADE_MODE_REAL)
+      return false;
+
    return true;
 }
 
-bool ReadExact(uchar &out[],const int wanted,const uint timeout_ms)
+// -----------------------------------------------------------------------------
+// Framing / reads
+// -----------------------------------------------------------------------------
+
+
+// Best-effort in-process cleanup after teardown or a fatal session failure.
+// No session key, nonce, or receive-buffer state may survive into a new session.
+void ClearSessionMaterial()
 {
-   if(wanted<0 || wanted>(int)InpMaxFrameBytes+4) return false;
-   ArrayResize(out,0);
-   int received=0;
-   ulong started=GetTickCount64();
-   while(received<wanted)
-   {
-      if(GetTickCount64()-started>timeout_ms) return false;
-      uint avail=SocketIsReadable(g_socket);
-      if(avail==0) { Sleep(1); continue; }
-      int want=wanted-received;
-      if((uint)want>avail) want=(int)avail;
-      uchar part[];
-      int n=SocketRead(g_socket,part,(uint)want,0);
-      if(n<=0) return false;
-      int old=ArraySize(out);
-      ArrayResize(out,old+n);
-      ArrayCopy(out,part,old,0,n);
-      received+=n;
-   }
-   return true;
+   ArrayInitialize(g_session_key,0);
+   ArrayInitialize(g_c2s_key,0);
+   ArrayInitialize(g_s2c_key,0);
+   ArrayResize(g_session_key,0);
+   ArrayResize(g_c2s_key,0);
+   ArrayResize(g_s2c_key,0);
+
+   g_session_id="";
+   g_client_nonce="";
+   g_server_nonce="";
+   ArrayResize(g_rx_buffer,0);
+   g_rx_frame_started_ms=0;
 }
 
 uint ReadBE32(const uchar &b[],const int offset)
 {
-   return ((uint)b[offset]<<24)|((uint)b[offset+1]<<16)|((uint)b[offset+2]<<8)|(uint)b[offset+3];
+   return ((uint)b[offset]<<24)|
+          ((uint)b[offset+1]<<16)|
+          ((uint)b[offset+2]<<8)|
+          (uint)b[offset+3];
 }
+
+// Strict RFC 3629 UTF-8 validation over the length-delimited wire bytes.
+// Rejects overlong encodings, surrogate code points, values above U+10FFFF,
+// stray continuation bytes, and truncated multibyte sequences before decoding.
+bool FFBP_IsValidUtf8(const uchar &bytes[],const int offset,const int count)
+{
+   if(offset<0 || count<0 || offset+count>ArraySize(bytes))
+      return false;
+
+   int i=offset;
+   int end=offset+count;
+   while(i<end)
+   {
+      uint c=(uint)bytes[i++];
+      if(c<=0x7F)
+         continue;
+
+      if(c>=0xC2 && c<=0xDF)
+      {
+         if(i>=end) return false;
+         uint c1=(uint)bytes[i++];
+         if(c1<0x80 || c1>0xBF) return false;
+         continue;
+      }
+
+      if(c>=0xE0 && c<=0xEF)
+      {
+         if(i+1>=end) return false;
+         uint c1=(uint)bytes[i++];
+         uint c2=(uint)bytes[i++];
+         if(c2<0x80 || c2>0xBF) return false;
+         if(c==0xE0)
+         { if(c1<0xA0 || c1>0xBF) return false; }
+         else if(c==0xED)
+         { if(c1<0x80 || c1>0x9F) return false; }
+         else if(c1<0x80 || c1>0xBF) return false;
+         continue;
+      }
+
+      if(c>=0xF0 && c<=0xF4)
+      {
+         if(i+2>=end) return false;
+         uint c1=(uint)bytes[i++];
+         uint c2=(uint)bytes[i++];
+         uint c3=(uint)bytes[i++];
+         if(c2<0x80 || c2>0xBF || c3<0x80 || c3>0xBF) return false;
+         if(c==0xF0)
+         { if(c1<0x90 || c1>0xBF) return false; }
+         else if(c==0xF4)
+         { if(c1<0x80 || c1>0x8F) return false; }
+         else if(c1<0x80 || c1>0xBF) return false;
+         continue;
+      }
+
+      return false;
+   }
+   return true;
+}
+
+// Nonblocking receive framing with persistent buffering across timer callbacks.
+// Return: 1=complete frame, 0=idle/incomplete-but-within-deadline, -1=fatal.
+int ExtractBufferedFrame(string &body)
+{
+   body="";
+   int buffered=ArraySize(g_rx_buffer);
+   if(buffered<4)
+      return 0;
+
+   uint len=ReadBE32(g_rx_buffer,0);
+   if(len==0 || len>InpMaxFrameBytes)
+   {
+      g_rx_failure_reason="INVALID_FRAME_LENGTH";
+      return -1;
+   }
+
+   int frame_size=4+(int)len;
+   if(buffered<frame_size)
+      return 0;
+
+   // Validate wire bytes before MQL5's decoder can normalize malformed input.
+   if(!FFBP_IsValidUtf8(g_rx_buffer,4,(int)len))
+   {
+      g_rx_failure_reason="INVALID_UTF8";
+      return -1;
+   }
+
+   body=CharArrayToString(g_rx_buffer,4,(int)len,CP_UTF8);
+   if(StringLen(body)==0)
+   {
+      g_rx_failure_reason="EMPTY_DECODED_BODY";
+      return -1;
+   }
+
+   int remaining=buffered-frame_size;
+   uchar remainder[];
+   if(remaining>0)
+   {
+      if(ArrayResize(remainder,remaining)!=remaining)
+      {
+         g_rx_failure_reason="BUFFER_ALLOC_REMAINDER_FAILURE";
+         return -1;
+      }
+      if(ArrayCopy(remainder,g_rx_buffer,0,frame_size,remaining)!=remaining)
+      {
+         g_rx_failure_reason="BUFFER_COPY_REMAINDER_FAILURE";
+         return -1;
+      }
+   }
+
+   if(ArrayResize(g_rx_buffer,remaining)!=remaining)
+   {
+      g_rx_failure_reason="BUFFER_RESIZE_REMAINDER_FAILURE";
+      return -1;
+   }
+   if(remaining>0 && ArrayCopy(g_rx_buffer,remainder,0,0,remaining)!=remaining)
+   {
+      g_rx_failure_reason="BUFFER_COPY_RETAINED_BYTES_FAILURE";
+      return -1;
+   }
+
+   // If another frame (or its prefix) was coalesced in the same read, start a
+   // fresh assembly deadline for the retained bytes. The next call validates it.
+   g_rx_frame_started_ms=(remaining>0 ? GetTickCount64() : 0);
+   return 1;
+}
+
+int ReadFrame(string &body)
+{
+   body="";
+   g_rx_failure_reason="";
+   g_rx_failure_error=0;
+
+   int extracted=ExtractBufferedFrame(body);
+   if(extracted!=0)
+      return extracted;
+
+   int buffered=ArraySize(g_rx_buffer);
+   ulong now=GetTickCount64();
+   if(buffered>0 && g_rx_frame_started_ms>0 &&
+      now-g_rx_frame_started_ms>FFBP_FRAME_ASSEMBLY_TIMEOUT_MS)
+   {
+      g_rx_failure_reason="FRAME_ASSEMBLY_TIMEOUT";
+      return -1;
+   }
+
+   uint available=SocketIsReadable(g_socket);
+   if(available==0)
+   {
+      if(!SocketIsConnected(g_socket))
+      {
+         g_rx_failure_reason=(buffered>0 ? "PEER_DISCONNECTED_PARTIAL_FRAME" : "PEER_DISCONNECTED_EMPTY_BUFFER");
+         return -1;
+      }
+      return 0;
+   }
+
+   int capacity=(int)InpMaxFrameBytes+4-buffered;
+   if(capacity<=0)
+   {
+      g_rx_failure_reason="RX_BUFFER_CAPACITY_EXHAUSTED";
+      return -1;
+   }
+   uint wanted=available;
+   if(wanted>(uint)capacity)
+      wanted=(uint)capacity;
+
+   uchar part[];
+   ResetLastError();
+   int received=SocketRead(g_socket,part,wanted,0);
+   if(received<=0)
+   {
+      g_rx_failure_reason="SOCKET_READ_FAILURE";
+      g_rx_failure_error=GetLastError();
+      return -1;
+   }
+
+   if(buffered==0)
+      g_rx_frame_started_ms=GetTickCount64();
+
+   int new_size=buffered+received;
+   if(new_size>(int)InpMaxFrameBytes+4 ||
+      ArrayResize(g_rx_buffer,new_size)!=new_size)
+   {
+      g_rx_failure_reason="RX_BUFFER_RESIZE_FAILURE";
+      return -1;
+   }
+   if(ArrayCopy(g_rx_buffer,part,buffered,0,received)!=received)
+   {
+      g_rx_failure_reason="RX_BUFFER_COPY_FAILURE";
+      return -1;
+   }
+
+   return ExtractBufferedFrame(body);
+}
+
 
 void AppendBytes(uchar &dst[],const uchar &src[])
 {
-   int old=ArraySize(dst),n=ArraySize(src);
+   int old=ArraySize(dst);
+   int n=ArraySize(src);
+
    ArrayResize(dst,old+n);
-   if(n>0) ArrayCopy(dst,src,old,0,n);
+
+   if(n>0)
+      ArrayCopy(dst,src,old,0,n);
 }
 
-bool ReadFrame(string &body)
+// Convert protocol text to exact UTF-8 bytes without a C-string terminator.
+// FFBP/1 framing is length-delimited; 0x00 is never part of a JSON payload.
+bool FFBP_StringToUtf8Exact(const string text,uchar &out[])
 {
-   uchar prefix[];
-   if(!ReadExact(prefix,4,25)) return false;
-   uint len=ReadBE32(prefix,0);
-   if(len==0 || len>InpMaxFrameBytes) return false;
-   uchar data[];
-   if(!ReadExact(data,(int)len,50)) return false;
-   body=CharArrayToString(data,0,(int)len,CP_UTF8);
-   return StringLen(body)>0;
-}
+   ArrayResize(out,0);
 
-bool VerifyEnvelope(const string body,string &type,string &account,string &session,
-                    string &channel,ulong &seq,ulong &ack,string &cmd_id,string &correlation,
-                    ulong &sent_at,ulong &deadline,bool &deadline_null,uint &flags,string &mac)
-{
-   string authenticated;
-   if(!FFBP_RemoveMac(body,authenticated,mac)) return false;
-   string expected;
-   uchar msg[];
-   StringToCharArray(authenticated,msg,0,-1,CP_UTF8);
-   int n=ArraySize(msg); if(n>0 && msg[n-1]==0) ArrayResize(msg,n-1);
-   if(!FFBP_HMAC_Hex(InpSharedSecret,msg,expected)) return false;
-   string expected_lower=expected;
-   string mac_lower=mac;
-   StringToLower(expected_lower);
-   StringToLower(mac_lower);
-   if(StringCompare(expected_lower,mac_lower)!=0) return false;
+   int source_chars=StringLen(text);
 
-   if(!FFBP_ParseStringValue(body,"type",type)) return false;
-   if(!FFBP_ParseStringValue(body,"account_id",account)) return false;
-   if(!FFBP_ParseStringValue(body,"session_id",session)) return false;
-   if(!FFBP_ParseStringValue(body,"channel",channel)) return false;
-   if(!FFBP_ParseUInt64(body,"seq",seq)) return false;
-   if(!FFBP_ParseUInt64(body,"ack",ack)) return false;
-   if(!FFBP_ParseUInt64(body,"sent_at_ms",sent_at)) return false;
-   if(!FFBP_ParseUInt(body,"flags",flags)) return false;
-   if(!FFBP_ParseStringValue(body,"cmd_id",cmd_id) && StringFind(body,"\"cmd_id\":null")<0) return false;
-   if(!FFBP_ParseStringValue(body,"correlation_id",correlation) && StringFind(body,"\"correlation_id\":null")<0) return false;
-   long d=0; if(!FFBP_ParseInt64OrNull(body,"deadline_ms",d,deadline_null)) return false;
-   deadline=(ulong)(d<0?0:d);
+   if(source_chars==0)
+      return true;
 
-   if(account!=InpAccountId || session!=g_session_id) return false;
-   if(seq<=g_last_rx_seq) return false;
+   int copied=StringToCharArray(
+      text,
+      out,
+      0,
+      source_chars,
+      CP_UTF8);
+
+   if(copied<=0)
+      return false;
+
+   // Protocol JSON emitted by this adapter is canonical escaped ASCII.
+   if(copied!=source_chars)
+      return false;
+
+   if(ArraySize(out)!=source_chars)
+      return false;
+
+   if(out[ArraySize(out)-1]==0)
+      return false;
+
    return true;
 }
+
+
+// -----------------------------------------------------------------------------
+// Session transcript / proof
+// -----------------------------------------------------------------------------
+
+bool BuildSessionTranscript(string &transcript)
+{
+   // FFBP/1 canonical transcript: Python bytes.hex() is lowercase.
+   // Normalize only the hexadecimal nonce fields participating in authentication.
+   string client_nonce=g_client_nonce;
+   string server_nonce=g_server_nonce;
+   StringToLower(client_nonce);
+   StringToLower(server_nonce);
+
+   transcript="{\"account_id\":\""+FFBP_JsonEscape(InpAccountId)+
+               "\",\"client_nonce\":\""+FFBP_JsonEscape(client_nonce)+
+               "\",\"server_nonce\":\""+FFBP_JsonEscape(server_nonce)+
+               "\",\"session_id\":\""+FFBP_JsonEscape(g_session_id)+
+               "\",\"v\":\"FFBP/1\"}";
+   return StringLen(transcript)>0;
+}
+
+bool ComputeSessionProof(string &proof)
+{
+   string transcript;
+
+   if(!BuildSessionTranscript(transcript))
+      return false;
+
+   uchar msg[];
+
+   if(!FFBP_StringToUtf8Exact(transcript,msg))
+      return false;
+if(!FFBP_HMAC_Hex(InpSharedSecret,msg,proof))
+   {
+      Print("FFBP AUTH FAIL: HMAC-SHA256 proof");
+      return false;
+   }
+return true;
+}
+
+// -----------------------------------------------------------------------------
+// Envelope verification
+// -----------------------------------------------------------------------------
+
+bool VerifyEnvelope(
+   const string body,
+   string &type,
+   string &account,
+   string &session,
+   string &channel,
+   ulong &seq,
+   ulong &ack,
+   string &cmd_id,
+   string &correlation,
+   ulong &sent_at,
+   ulong &deadline,
+   bool &deadline_null,
+   uint &flags,
+   string &mac)
+{
+   string authenticated;
+
+   if(!FFBP_RemoveMac(body,authenticated,mac))
+      return false;
+
+   string expected;
+   uchar msg[];
+
+   if(!FFBP_StringToUtf8Exact(authenticated,msg))
+      return false;
+
+   int n=ArraySize(msg);
+
+   if(g_authenticated)
+   {
+      if(!FFBP_HMAC_HexBytes(g_s2c_key,msg,expected))
+         return false;
+   }
+   else
+   {
+      if(!FFBP_HMAC_Hex(InpSharedSecret,msg,expected))
+         return false;
+   }
+
+   string expected_lower=expected;
+   string mac_lower=mac;
+
+   StringToLower(expected_lower);
+   StringToLower(mac_lower);
+
+   if(StringCompare(expected_lower,mac_lower)!=0)
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"type",type))
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"account_id",account))
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"session_id",session))
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"channel",channel))
+      return false;
+
+   if(!FFBP_ParseUInt64(body,"seq",seq))
+      return false;
+
+   if(!FFBP_ParseUInt64(body,"ack",ack))
+      return false;
+
+   if(!FFBP_ParseUInt64(body,"sent_at_ms",sent_at))
+      return false;
+
+   if(!FFBP_ParseUInt(body,"flags",flags))
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"cmd_id",cmd_id) &&
+      StringFind(body,"\"cmd_id\":null")<0)
+      return false;
+
+   if(!FFBP_ParseStringValue(body,"correlation_id",correlation) &&
+      StringFind(body,"\"correlation_id\":null")<0)
+      return false;
+
+   long d=0;
+
+   if(!FFBP_ParseInt64OrNull(body,"deadline_ms",d,deadline_null))
+      return false;
+
+   deadline=(ulong)(d<0 ? 0 : d);
+
+   if(account!=InpAccountId || session!=g_session_id)
+      return false;
+
+   if(seq<=g_last_rx_seq)
+      return false;
+
+   return true;
+}
+
+// -----------------------------------------------------------------------------
+// Envelope send
+// -----------------------------------------------------------------------------
 
 bool SendBodyNoMac(const string body_no_mac)
 {
    string mac;
    uchar msg[];
-   StringToCharArray(body_no_mac,msg,0,-1,CP_UTF8);
-   int n=ArraySize(msg); if(n>0 && msg[n-1]==0) ArrayResize(msg,n-1);
-   if(!FFBP_HMAC_Hex(InpSharedSecret,msg,mac)) return false;
-   // FFBP/1 canonical key order puts mac between flags and payload.
+
+   if(!FFBP_StringToUtf8Exact(body_no_mac,msg))
+      return false;
+
+   int n=ArraySize(msg);
+
+   if(g_authenticated)
+   {
+      if(!FFBP_HMAC_HexBytes(g_c2s_key,msg,mac))
+         return false;
+   }
+   else
+   {
+      if(!FFBP_HMAC_Hex(InpSharedSecret,msg,mac))
+         return false;
+   }
+
    int p=StringFind(body_no_mac,"\"payload\":");
-   if(p<0) return false;
-   string wire=StringSubstr(body_no_mac,0,p)+"\"mac\":\""+mac+"\","+StringSubstr(body_no_mac,p);
+
+   if(p<0)
+      return false;
+
+   string wire=
+      StringSubstr(body_no_mac,0,p)+
+      "\"mac\":\""+mac+"\","+
+      StringSubstr(body_no_mac,p);
+
    uchar bytes[];
-   StringToCharArray(wire,bytes,0,-1,CP_UTF8);
-   n=ArraySize(bytes); if(n>0 && bytes[n-1]==0) ArrayResize(bytes,n-1);
-   if(n>(int)InpMaxFrameBytes) return false;
-   uchar frame[]; ArrayResize(frame,4+n);
-   frame[0]=(uchar)((n>>24)&255); frame[1]=(uchar)((n>>16)&255); frame[2]=(uchar)((n>>8)&255); frame[3]=(uchar)(n&255);
+
+   if(!FFBP_StringToUtf8Exact(wire,bytes))
+      return false;
+
+   n=ArraySize(bytes);
+
+   if(n>(int)InpMaxFrameBytes)
+      return false;
+
+   // Defense-in-depth: a C-string terminator is never legal in an FFBP
+   // length-delimited JSON payload.
+   if(n>0 && bytes[n-1]==0)
+   {
+      Print("FFBP SEND FAIL: protocol payload contains trailing NUL");
+      return false;
+   }
+
+   uchar frame[];
+
+   ArrayResize(frame,4+n);
+
+   frame[0]=(uchar)((n>>24)&255);
+   frame[1]=(uchar)((n>>16)&255);
+   frame[2]=(uchar)((n>>8)&255);
+   frame[3]=(uchar)(n&255);
+
    ArrayCopy(frame,bytes,4,0,n);
+
    int sent=SocketSend(g_socket,frame,ArraySize(frame));
+
    return sent==ArraySize(frame);
 }
 
-bool SendEnvelope(const string type,const string channel,const string cmd_id,const string correlation,
-                  const string payload_json,const long deadline_ms=-1,const uint flags=0)
+bool SendEnvelope(
+   const string type,
+   const string channel,
+   const string cmd_id,
+   const string correlation,
+   const string payload_json,
+   const long deadline_ms=-1,
+   const uint flags=0)
 {
    string body;
+
    bool deadline_null=(deadline_ms<0);
-   if(!FFBP_BuildEnvelopeNoMac(type,InpAccountId,g_session_id,channel,g_tx_seq,0,cmd_id,correlation,
-                               (long)NowMs(),deadline_null,deadline_ms,flags,payload_json,body)) return false;
-   if(!SendBodyNoMac(body)) return false;
+
+   if(!FFBP_BuildEnvelopeNoMac(
+         type,
+         InpAccountId,
+         g_session_id,
+         channel,
+         g_tx_seq,
+         0,
+         cmd_id,
+         correlation,
+         (long)NowMs(),
+         deadline_null,
+         deadline_ms,
+         flags,
+         payload_json,
+         body))
+      return false;
+
+   if(!SendBodyNoMac(body))
+      return false;
+
    g_tx_seq++;
+
    return true;
 }
 
+// -----------------------------------------------------------------------------
+// HELLO / authentication
+// -----------------------------------------------------------------------------
+
 bool SendHello()
 {
+   Print("FFBP HELLO: preparing HELLO");
+
+   g_authenticated=false;
+   g_quarantined=false;
+   g_reconciliation_required=true;
+   g_protective_only=true;
+
+   g_last_rx_seq=0;
+   g_tx_seq=1;
+
+   ArrayResize(g_c2s_key,0);
+   ArrayResize(g_s2c_key,0);
+
    g_session_id=NewInstanceId();
-   g_client_nonce=StringFormat("%I64u",GetTickCount64());
-   string payload="{\"account_id\":\""+FFBP_JsonEscape(InpAccountId)+"\",\"client_nonce\":\""+
-                  FFBP_JsonEscape(g_client_nonce)+"\",\"lane_id\":\""+FFBP_JsonEscape(InpLaneId)+
-                  "\",\"terminal_login\":"+IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN))+
-                  ",\"trade_mode\":"+IntegerToString((long)AccountInfoInteger(ACCOUNT_TRADE_MODE))+"}";
-   return SendEnvelope("HELLO","CONTROL","","",payload);
+
+   PrintFormat("FFBP HELLO: session_id=%s",g_session_id);
+
+   string entropy=
+      StringFormat(
+         "%I64u:%I64u:%I64u:%I64u",
+         GetTickCount64(),
+         ChartID(),
+         (long)AccountInfoInteger(ACCOUNT_LOGIN),
+         g_session_epoch);
+
+   uchar entropy_bytes[];
+   uchar entropy_hash[];
+
+   if(!FFBP_StringToUtf8Exact(entropy,entropy_bytes))
+   {
+      Print("FFBP HELLO FAIL: UTF-8 serialization");
+      return false;
+   }
+
+   int entropy_len=ArraySize(entropy_bytes);
+
+   if(!FFBP_SHA256(entropy_bytes,entropy_hash))
+   {
+      Print("FFBP HELLO FAIL: SHA256");
+      return false;
+   }
+
+   g_client_nonce=FFBP_Hex(entropy_hash);
+
+   PrintFormat(
+      "FFBP HELLO: client_nonce generated length=%d",
+      StringLen(g_client_nonce));
+
+   string payload=
+      "{\"account_id\":\""+FFBP_JsonEscape(InpAccountId)+
+      "\",\"client_nonce\":\""+
+      FFBP_JsonEscape(g_client_nonce)+
+      "\",\"lane_id\":\""+
+      FFBP_JsonEscape(InpLaneId)+
+      "\",\"terminal_login\":"+
+      IntegerToString((long)AccountInfoInteger(ACCOUNT_LOGIN))+
+      ",\"trade_mode\":"+
+      IntegerToString((long)AccountInfoInteger(ACCOUNT_TRADE_MODE))+
+      "}";
+
+   Print("FFBP HELLO: sending envelope");
+
+   if(!SendEnvelope("HELLO","CONTROL","","",payload))
+   {
+      PrintFormat(
+         "FFBP HELLO FAIL: SendEnvelope error=%d",
+         GetLastError());
+
+      return false;
+   }
+
+   Print("FFBP HELLO: sent");
+
+   return true;
 }
 
 bool HandleChallenge(const string body)
 {
-   string type,account,session,channel,cmd,correlation,mac;
-   ulong seq,ack,sent,deadline; bool dn; uint flags;
-   if(!VerifyEnvelope(body,type,account,session,channel,seq,ack,cmd,correlation,sent,deadline,dn,flags,mac)) return false;
-   if(type!="CHALLENGE") return false;
-   string payload;
-   if(!FFBP_ExtractPayloadObject(body,payload)) return false;
-   if(!FFBP_ParseStringValue(payload,"server_nonce",g_server_nonce)) return false;
-   if(g_server_nonce=="") return false;
+   Print("FFBP SESSION: CHALLENGE received");
 
-   // Phase 6 candidate: challenge is authenticated with the configured trust
-   // secret. Session-derived key installation remains deliberately fail-closed
-   // until the Python/MT5 handshake transcript is runtime-verified.
-   g_protective_only=true;
-   g_reconciliation_required=true;
-   return false;
+   // ProcessFrame() performs the authoritative envelope verification and
+   // advances g_last_rx_seq before dispatch. Do not verify the same envelope
+   // again here, because the replay guard would reject its already-consumed seq.
+   string payload;
+
+   if(!FFBP_ExtractPayloadObject(body,payload))
+   {
+      Print("FFBP SESSION FAIL: unable to extract CHALLENGE payload");
+      return false;
+   }
+
+   if(!FFBP_ParseStringValue(payload,"server_nonce",g_server_nonce))
+   {
+      Print("FFBP SESSION FAIL: server_nonce missing");
+      return false;
+   }
+
+   if(g_server_nonce=="")
+   {
+      Print("FFBP SESSION FAIL: server_nonce empty");
+      return false;
+   }
+
+   PrintFormat(
+      "FFBP SESSION: server_nonce received len=%d",
+      StringLen(g_server_nonce));
+
+   string proof;
+
+   if(!ComputeSessionProof(proof))
+   {
+      Print("FFBP SESSION FAIL: ComputeSessionProof");
+      return false;
+   }
+
+   string auth_payload=
+      "{\"proof\":\""+
+      FFBP_JsonEscape(proof)+
+      "\"}";
+
+   Print("FFBP SESSION: sending AUTH");
+
+   if(!SendEnvelope(
+         "AUTH",
+         "CONTROL",
+         "",
+         "",
+         auth_payload))
+   {
+      PrintFormat(
+         "FFBP SESSION FAIL: AUTH SendEnvelope error=%d",
+         GetLastError());
+
+      return false;
+   }
+
+   Print("FFBP SESSION: AUTH sent");
+
+   return true;
 }
+
+// -----------------------------------------------------------------------------
+// Incoming frame processing
+// -----------------------------------------------------------------------------
 
 bool ProcessFrame(const string body)
 {
    string type,account,session,channel,cmd,correlation,mac;
-   ulong seq,ack,sent,deadline; bool dn; uint flags;
-   if(!VerifyEnvelope(body,type,account,session,channel,seq,ack,cmd,correlation,sent,deadline,dn,flags,mac)) return false;
+   ulong seq,ack,sent,deadline;
+   bool dn;
+   uint flags;
+
+   if(!VerifyEnvelope(
+         body,
+         type,
+         account,
+         session,
+         channel,
+         seq,
+         ack,
+         cmd,
+         correlation,
+         sent,
+         deadline,
+         dn,
+         flags,
+         mac))
+   {
+      Print("FFBP RX FAIL: envelope verification");
+      return false;
+   }
+
    g_last_rx_seq=seq;
 
-   if(type=="HEARTBEAT") return SendEnvelope("ACK","CONTROL","",correlation,"{}",-1,0);
-   if(type=="CHALLENGE") return HandleChallenge(body);
+   PrintFormat(
+      "FFBP RX: type=%s seq=%I64u ack=%I64u",
+      type,
+      seq,
+      ack);
+
+   if(type=="HEARTBEAT")
+      return SendEnvelope("ACK","CONTROL","",correlation,"{}",-1,0);
+
+   if(type=="CHALLENGE")
+   {
+      // Envelope authentication/replay validation has already completed above.
+      return HandleChallenge(body);
+   }
+
+   if(type=="SESSION_ESTABLISHED")
+   {
+      Print("FFBP SESSION: SESSION_ESTABLISHED received");
+
+      if(g_authenticated)
+      {
+         Print("FFBP SESSION FAIL: already authenticated");
+         return false;
+      }
+
+      string payload;
+
+      if(!FFBP_ExtractPayloadObject(body,payload))
+      {
+         Print("FFBP SESSION FAIL: unable to extract session payload");
+         return false;
+      }
+
+      string c2s_hex,s2c_hex;
+
+      if(!FFBP_ParseStringValue(payload,"c2s_key",c2s_hex))
+      {
+         Print("FFBP SESSION FAIL: c2s_key missing");
+         return false;
+      }
+
+      if(!FFBP_ParseStringValue(payload,"s2c_key",s2c_hex))
+      {
+         Print("FFBP SESSION FAIL: s2c_key missing");
+         return false;
+      }
+
+      if(!FFBP_HexDecode(c2s_hex,g_c2s_key) ||
+         !FFBP_HexDecode(s2c_hex,g_s2c_key))
+      {
+         Print("FFBP SESSION FAIL: key hex decode");
+         return false;
+      }
+
+      if(ArraySize(g_c2s_key)!=32 ||
+         ArraySize(g_s2c_key)!=32)
+      {
+         PrintFormat(
+            "FFBP SESSION FAIL: invalid key lengths c2s=%d s2c=%d",
+            ArraySize(g_c2s_key),
+            ArraySize(g_s2c_key));
+
+         return false;
+      }
+
+      uchar expected_c2s[],expected_s2c[];
+
+      // FFBP/1 canonical session-key derivation uses lowercase hex nonces,
+      // matching Python bytes.hex() and the AUTH transcript canonicalization.
+      string client_nonce=g_client_nonce;
+      string server_nonce=g_server_nonce;
+      StringToLower(client_nonce);
+      StringToLower(server_nonce);
+
+      if(!FFBP_DeriveSessionKeys(
+            InpSharedSecret,
+            InpAccountId,
+            g_session_id,
+            client_nonce,
+            server_nonce,
+            expected_c2s,
+            expected_s2c))
+      {
+         Print("FFBP SESSION FAIL: local session-key derivation");
+         return false;
+      }
+
+      if(StringCompare(
+            FFBP_Hex(g_c2s_key),
+            FFBP_Hex(expected_c2s))!=0 ||
+         StringCompare(
+            FFBP_Hex(g_s2c_key),
+            FFBP_Hex(expected_s2c))!=0)
+      {
+         Print("FFBP SESSION FAIL: derived session keys mismatch");
+         return false;
+      }
+
+      g_authenticated=true;
+      g_protective_only=true;
+      g_reconciliation_required=true;
+
+      Print("FFBP SESSION: authenticated session established");
+
+      return true;
+   }
+
    if(type=="RESYNC_REQUIRED" || type=="SNAPSHOT")
    {
       g_reconciliation_required=true;
       g_protective_only=true;
       return true;
    }
+
    if(type=="ERROR")
    {
       g_protective_only=true;
       return true;
    }
+
    // Effectful COMMAND/RESULT processing is intentionally blocked until the
    // challenge/auth/session-key and durable command journal are fully wired.
    if(type=="COMMAND")
    {
       g_protective_only=true;
       g_reconciliation_required=true;
+
+      Print("FFBP RX: COMMAND received while effectful path is locked");
+
       return false;
    }
+
    return true;
 }
 
+// -----------------------------------------------------------------------------
+// Bridge connection
+// -----------------------------------------------------------------------------
+
 bool ConnectBridge()
 {
-   if(g_socket!=INVALID_HANDLE) SocketClose(g_socket);
-   g_socket=SocketCreate();
-   if(g_socket==INVALID_HANDLE) return false;
-   if(!SocketConnect(g_socket,InpBridgeHost,InpBridgePort,InpConnectTimeoutMs))
+   Print("FFBP CONNECT: entered");
+
+   if(g_socket!=INVALID_HANDLE)
    {
-      SocketClose(g_socket); g_socket=INVALID_HANDLE; return false;
+      PrintFormat(
+         "FFBP CONNECT: closing existing socket handle=%d",
+         g_socket);
+
+      SocketClose(g_socket);
+      g_socket=INVALID_HANDLE;
    }
-   return SendHello();
+
+   Print("FFBP CONNECT: creating socket");
+
+   g_socket=SocketCreate();
+
+   if(g_socket==INVALID_HANDLE)
+   {
+      PrintFormat(
+         "FFBP CONNECT FAIL: SocketCreate error=%d",
+         GetLastError());
+
+      return false;
+   }
+
+   PrintFormat(
+      "FFBP CONNECT: socket created handle=%d",
+      g_socket);
+
+   PrintFormat(
+      "FFBP CONNECT: connecting to %s:%u timeout=%u",
+      InpBridgeHost,
+      InpBridgePort,
+      InpConnectTimeoutMs);
+
+   ResetLastError();
+
+   if(!SocketConnect(
+         g_socket,
+         InpBridgeHost,
+         InpBridgePort,
+         InpConnectTimeoutMs))
+   {
+      int error=GetLastError();
+
+      PrintFormat(
+         "FFBP CONNECT FAIL: SocketConnect error=%d",
+         error);
+
+      SocketClose(g_socket);
+      g_socket=INVALID_HANDLE;
+
+      return false;
+   }
+
+   Print("FFBP CONNECT: TCP connection established");
+
+   Print("FFBP CONNECT: sending HELLO");
+
+   ResetLastError();
+
+   if(!SendHello())
+   {
+      int error=GetLastError();
+
+      PrintFormat(
+         "FFBP CONNECT FAIL: SendHello error=%d",
+         error);
+
+      if(g_socket!=INVALID_HANDLE)
+      {
+         SocketClose(g_socket);
+         g_socket=INVALID_HANDLE;
+      }
+      ClearSessionMaterial();
+      return false;
+   }
+
+   Print("FFBP CONNECT: HELLO sent");
+
+   return true;
 }
+
+// -----------------------------------------------------------------------------
+// Initialization
+// -----------------------------------------------------------------------------
 
 int OnInit()
 {
-   if(!ValidateIdentity()) return INIT_FAILED;
-   if(InpTimerMs<10 || InpMaxFrameBytes<1024 || InpMaxDrainPerTimer==0) return INIT_FAILED;
-   if(!FFBP_LoadFence(InpAccountId,InpLaneId,g_session_epoch)) return INIT_FAILED;
+   Print("==================================================");
+   Print("FFBP INIT: entered");
+   Print("==================================================");
+
+   Print("FFBP INIT: validating identity");
+
+   if(!ValidateIdentity())
+   {
+      Print("FFBP INIT FAIL: ValidateIdentity");
+
+      return INIT_FAILED;
+   }
+
+   PrintFormat(
+      "FFBP INIT: identity OK account=%s lane=%s allow_real=%s",
+      InpAccountId,
+      InpLaneId,
+      InpAllowReal ? "true" : "false");
+
+   PrintFormat(
+      "FFBP INIT: TimerMs=%u MaxFrameBytes=%u MaxDrainPerTimer=%u ConnectTimeoutMs=%u",
+      InpTimerMs,
+      InpMaxFrameBytes,
+      InpMaxDrainPerTimer,
+      InpConnectTimeoutMs);
+
+   if(InpTimerMs<10 ||
+      InpMaxFrameBytes<1024 ||
+      InpMaxDrainPerTimer==0)
+   {
+      Print("FFBP INIT FAIL: input validation");
+
+      return INIT_FAILED;
+   }
+
+   Print("FFBP INIT: input validation OK");
+
+   PrintFormat(
+      "FFBP INIT: loading fence account=%s lane=%s",
+      InpAccountId,
+      InpLaneId);
+
+   ResetLastError();
+
+   if(!FFBP_LoadFence(
+         InpAccountId,
+         InpLaneId,
+         g_session_epoch))
+   {
+      PrintFormat(
+         "FFBP INIT FAIL: FFBP_LoadFence error=%d account=%s lane=%s",
+         GetLastError(),
+         InpAccountId,
+         InpLaneId);
+
+      return INIT_FAILED;
+   }
+
+   PrintFormat(
+      "FFBP INIT: fence loaded epoch=%I64u",
+      g_session_epoch);
+
    g_session_epoch++;
-   if(!FFBP_SaveFence(InpAccountId,InpLaneId,g_session_epoch)) return INIT_FAILED;
+
+   PrintFormat(
+      "FFBP INIT: saving fence epoch=%I64u",
+      g_session_epoch);
+
+   ResetLastError();
+
+   if(!FFBP_SaveFence(
+         InpAccountId,
+         InpLaneId,
+         g_session_epoch))
+   {
+      PrintFormat(
+         "FFBP INIT FAIL: FFBP_SaveFence error=%d account=%s lane=%s epoch=%I64u",
+         GetLastError(),
+         InpAccountId,
+         InpLaneId,
+         g_session_epoch);
+
+      return INIT_FAILED;
+   }
+
+   PrintFormat(
+      "FFBP INIT: fence saved epoch=%I64u",
+      g_session_epoch);
+
    g_protective_only=true;
    g_reconciliation_required=true;
-   if(!ConnectBridge()) return INIT_FAILED;
-   if(!EventSetMillisecondTimer((int)InpTimerMs)) return INIT_FAILED;
+
+   PrintFormat(
+      "FFBP INIT: connecting bridge host=%s port=%u",
+      InpBridgeHost,
+      InpBridgePort);
+
+   if(!ConnectBridge())
+   {
+      Print("FFBP INIT FAIL: ConnectBridge");
+
+      return INIT_FAILED;
+   }
+
+   Print("FFBP INIT: bridge connected and HELLO sent");
+
+   PrintFormat(
+      "FFBP INIT: installing timer interval=%u ms",
+      InpTimerMs);
+
+   ResetLastError();
+
+   if(!EventSetMillisecondTimer((int)InpTimerMs))
+   {
+      PrintFormat(
+         "FFBP INIT FAIL: EventSetMillisecondTimer error=%d",
+         GetLastError());
+
+      if(g_socket!=INVALID_HANDLE)
+      {
+         SocketClose(g_socket);
+         g_socket=INVALID_HANDLE;
+      }
+      ClearSessionMaterial();
+      return INIT_FAILED;
+   }
+
+   Print("FFBP INIT: SUCCESS");
+   Print("==================================================");
+
    return INIT_SUCCEEDED;
 }
 
+// -----------------------------------------------------------------------------
+// Deinitialization
+// -----------------------------------------------------------------------------
+
 void OnDeinit(const int reason)
 {
+   PrintFormat(
+      "FFBP DEINIT: reason=%d",
+      reason);
+
    EventKillTimer();
-   if(g_socket!=INVALID_HANDLE) { SocketClose(g_socket); g_socket=INVALID_HANDLE; }
+
+   if(g_socket!=INVALID_HANDLE)
+   {
+      SocketClose(g_socket);
+      g_socket=INVALID_HANDLE;
+   }
+
    g_authenticated=false;
    g_protective_only=true;
    g_reconciliation_required=true;
+
+   ClearSessionMaterial();
 }
+
+// -----------------------------------------------------------------------------
+// Timer / runtime
+// -----------------------------------------------------------------------------
 
 void OnTimer()
 {
-   if(g_socket==INVALID_HANDLE)
+   // Quarantine is terminal for this session. Recovery requires an explicit,
+   // separately verified lifecycle; never reconnect or replay from this timer.
+   if(g_quarantined)
    {
-      ConnectBridge();
+      g_authenticated=false;
+      g_protective_only=true;
+      g_reconciliation_required=true;
       MaintainProtectiveState();
       return;
    }
+
+   if(g_socket==INVALID_HANDLE)
+   {
+      g_quarantined=true;
+      g_authenticated=false;
+      g_protective_only=true;
+      g_reconciliation_required=true;
+      ClearSessionMaterial();
+      Print("FFBP TIMER: invalid socket; session quarantined");
+      MaintainProtectiveState();
+      return;
+   }
+
    for(uint i=0;i<InpMaxDrainPerTimer;i++)
    {
-      if(SocketIsReadable(g_socket)==0) break;
       string body;
-      if(!ReadFrame(body) || !ProcessFrame(body))
+      ResetLastError();
+      int frame_status=ReadFrame(body);
+      if(frame_status==0)
+         break; // No complete frame yet; retain partial bytes until their deadline.
+
+      if(frame_status<0)
       {
+         int read_error=GetLastError();
+         int buffered_at_failure=ArraySize(g_rx_buffer);
+         ulong frame_age_ms=0;
+         if(g_rx_frame_started_ms>0)
+            frame_age_ms=GetTickCount64()-g_rx_frame_started_ms;
+         string failure_reason=g_rx_failure_reason;
+         if(failure_reason=="")
+            failure_reason="UNCLASSIFIED_READFRAME_FAILURE";
+         int diagnostic_error=(g_rx_failure_error!=0 ? g_rx_failure_error : read_error);
+         PrintFormat("FFBP_RX_DIAG: reason=%s socket=%d buffered=%d frame_age_ms=%I64u error=%d; quarantining",
+                     failure_reason,g_socket,buffered_at_failure,frame_age_ms,diagnostic_error);
          g_quarantined=true;
          g_authenticated=false;
          g_protective_only=true;
          g_reconciliation_required=true;
+         if(g_socket!=INVALID_HANDLE)
+         {
+            SocketClose(g_socket);
+            g_socket=INVALID_HANDLE;
+         }
+         ClearSessionMaterial();
+         break;
+      }
+
+      if(!ProcessFrame(body))
+      {
+         int process_error=GetLastError();
+         PrintFormat("FFBP TIMER: PROCESS_FRAME_FAILURE error=%d; quarantining",
+                     process_error);
+         g_quarantined=true;
+         g_authenticated=false;
+         g_protective_only=true;
+         g_reconciliation_required=true;
+         if(g_socket!=INVALID_HANDLE)
+         {
+            SocketClose(g_socket);
+            g_socket=INVALID_HANDLE;
+         }
+         ClearSessionMaterial();
          break;
       }
    }
@@ -290,13 +1252,22 @@ void OnTimer()
 
 void MaintainProtectiveState()
 {
-   if(!g_authenticated || g_reconciliation_required || g_quarantined)
+   if(!g_authenticated ||
+      g_reconciliation_required ||
+      g_quarantined)
+   {
       g_protective_only=true;
+   }
 }
 
-void OnTradeTransaction(const MqlTradeTransaction &trans,
-                        const MqlTradeRequest &request,
-                        const MqlTradeResult &result)
+// -----------------------------------------------------------------------------
+// Trade observation boundary
+// -----------------------------------------------------------------------------
+
+void OnTradeTransaction(
+   const MqlTradeTransaction &trans,
+   const MqlTradeRequest &request,
+   const MqlTradeResult &result)
 {
    // O(1) evidence capture boundary. Never perform socket I/O or reconciliation here.
    // The full adapter will normalize this event into a bounded queue.

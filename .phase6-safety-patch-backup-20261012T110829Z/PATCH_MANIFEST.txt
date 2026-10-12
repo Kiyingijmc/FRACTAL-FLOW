@@ -1,0 +1,5 @@
+FRACTAL-FLOW Phase 6 safety patch
+UTC=20261012T110829Z
+Modified: FFBP_Broker.mqh, FFBP_Persistence.mqh
+Added: src/fractal_flow/execution/safety_gate.py, tests/test_safety_gate.py
+Not performed: MQL5 compile, runtime test, staging, commit, push, deployment.

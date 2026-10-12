@@ -1,0 +1,11 @@
+FRACTAL-FLOW PHASE 6 CURRENT SNAPSHOT
+
+Base: FRACTAL-FLOW-PHASE5-PART-B-FINAL-HARDENED-GREEN(3).zip
+MQL5 overlay: FRACTAL-FLOW-Phase6-MQL5-Bridge-Artifacts-v1.1.2.zip
+
+External verification recorded:
+- FractalFlowBridgeEA.mq5: 0 errors, 0 warnings
+- FFBP_CryptoSelfTest.mq5: 0 errors, 0 warnings
+- MT5 HMAC RFC 4231-style known-answer test: PASS
+
+This is not a final Phase 6 release artifact.

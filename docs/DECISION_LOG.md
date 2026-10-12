@@ -236,3 +236,41 @@ No remediation changes execution authority or permits News/Risk/Portfolio/Lane c
 - Every authoritative Part-B outcome is journaled with context envelope version 2. The envelope contains decision, authoritative opportunity, parent opportunity, account, SymbolSpec, portfolio state, requested risk, risk/portfolio configuration, correlations, lane/group, evaluation timestamp, News state hash, outcome and allocation evidence where available.
 - Earlier verification figures are historical/superseded. The canonical current baseline is 744 passed / 6 xfailed / 89.51% coverage for the ordinary repository regression excluding explicit R5/R6 stress modules.
 - R5 causal census execution is bounded by disposable worker processes. Ordinary pytest uses a small bounded smoke slice; exact 300-trial acceptance remains an explicit partitionable stress gate. A worker timeout is process-group terminated and cannot leave unrelated thread-pool workers draining indefinitely.
+
+## Phase 5 R5 verification-lifecycle remediation — 2026-10-07
+
+The prior R5 complete-module closure claim is superseded for current verification purposes. Independent reproduction showed that the first problematic prefix is tests 1–7: tests 1–6 complete, while test 7 can exceed 120 seconds in the WSL2/ext4 environment because real journal/snapshot/directory `fsync` operations wait in the Linux `jbd2_log_wait_commit` path. Tests 8 and 9 independently pass but exhibit the same durable-I/O-dominated latency. No process/thread/executor/SQLite/resource leak was established.
+
+Decision: preserve all real durability semantics and all R5 assertions. Do not remove or mock `fsync`, reduce the recovery workload merely to meet a timeout, or classify timeout as PASS. Replace the monolithic ordinary timing assumption with three explicit verification lanes: R5-A normal tests (1,2,3,5,6,10,11), R5-B durable recovery tests (7,8,9), and R5-C explicit stress-gate return tests (4,12,13). R5-B receives its own storage-aware execution budget and process-group containment.
+
+Implementation: `tools/r5_verification_runner.py` provides the canonical lane runner with configurable budgets, child-environment stress-gate clearing, wall/CPU timing, filesystem reporting, timeout process-group termination, and cleanup reporting. `tests/test_r5_verification_runner.py` verifies the 13-test partition and default budgets.
+
+Current classification: **R5 verification-lifecycle remediation IMPLEMENTED + EARLY-VERIFIED; complete R5 closure remains BLOCKED until R5-A/R5-B/R5-C are reproduced on the canonical WSL2 runner and the HPL/evidence records are reconciled.**
+
+## Phase 6 — staged implementation start — 2026-10-07
+
+Phase 6 implementation is proceeding from the verified R5 artifact, with the separately verified MQL5 Phase6Bridge overlaid without replacing the R5 Python baseline.
+
+### Phase 6A — canonical protocol foundation
+
+- Added `src/fractal_flow/execution/ffbp_protocol.py` as the Python protocol authority for FFBP/1 framing, canonical UTF-8 JSON, HMAC envelope authentication, account/session fencing, strict sequence handling, stable command identity contract, and bounded queues.
+- Existing MT5 4-byte big-endian framing is preserved; no transport replacement was introduced.
+- Sequence gaps are fail-closed and require explicit synchronization before the stream can resume.
+- Protocol code has no strategy/risk/broker authority and cannot create trade direction or effectful broker requests.
+
+### Phase 6B — durable command lifecycle
+
+- Added `src/fractal_flow/execution/command_ledger.py` as the authoritative Python SQLite command ledger.
+- Stable command identity is `(account_id, command_id)`; conflicting fingerprints are rejected.
+- `UNKNOWN` is durable across restart and cannot transition directly back to `SENT`/`BROKER_PENDING`.
+- MT5 command persistence remains defensive evidence/deduplication rather than a second application authority.
+
+### Phase 6C — broker truth normalization
+
+- Added `src/fractal_flow/execution/broker_truth.py` for explicit account context, netting/hedging mode, order/deal/position normalization, observation authority/provenance, position ticket + stable identifier, and reconciliation outcomes including UNKNOWN and PARTIAL.
+- Authoritative broker absence can resolve to REJECTED; non-authoritative absence remains UNKNOWN.
+- Partial fills are represented explicitly and are not collapsed into binary success/failure.
+
+Focused verification: 15 Phase 6A-C tests passed with `--no-cov`.
+
+Phase 6 remains development/test only. Effectful broker command dispatch, autonomous protection, runtime MT5 interoperability, restart campaign, and final closure remain gated and are not claimed implemented or verified by this entry.

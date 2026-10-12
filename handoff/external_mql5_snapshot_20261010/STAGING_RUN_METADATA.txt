@@ -1,0 +1,8 @@
+created_utc=2026-10-09T23:30:53Z
+host=JMC
+repository_root=/home/kiyingijmc/projects/FractalFlow
+terminal_mql5_root=/mnt/c/Users/danie/AppData/Roaming/MetaQuotes/Terminal/776D2ACDFA4F66FAF3C8985F75FA9FF6/MQL5
+destination=/home/kiyingijmc/projects/FractalFlow/handoff/external_mql5_snapshot_20261010
+script=stage_external_mql5_sources.sh
+policy=copy-only; no original files modified or deleted
+selection=FractalFlow/FFBP-related .mq5/.mqh paths and relevant FFBP/fractalflow global Include files

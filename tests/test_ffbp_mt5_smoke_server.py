@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+import socket
+import subprocess
+import sys
+import time
+
+from src.fractal_flow.execution.ffbp_protocol import Channel, ProtocolEnvelope, decode_envelope, encode_envelope
+from src.fractal_flow.execution.ffbp_session import Challenge, derive_session_keys
+
+
+def recv_frame(conn: socket.socket) -> bytes:
+    header = conn.recv(4)
+    assert len(header) == 4
+    n = int.from_bytes(header, "big")
+    body = bytearray()
+    while len(body) < n:
+        body.extend(conn.recv(n - len(body)))
+    return header + bytes(body)
+
+
+def test_local_mt5_session_server_handshake(tmp_path):
+    port = 39117
+    secret = b"shared-secret"
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "tools/ffbp_mt5_session_smoke_server.py",
+            "--port",
+            str(port),
+            "--account-id",
+            "ACC",
+            "--shared-secret",
+            secret.decode(),
+            "--hold-seconds",
+            "0",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                conn = socket.create_connection(("127.0.0.1", port), timeout=1)
+                break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("smoke server did not listen")
+        with conn:
+            challenge_id = "SESSION"
+            client_nonce = bytes(32)
+            hello = ProtocolEnvelope(
+                message_type="HELLO",
+                account_id="ACC",
+                session_id=challenge_id,
+                channel=Channel.CONTROL,
+                sequence=1,
+                sent_at_ms=1,
+                payload={"account_id": "ACC", "client_nonce": client_nonce.hex(), "lane_id": "test"},
+            )
+            conn.sendall(encode_envelope(hello, secret))
+            challenge_env = decode_envelope(recv_frame(conn), secret)
+            server_nonce = bytes.fromhex(challenge_env.payload["server_nonce"])
+            challenge = Challenge("ACC", challenge_id, client_nonce, server_nonce)
+            auth = ProtocolEnvelope(
+                message_type="AUTH",
+                account_id="ACC",
+                session_id=challenge_id,
+                channel=Channel.CONTROL,
+                sequence=2,
+                sent_at_ms=2,
+                payload={"proof": challenge.proof(secret)},
+            )
+            conn.sendall(encode_envelope(auth, secret))
+            established = decode_envelope(recv_frame(conn), secret)
+            c2s, s2c = derive_session_keys(secret, "ACC", challenge_id, client_nonce, server_nonce)
+            assert established.payload == {"c2s_key": c2s.hex(), "s2c_key": s2c.hex()}
+            heartbeat = decode_envelope(recv_frame(conn), s2c)
+            assert heartbeat.message_type == "HEARTBEAT"
+            ack = ProtocolEnvelope(
+                message_type="ACK",
+                account_id="ACC",
+                session_id=challenge_id,
+                channel=Channel.CONTROL,
+                sequence=3,
+                sent_at_ms=3,
+                payload={},
+            )
+            conn.sendall(encode_envelope(ack, c2s))
+        assert proc.wait(timeout=5) == 0
+        output = proc.stdout.read() if proc.stdout else ""
+        assert "FFBP_SMOKE_PASS" in output
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()

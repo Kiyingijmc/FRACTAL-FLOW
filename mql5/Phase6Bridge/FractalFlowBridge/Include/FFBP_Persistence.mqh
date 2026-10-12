@@ -70,11 +70,20 @@ bool FFBP_LoadFence(const string account_id,const string lane_id,ulong &epoch)
    if(!FileIsExist(path,FILE_COMMON)) { epoch=0; return true; }
    int h=FileOpen(path,FILE_READ|FILE_BIN|FILE_COMMON|FILE_SHARE_READ);
    if(h==INVALID_HANDLE) return false;
+   // Version 1 fence has exact encoding: magic(4), version(4), epoch(8).
+   // Reject truncated or trailing data instead of accepting ambiguous state.
+   if(FileSize(h)!=16)
+   {
+      FileClose(h);
+      return false;
+   }
    int magic=FileReadInteger(h,INT_VALUE);
    int ver=FileReadInteger(h,INT_VALUE);
    long e=FileReadLong(h);
+   bool at_eof=FileIsEnding(h);
    FileClose(h);
-   if(magic!=FFBP_STATE_MAGIC || ver!=FFBP_STATE_VERSION || e<0) return false;
+   if(magic!=FFBP_STATE_MAGIC || ver!=FFBP_STATE_VERSION || e<0 || !at_eof)
+      return false;
    epoch=(ulong)e;
    return true;
 }

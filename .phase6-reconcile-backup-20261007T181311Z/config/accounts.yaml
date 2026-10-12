@@ -1,0 +1,6 @@
+accounts:
+  ACT_PRIMARY:
+    broker: GENERIC_BROKER
+    currency: USD
+    enabled: true
+    default_lane: PRIMARY

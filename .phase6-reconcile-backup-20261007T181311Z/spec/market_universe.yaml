@@ -1,0 +1,11 @@
+universe_modes:
+  - MANUAL
+  - SMART
+  - AUTO
+  - HYBRID
+
+resource_profiles:
+  - LIGHT
+  - BALANCED
+  - FULL
+  - CUSTOM
