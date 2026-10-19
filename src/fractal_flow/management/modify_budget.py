@@ -1,0 +1,176 @@
+"""Durable fail-closed reservation budget for protective-stop modifications.
+
+A reservation is persisted before any broker request. This intentionally spends
+budget even if the caller crashes before sending: safety is preferred over
+retrying a possibly-sent modification. This module does not send broker orders.
+"""
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+
+
+class ModifyBudgetError(ValueError):
+    """Invalid modify-budget policy or reservation input."""
+
+
+class ReservationStatus(StrEnum):
+    RESERVED = "RESERVED"
+    DUPLICATE_ACTION = "DUPLICATE_ACTION"
+    RATE_LIMITED = "RATE_LIMITED"
+    CLOCK_ROLLBACK = "CLOCK_ROLLBACK"
+
+
+@dataclass(frozen=True)
+class ModifyBudgetPolicy:
+    max_attempts: int
+    window_ms: int
+    min_interval_ms: int = 0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int) or self.max_attempts < 1:
+            raise ModifyBudgetError("max_attempts must be a positive integer")
+        for name in ("window_ms", "min_interval_ms"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ModifyBudgetError(f"{name} must be a non-negative integer")
+        if self.window_ms == 0:
+            raise ModifyBudgetError("window_ms must be positive")
+
+
+@dataclass(frozen=True)
+class ReservationResult:
+    status: ReservationStatus
+    scope_key: str
+    action_id: str
+    observed_at_ms: int
+    attempts_in_window: int
+    next_eligible_at_ms: int | None = None
+
+    @property
+    def allowed(self) -> bool:
+        return self.status is ReservationStatus.RESERVED
+
+
+class SQLiteModifyBudget:
+    """SQLite-backed atomic reservation store.
+
+    Use a stable scope key that includes the broker/account/lane/position/symbol
+    identity. Call ``reserve`` before sending a modify request. Duplicate action
+    IDs are denied (not re-authorized), preventing a retry from treating an old
+    reservation as permission to resend.
+    """
+
+    def __init__(self, database_path: str | Path, policy: ModifyBudgetPolicy) -> None:
+        self._path = str(database_path)
+        if not self._path.strip() or self._path == ":memory:":
+            raise ModifyBudgetError("a persistent SQLite database path is required")
+        self._policy = policy
+        Path(self._path).parent.mkdir(parents=True, exist_ok=True)
+        connection = self._connect()
+        try:
+            # Journal mode is database-level configuration. Initialize it once
+            # here rather than racing to set it on every concurrent connection.
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS modify_budget_reservations (
+                    scope_key TEXT NOT NULL,
+                    action_id TEXT NOT NULL,
+                    reserved_at_ms INTEGER NOT NULL CHECK(reserved_at_ms >= 0),
+                    PRIMARY KEY(scope_key, action_id)
+                )"""
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_modify_budget_scope_time "
+                "ON modify_budget_reservations(scope_key, reserved_at_ms)"
+            )
+        finally:
+            connection.close()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self._path, timeout=10.0, isolation_level=None)
+        connection.execute("PRAGMA busy_timeout=10000")
+        connection.execute("PRAGMA synchronous=FULL")
+        return connection
+
+    def reserve(self, scope_key: str, action_id: str, now_ms: int) -> ReservationResult:
+        """Atomically reserve a modification slot or deny it without side effects."""
+        _require_key("scope_key", scope_key)
+        _require_key("action_id", action_id)
+        if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
+            raise ModifyBudgetError("now_ms must be a non-negative integer")
+
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            duplicate = connection.execute(
+                "SELECT 1 FROM modify_budget_reservations WHERE scope_key=? AND action_id=?",
+                (scope_key, action_id),
+            ).fetchone()
+            if duplicate is not None:
+                count = _count_window(connection, scope_key, now_ms, self._policy.window_ms)
+                connection.execute("COMMIT")
+                return ReservationResult(ReservationStatus.DUPLICATE_ACTION, scope_key, action_id, now_ms, count)
+
+            latest_row = connection.execute(
+                "SELECT MAX(reserved_at_ms) FROM modify_budget_reservations WHERE scope_key=?",
+                (scope_key,),
+            ).fetchone()
+            latest = latest_row[0] if latest_row else None
+            if latest is not None and now_ms < latest:
+                count = _count_window(connection, scope_key, latest, self._policy.window_ms)
+                connection.execute("COMMIT")
+                return ReservationResult(ReservationStatus.CLOCK_ROLLBACK, scope_key, action_id, now_ms, count, latest)
+
+            # Old rows may be pruned only after rollback detection; retain the most
+            # recent timestamp to preserve clock-rollback detection across restarts.
+            cutoff = now_ms - self._policy.window_ms
+            connection.execute(
+                "DELETE FROM modify_budget_reservations WHERE scope_key=? AND reserved_at_ms < ? "
+                "AND reserved_at_ms < (SELECT MAX(reserved_at_ms) FROM modify_budget_reservations WHERE scope_key=?)",
+                (scope_key, cutoff, scope_key),
+            )
+            count = _count_window(connection, scope_key, now_ms, self._policy.window_ms)
+            if latest is not None and now_ms - latest < self._policy.min_interval_ms:
+                eligible = latest + self._policy.min_interval_ms
+                connection.execute("COMMIT")
+                return ReservationResult(ReservationStatus.RATE_LIMITED, scope_key, action_id, now_ms, count, eligible)
+            if count >= self._policy.max_attempts:
+                oldest = connection.execute(
+                    "SELECT MIN(reserved_at_ms) FROM modify_budget_reservations "
+                    "WHERE scope_key=? AND reserved_at_ms >= ? AND reserved_at_ms <= ?",
+                    (scope_key, cutoff, now_ms),
+                ).fetchone()[0]
+                eligible = oldest + self._policy.window_ms if oldest is not None else None
+                connection.execute("COMMIT")
+                return ReservationResult(ReservationStatus.RATE_LIMITED, scope_key, action_id, now_ms, count, eligible)
+
+            connection.execute(
+                "INSERT INTO modify_budget_reservations(scope_key, action_id, reserved_at_ms) VALUES (?, ?, ?)",
+                (scope_key, action_id, now_ms),
+            )
+            count += 1
+            connection.execute("COMMIT")
+            return ReservationResult(ReservationStatus.RESERVED, scope_key, action_id, now_ms, count)
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+        finally:
+            connection.close()
+
+
+def _count_window(connection: sqlite3.Connection, scope_key: str, now_ms: int, window_ms: int) -> int:
+    row = connection.execute(
+        "SELECT COUNT(*) FROM modify_budget_reservations "
+        "WHERE scope_key=? AND reserved_at_ms > ? AND reserved_at_ms <= ?",
+        (scope_key, now_ms - window_ms, now_ms),
+    ).fetchone()
+    return int(row[0])
+
+
+def _require_key(name: str, value: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ModifyBudgetError(f"{name} is required")

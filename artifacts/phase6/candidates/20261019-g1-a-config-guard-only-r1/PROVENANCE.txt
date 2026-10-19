@@ -1,0 +1,33 @@
+timestamp_utc=2026-10-19T06:50:36Z
+repo=/home/kiyingijmc/projects/FractalFlow
+base_path=mql5/Phase6Bridge/FractalFlowBridge/FractalFlowBridgeEA.mq5
+candidate_path=artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/mql5/FractalFlowBridgeEA.G1A_CANDIDATE.mq5
+head_before=6d7d1e66d69698d8a8d9029dea628b09442dc779
+base_sha256_before=95bc98a023869e1abca4b1a7e2186de2dd9228b802c4d9b52e3ccc460c53dcb8
+test_exit_code=0
+canonical_sha256_after=95bc98a023869e1abca4b1a7e2186de2dd9228b802c4d9b52e3ccc460c53dcb8
+head_after=6d7d1e66d69698d8a8d9029dea628b09442dc779
+index_hash_before=5c8aab5f2d33795295bb72eb65e53792738766db916ba2c4e9183cd241754664
+index_hash_after=5c8aab5f2d33795295bb72eb65e53792738766db916ba2c4e9183cd241754664
+worktree_status_hash_before=f560c9ac4d7d29ecb354a6d692ac4178ebe4094af8bae86c62e3f1c0c0ecce00
+worktree_status_hash_after=192d4016c2c5d759674d11eaf40a35049584d48f33f53e67b44b57f8cb1cd466
+
+Candidate source diff:
+--- /home/kiyingijmc/projects/FractalFlow/mql5/Phase6Bridge/FractalFlowBridge/FractalFlowBridgeEA.mq5	2026-10-12 21:39:49.496295734 +0300
++++ /home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/mql5/FractalFlowBridgeEA.G1A_CANDIDATE.mq5	2026-10-19 09:50:34.689046823 +0300
+@@ -1036,6 +1036,7 @@
+ 
+    if(InpTimerMs<10 ||
+       InpMaxFrameBytes<1024 ||
++      InpMaxFrameBytes>65536 ||
+       InpMaxDrainPerTimer==0)
+    {
+       Print("FFBP INIT FAIL: input validation");
+
+Candidate files:
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/PROVENANCE.txt
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/README.md
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/mql5/FractalFlowBridgeEA.G1A_CANDIDATE.mq5
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/patches/G1A_config_guard_only.patch
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/pytest_exit_code.txt
+/home/kiyingijmc/projects/FractalFlow/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/tests/test_g1a_guard_only.py

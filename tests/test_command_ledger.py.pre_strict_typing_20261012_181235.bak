@@ -1,0 +1,57 @@
+from src.fractal_flow.execution.command_ledger import CommandLedgerRecord, DurableCommandLedger
+from src.fractal_flow.execution.ffbp_protocol import CommandConflictError, CommandState
+import pytest
+
+
+def rec(fp="fp"):
+    return CommandLedgerRecord("A", "C1", "I1", fp, CommandState.PERSISTED, 1, 1, 1000)
+
+
+def test_durable_command_identity_and_restart(tmp_path):
+    db = tmp_path / "commands.sqlite"
+    ledger = DurableCommandLedger(str(db))
+    assert ledger.create(rec()).state is CommandState.PERSISTED
+    ledger.transition("A", "C1", CommandState.DISPATCHABLE, 2)
+    ledger.transition("A", "C1", CommandState.SENT, 3)
+    ledger.transition("A", "C1", CommandState.UNKNOWN, 4)
+    restarted = DurableCommandLedger(str(db))
+    assert restarted.get("A", "C1").state is CommandState.UNKNOWN
+
+
+def test_transition_returns_updated_record_from_same_transaction(tmp_path):
+    db = tmp_path / "commands.sqlite"
+    ledger = DurableCommandLedger(str(db))
+    ledger.create(rec())
+
+    updated = ledger.transition(
+        "A",
+        "C1",
+        CommandState.DISPATCHABLE,
+        2,
+        result={"decision": "accepted"},
+        broker_reference="test-reference",
+    )
+
+    assert updated.state is CommandState.DISPATCHABLE
+    assert updated.updated_at_ms == 2
+    assert updated.result == {"decision": "accepted"}
+    assert updated.broker_reference == "test-reference"
+    assert ledger.get("A", "C1") == updated
+
+
+def test_same_identity_is_idempotent_but_conflict_is_fatal(tmp_path):
+    ledger = DurableCommandLedger(str(tmp_path / "c.sqlite"))
+    first = ledger.create(rec())
+    assert ledger.create(rec()) == first
+    with pytest.raises(CommandConflictError):
+        ledger.create(rec("different"))
+
+
+def test_unknown_cannot_blindly_resend(tmp_path):
+    ledger = DurableCommandLedger(str(tmp_path / "c.sqlite"))
+    ledger.create(rec())
+    ledger.transition("A", "C1", CommandState.DISPATCHABLE, 2)
+    ledger.transition("A", "C1", CommandState.SENT, 3)
+    ledger.transition("A", "C1", CommandState.UNKNOWN, 4)
+    with pytest.raises(ValueError, match="blindly resend"):
+        ledger.transition("A", "C1", CommandState.SENT, 5)

@@ -1,0 +1,12 @@
+G1 RX candidate r1 provenance
+Snapshot HEAD=6d7d1e66d69698d8a8d9029dea628b09442dc779
+Canonical EA SHA256 before patch=95bc98a023869e1abca4b1a7e2186de2dd9228b802c4d9b52e3ccc460c53dcb8
+Candidate EA SHA256=1679139a1c4c5e86d6095bc1bd44d4a65b6d4a6799855703aef92265449d673a
+Change=add InpMaxFrameBytes > 65536 guard before fence load / bridge connect
+Canonical WSL source modified=NO
+Deployed MT5 source/EX5 modified=NO
+Git index/history modified=NO
+Live state modified=NO
+MetaEditor compile=NOT RUN
+MT5 runtime=NOT RUN
+Release=BLOCKED / DEMO-ONLY / NO RELEASE APPROVAL

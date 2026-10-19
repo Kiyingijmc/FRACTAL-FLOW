@@ -118,6 +118,8 @@ class DurableCommandLedger:
         *, result: dict[str, Any] | None = None, broker_reference: str | None = None,
     ) -> CommandLedgerRecord:
         with self._lock, self._connect() as conn:
+            # Serialize writers before reading and validating the current state.
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT account_id,command_id,intent_id,fingerprint,state,created_at_ms,updated_at_ms,expires_at_ms,broker_reference,result_json FROM execution_commands WHERE account_id=? AND command_id=?",
                 (account_id, command_id),
@@ -127,14 +129,108 @@ class DurableCommandLedger:
             current = self._row(row)
             if new_state in {CommandState.SENT, CommandState.BROKER_PENDING} and current.state == CommandState.UNKNOWN:
                 raise ValueError("UNKNOWN commands cannot blindly resend")
-            if new_state != current.state and new_state not in _ALLOWED_TRANSITIONS[current.state]:
+            if new_state == current.state:
+                raise ValueError(f"same-state command transition is not a claim: {current.state.value}")
+            if new_state not in _ALLOWED_TRANSITIONS[current.state]:
                 raise ValueError(f"invalid command transition {current.state.value} -> {new_state.value}")
-            conn.execute(
-                "UPDATE execution_commands SET state=?,updated_at_ms=?,broker_reference=?,result_json=? WHERE account_id=? AND command_id=?",
-                (new_state.value, now_ms, broker_reference or current.broker_reference,
-                 None if result is None else json.dumps(result, sort_keys=True, separators=(",", ":")), account_id, command_id),
+
+            updated_cursor = conn.execute(
+                "UPDATE execution_commands SET state=?,updated_at_ms=?,broker_reference=?,result_json=? WHERE account_id=? AND command_id=? AND state=?",
+                (
+                    new_state.value,
+                    now_ms,
+                    broker_reference or current.broker_reference,
+                    None if result is None else json.dumps(result, sort_keys=True, separators=(",", ":")),
+                    account_id,
+                    command_id,
+                    current.state.value,
+                ),
             )
-            return self.get(account_id, command_id)  # type: ignore[return-value]
+            if updated_cursor.rowcount != 1:
+                raise RuntimeError("command state changed concurrently")
+
+            updated = conn.execute(
+                "SELECT account_id,command_id,intent_id,fingerprint,state,created_at_ms,updated_at_ms,expires_at_ms,broker_reference,result_json FROM execution_commands WHERE account_id=? AND command_id=?",
+                (account_id, command_id),
+            ).fetchone()
+            if updated is None:
+                raise RuntimeError("command disappeared during transition")
+            return self._row(updated)
+
+    def claim_dispatch(
+        self, account_id: str, command_id: str, now_ms: int,
+    ) -> CommandLedgerRecord | None:
+        """Atomically claim a DISPATCHABLE command by moving it to SENT.
+
+        Returns the newly claimed record only to the worker that performs the
+        DISPATCHABLE -> SENT transition. Returns None if another worker already
+        claimed the command or it is otherwise not DISPATCHABLE. An unknown
+        command raises KeyError. The caller must invoke the broker only when
+        this method returns a record. SENT is persisted before the caller may
+        make the broker call; a crash after the claim is intentionally not
+        treated as permission to retry.
+
+        This is an application-level dispatch claim, not proof that the broker
+        received or executed the request.
+        """
+        if isinstance(now_ms, bool) or not isinstance(now_ms, int) or now_ms < 0:
+            raise ValueError("now_ms must be a non-negative integer")
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT account_id,command_id,intent_id,fingerprint,state,created_at_ms,updated_at_ms,expires_at_ms,broker_reference,result_json "
+                "FROM execution_commands WHERE account_id=? AND command_id=?",
+                (account_id, command_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown command {account_id}/{command_id}")
+            current = self._row(row)
+            if current.state is not CommandState.DISPATCHABLE:
+                return None
+
+            # Enforce expiry inside the atomic dispatch-claim transaction.
+            if (
+                current.expires_at_ms is not None
+                and now_ms >= current.expires_at_ms
+            ):
+                expired_cursor = conn.execute(
+                    "UPDATE execution_commands SET state=?,updated_at_ms=? "
+                    "WHERE account_id=? AND command_id=? AND state=?",
+                    (
+                        CommandState.EXPIRED.value,
+                        now_ms,
+                        account_id,
+                        command_id,
+                        CommandState.DISPATCHABLE.value,
+                    ),
+                )
+                if expired_cursor.rowcount != 1:
+                    return None
+                return None
+
+            updated_cursor = conn.execute(
+                "UPDATE execution_commands SET state=?,updated_at_ms=? "
+                "WHERE account_id=? AND command_id=? AND state=?",
+                (
+                    CommandState.SENT.value,
+                    now_ms,
+                    account_id,
+                    command_id,
+                    CommandState.DISPATCHABLE.value,
+                ),
+            )
+            if updated_cursor.rowcount != 1:
+                # BEGIN IMMEDIATE should serialize SQLite writers. Keep this
+                # conditional-update guard as a fail-closed invariant.
+                return None
+            updated = conn.execute(
+                "SELECT account_id,command_id,intent_id,fingerprint,state,created_at_ms,updated_at_ms,expires_at_ms,broker_reference,result_json "
+                "FROM execution_commands WHERE account_id=? AND command_id=?",
+                (account_id, command_id),
+            ).fetchone()
+            if updated is None:
+                raise RuntimeError("command disappeared during dispatch claim")
+            return self._row(updated)
 
     def all_records(self) -> list[CommandLedgerRecord]:
         with self._lock, self._connect() as conn:

@@ -1,0 +1,11 @@
+G1 isolated candidate provenance
+UTC_BUILD=2026-10-13 (container build time)
+G0 archive SHA256=585e46691f17813d19f770fa03eb40ebd47765040acfcbface36758d413e6e84
+Canonical baseline EA SHA256=95bc98a023869e1abca4b1a7e2186de2dd9228b802c4d9b52e3ccc460c53dcb8
+Candidate EA SHA256=1919f633679928f5a054fa28a09545388053016b9b5e73f536ab9fed4382f3ba
+Canonical branch at capture=phase6-forensic-baseline
+Canonical HEAD at capture=6d7d1e66d69698d8a8d9029dea628b09442dc779
+Writes to canonical WSL/deployed MT5/Git/live state=NONE
+MetaEditor compile=NOT RUN
+MT5 runtime=NOT RUN
+Release=BLOCKED / DEMO-ONLY / NO RELEASE APPROVAL

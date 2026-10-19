@@ -89,6 +89,12 @@ class DurableEventJournal:
             self._global_sequence = next_global_seq
             return record
 
+    def get_aggregate_sequence(self, aggregate_type: str, aggregate_id: str) -> int:
+        """Return the indexed last aggregate version, or zero when absent."""
+        key = f"{aggregate_type}:{aggregate_id}"
+        with self._lock:
+            return self._aggregate_sequences.get(key, 0)
+
     def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
         with self._lock:
             return [

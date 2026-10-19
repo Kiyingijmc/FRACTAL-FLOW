@@ -31,8 +31,8 @@ bool FFBP_WriteString(int h,const string s)
    StringToCharArray(s,b,0,-1,CP_UTF8);
    int n=ArraySize(b);
    if(n>0 && b[n-1]==0) n--;
-   FileWriteInteger(h,n,INT_VALUE);
-   if(n>0) FileWriteArray(h,b,0,n);
+   if(FileWriteInteger(h,n,INT_VALUE)!=4) return false;
+   if(n>0 && FileWriteArray(h,b,0,n)!=n) return false;
    return true;
 }
 
@@ -50,24 +50,78 @@ bool FFBP_ReadString(int h,string &s)
 
 bool FFBP_SaveFence(const string account_id,const string lane_id,const ulong epoch)
 {
+   if(epoch>0x7FFFFFFFFFFFFFFF) return false;
    string tmp=FFBP_StatePath(account_id,lane_id)+".tmp";
    int h=FileOpen(tmp,FILE_WRITE|FILE_BIN|FILE_COMMON);
    if(h==INVALID_HANDLE) return false;
-   FileWriteInteger(h,FFBP_STATE_MAGIC,INT_VALUE);
-   FileWriteInteger(h,FFBP_STATE_VERSION,INT_VALUE);
-   FileWriteLong(h,(long)epoch);
+   if(FileWriteInteger(h,FFBP_STATE_MAGIC,INT_VALUE)!=4)
+   {
+      FileClose(h);
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
+   if(FileWriteInteger(h,FFBP_STATE_VERSION,INT_VALUE)!=4)
+   {
+      FileClose(h);
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
+   if(FileWriteLong(h,(long)epoch)!=8)
+   {
+      FileClose(h);
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
    FileFlush(h);
    FileClose(h);
+
+   // Verify the complete temporary record before replacing the existing fence.
+   int verify_handle=FileOpen(
+      tmp,FILE_READ|FILE_BIN|FILE_COMMON|FILE_SHARE_READ);
+   if(verify_handle==INVALID_HANDLE)
+   {
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
+   if(FileSize(verify_handle)!=16)
+   {
+      FileClose(verify_handle);
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
+
+   int verify_magic=FileReadInteger(verify_handle,INT_VALUE);
+   int verify_version=FileReadInteger(verify_handle,INT_VALUE);
+   long verify_epoch=FileReadLong(verify_handle);
+   bool verify_eof=FileIsEnding(verify_handle);
+   bool verify_ok=(
+      verify_magic==FFBP_STATE_MAGIC &&
+      verify_version==FFBP_STATE_VERSION &&
+      verify_epoch==(long)epoch &&
+      verify_epoch>=0 &&
+      verify_eof
+   );
+   FileClose(verify_handle);
+
+   if(!verify_ok)
+   {
+      FileDelete(tmp,FILE_COMMON);
+      return false;
+   }
+
    string final_path=FFBP_StatePath(account_id,lane_id);
-   // Replace through FileMove after deleting stale destination. Both operations
-   // remain inside the MQL5 file sandbox; crash semantics are tested manually.
+   // Read-back checks record completeness, not power-loss durability or
+   // atomic replacement. Those properties remain separate verification gates.
    return FileMove(tmp,FILE_COMMON,final_path,FILE_COMMON|FILE_REWRITE);
 }
 
 bool FFBP_LoadFence(const string account_id,const string lane_id,ulong &epoch)
 {
    string path=FFBP_StatePath(account_id,lane_id);
-   if(!FileIsExist(path,FILE_COMMON)) { epoch=0; return true; }
+   if(!FileIsExist(path,FILE_COMMON))
+   {
+      return false;
+   }
    int h=FileOpen(path,FILE_READ|FILE_BIN|FILE_COMMON|FILE_SHARE_READ);
    if(h==INVALID_HANDLE) return false;
    // Version 1 fence has exact encoding: magic(4), version(4), epoch(8).
@@ -95,19 +149,26 @@ bool FFBP_AppendCommand(const string account_id,const string lane_id,const FFBP_
    string path="FractalFlowBridge\\"+account_id+"\\"+lane_id+"\\commands.log";
    int h=FileOpen(path,FILE_READ|FILE_WRITE|FILE_BIN|FILE_COMMON|FILE_SHARE_READ|FILE_SHARE_WRITE);
    if(h==INVALID_HANDLE) return false;
-   FileSeek(h,0,SEEK_END);
-   FileWriteInteger(h,0x434D4431,INT_VALUE);
-   FileWriteInteger(h,1,INT_VALUE);
-   FFBP_WriteString(h,r.account_id);
-   FFBP_WriteString(h,r.command_id);
-   FFBP_WriteString(h,r.fingerprint);
-   FileWriteLong(h,(long)r.session_epoch);
-   FFBP_WriteString(h,r.state);
-   FFBP_WriteString(h,r.broker_ref);
-   FFBP_WriteString(h,r.result);
+   if(!FileSeek(h,0,SEEK_END))
+   {
+      FileClose(h);
+      return false;
+   }
+
+   bool ok=true;
+   if(FileWriteInteger(h,0x434D4431,INT_VALUE)!=4) ok=false;
+   if(ok && FileWriteInteger(h,1,INT_VALUE)!=4) ok=false;
+   if(ok && !FFBP_WriteString(h,r.account_id)) ok=false;
+   if(ok && !FFBP_WriteString(h,r.command_id)) ok=false;
+   if(ok && !FFBP_WriteString(h,r.fingerprint)) ok=false;
+   if(ok && FileWriteLong(h,(long)r.session_epoch)!=8) ok=false;
+   if(ok && !FFBP_WriteString(h,r.state)) ok=false;
+   if(ok && !FFBP_WriteString(h,r.broker_ref)) ok=false;
+   if(ok && !FFBP_WriteString(h,r.result)) ok=false;
+   // FileFlush is void in MQL5; this does not prove power-loss durability.
    FileFlush(h);
    FileClose(h);
-   return true;
+   return ok;
 }
 
 #endif

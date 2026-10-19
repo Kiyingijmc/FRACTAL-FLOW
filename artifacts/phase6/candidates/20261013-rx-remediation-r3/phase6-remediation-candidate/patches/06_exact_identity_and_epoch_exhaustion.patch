@@ -1,0 +1,32 @@
+--- a/ea/FractalFlowBridgeEA.REMEDIATED.mq5
++++ b/ea/FractalFlowBridgeEA.REMEDIATED.mq5
+@@ -82,10 +82,11 @@
+       return false;
+ 
+    // Deployment identity is an execution boundary, not informational metadata.
+-   // The configured account must equal the terminal's actual login.
+-   long configured_login=StringToInteger(InpAccountId);
++   // Require the exact canonical decimal representation of the terminal login.
++   // Numeric parsing alone would accept aliases such as leading-zero account IDs.
+    long actual_login=AccountInfoInteger(ACCOUNT_LOGIN);
+-   if(configured_login<=0 || configured_login!=actual_login)
++   string actual_login_text=IntegerToString(actual_login);
++   if(actual_login<=0 || InpAccountId!=actual_login_text)
+    {
+       PrintFormat(
+          "FFBP INIT FAIL: account identity mismatch configured=%s actual=%I64d",
+@@ -1229,6 +1230,14 @@
+       "FFBP INIT: fence loaded epoch=%I64u",
+       g_session_epoch);
+ 
++   // The durable fence stores a signed 64-bit value. Never wrap or attempt to
++   // persist an epoch that the canonical persistence layer must reject.
++   if(g_session_epoch>=0x7FFFFFFFFFFFFFFF)
++   {
++      Print("FFBP INIT FAIL: session epoch exhausted; refusing to wrap fence");
++      return INIT_FAILED;
++   }
++
+    g_session_epoch++;
+ 
+    PrintFormat(

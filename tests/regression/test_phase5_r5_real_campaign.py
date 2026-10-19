@@ -308,7 +308,15 @@ def test_r5_opportunity_ledger_staging_is_copy_on_write() -> None:
     assert orchestrator._opportunities == {}
 
 
-def _make_durable_stores(tmp_path, bars):
+def _make_durable_stores(tmp_path, bars, *, persist_checkpoints=True):
+    """Build durable Phase 2 journals for reconstruction tests.
+
+    Journal events always use the production append path, including fsync.
+    The reconstruction-only caller may omit non-authoritative checkpoints
+    to avoid repeated snapshot fsyncs during fixture setup.
+    """
+    from unittest.mock import patch
+
     from src.fractal_flow.persistence.phase2 import Phase2DurableStore
 
     stores = {}
@@ -316,9 +324,17 @@ def _make_durable_stores(tmp_path, bars):
         pipeline = Phase2Pipeline("EURUSD", tf.value)
         store = Phase2DurableStore(str(tmp_path / tf.value), pipeline)
         stores[tf] = store
-        for bar in bars:
-            if Timeframe.validate(bar.timeframe) is tf:
-                store.process_bar(bar)
+
+        if persist_checkpoints:
+            for bar in bars:
+                if Timeframe.validate(bar.timeframe) is tf:
+                    store.process_bar(bar)
+        else:
+            with patch.object(store, "checkpoint", return_value=None):
+                for bar in bars:
+                    if Timeframe.validate(bar.timeframe) is tf:
+                        store.process_bar(bar)
+
     return stores
 
 
@@ -327,7 +343,7 @@ def test_r5_phase3_reconstruction_from_durable_phase2_journals_matches_live(tmp_
     from src.fractal_flow.domain.phase3 import TimeframeMapping
 
     bars = _real_mtf_bars(23, 300)
-    stores = _make_durable_stores(tmp_path, bars)
+    stores = _make_durable_stores(tmp_path, bars, persist_checkpoints=False)
 
     live_pipelines = {tf: Phase2Pipeline("EURUSD", tf.value) for tf in TFS}
     live = Phase3Orchestrator("EURUSD")

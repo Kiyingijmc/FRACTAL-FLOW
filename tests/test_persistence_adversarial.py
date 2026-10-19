@@ -1186,3 +1186,32 @@ def test_forensic_deal_chain_contradictions_and_duplicate_deals_rejected() -> No
 
     assert res.mismatch_type == ReconciliationMismatchType.DEAL_CONTRADICTION
     assert res.resolved_execution_state == ExecutionState.EXEC_UNKNOWN
+
+
+def test_aggregate_sequence_index_is_correct_after_append_and_reload(tmp_path) -> None:
+    """The aggregate version index remains correct in memory and after restart."""
+    from src.fractal_flow.persistence.journal import DurableEventJournal
+
+    journal_path = tmp_path / "aggregate-index.journal"
+    journal = DurableEventJournal(str(journal_path))
+
+    assert journal.get_aggregate_sequence("Opportunity", "A") == 0
+    assert journal.get_aggregate_sequence("Opportunity", "B") == 0
+
+    journal.append(
+        make_test_event(1, event_id="index-a1", aggregate_id="A", aggregate_version=1)
+    )
+    journal.append(
+        make_test_event(2, event_id="index-b1", aggregate_id="B", aggregate_version=1)
+    )
+    journal.append(
+        make_test_event(3, event_id="index-a2", aggregate_id="A", aggregate_version=2)
+    )
+
+    assert journal.get_aggregate_sequence("Opportunity", "A") == 2
+    assert journal.get_aggregate_sequence("Opportunity", "B") == 1
+
+    reloaded = DurableEventJournal(str(journal_path))
+    assert reloaded.get_aggregate_sequence("Opportunity", "A") == 2
+    assert reloaded.get_aggregate_sequence("Opportunity", "B") == 1
+    assert reloaded.get_aggregate_sequence("Opportunity", "missing") == 0

@@ -115,3 +115,125 @@ def test_session_material_is_cleared_on_teardown_and_fatal_paths():
     assert "ClearSessionMaterial();" in _function(source, "void OnDeinit(", "void OnTimer(")
     timer = _function(source, "void OnTimer()", "void MaintainProtectiveState()")
     assert timer.count("ClearSessionMaterial();") >= 3
+PERSISTENCE = (
+    ROOT / "mql5/Phase6Bridge/FractalFlowBridge/Include/FFBP_Persistence.mqh"
+)
+
+
+def test_fence_load_rejects_missing_state_without_implicit_reset():
+    source = PERSISTENCE.read_text(encoding="utf-8")
+    fn = _function(
+        source,
+        "bool FFBP_LoadFence(",
+        "bool FFBP_AppendCommand(",
+    )
+    assert "if(!FileIsExist(path,FILE_COMMON))" in fn
+    assert not re.search(r"epoch\s*=\s*0\s*;\s*return\s+true\s*;", fn)
+    assert re.search(
+        r"if\s*\(!FileIsExist\(path,FILE_COMMON\)\)\s*"
+        r"\{\s*return\s+false\s*;\s*\}",
+        fn,
+    )
+
+
+def test_fence_save_rejects_epochs_outside_signed_64_bit_range():
+    source = PERSISTENCE.read_text(encoding="utf-8")
+    fn = _function(
+        source,
+        "bool FFBP_SaveFence(",
+        "bool FFBP_LoadFence(",
+    )
+    assert "0x7FFFFFFFFFFFFFFF" in fn
+    assert re.search(
+        r"if\s*\(\s*epoch\s*>\s*0x7FFFFFFFFFFFFFFF\s*\)\s*"
+        r"return\s+false\s*;",
+        fn,
+    )
+
+
+def test_fence_save_checks_complete_record_writes_before_success():
+    source = PERSISTENCE.read_text(encoding="utf-8")
+    fn = _function(
+        source,
+        "bool FFBP_SaveFence(",
+        "bool FFBP_LoadFence(",
+    )
+    assert re.search(
+        r"FileWriteInteger\s*\(\s*h\s*,\s*FFBP_STATE_MAGIC\s*,\s*INT_VALUE\s*\)\s*!=\s*4",
+        fn,
+    )
+    assert re.search(
+        r"FileWriteInteger\s*\(\s*h\s*,\s*FFBP_STATE_VERSION\s*,\s*INT_VALUE\s*\)\s*!=\s*4",
+        fn,
+    )
+    assert re.search(
+        r"FileWriteLong\s*\(\s*h\s*,\s*\(long\)epoch\s*\)\s*!=\s*8",
+        fn,
+    )
+    assert "FileMove(tmp,FILE_COMMON,final_path,FILE_COMMON|FILE_REWRITE)" in fn
+
+
+def test_ea_rejects_epoch_exhaustion_before_increment():
+    source = EA.read_text(encoding="utf-8")
+    fn = _function(source, "int OnInit()", "void OnDeinit(")
+    guard = fn.find("if(g_session_epoch>=0x7FFFFFFFFFFFFFFF)")
+    increment = fn.find("g_session_epoch++;")
+    assert guard >= 0, "missing fail-closed epoch exhaustion guard"
+    assert increment >= 0, "session epoch increment not found"
+    assert guard < increment, "epoch exhaustion must be checked before increment"
+    assert "return INIT_FAILED;" in fn[guard:increment]
+
+
+def test_fence_epoch_range_guard_precedes_file_open():
+    source = PERSISTENCE.read_text(encoding="utf-8")
+    fn = _function(
+        source,
+        "bool FFBP_SaveFence(",
+        "bool FFBP_LoadFence(",
+    )
+    guard = fn.find("if(epoch>0x7FFFFFFFFFFFFFFF) return false;")
+    file_open = fn.find("FileOpen(tmp,FILE_WRITE|FILE_BIN|FILE_COMMON)")
+    assert guard >= 0
+    assert file_open >= 0
+    assert guard < file_open, "reject invalid epoch before acquiring a file handle"
+
+def test_fence_save_readback_verifies_record_before_replacement():
+    source = PERSISTENCE.read_text(encoding="utf-8")
+    fn = _function(
+        source,
+        "bool FFBP_SaveFence(",
+        "bool FFBP_LoadFence(",
+    )
+
+    verify_open = fn.find("FileOpen(")
+    verify_open = fn.find("tmp,FILE_READ|FILE_BIN|FILE_COMMON|FILE_SHARE_READ", verify_open)
+    assert verify_open >= 0, "SaveFence must reopen the completed temporary record"
+
+    writer_close = fn.rfind("FileClose(h);", 0, verify_open)
+    assert writer_close >= 0, "writer must close before read-back verification"
+    assert writer_close < verify_open
+
+    size_check = fn.find("FileSize(verify_handle)!=16", verify_open)
+    assert size_check >= 0, "read-back must reject records with a non-16-byte size"
+
+    magic_read = fn.find("FileReadInteger(verify_handle,INT_VALUE)", verify_open)
+    version_read = fn.find("FileReadInteger(verify_handle,INT_VALUE)", magic_read + 1)
+    epoch_read = fn.find("FileReadLong(verify_handle)", version_read + 1)
+    eof_check = fn.find("FileIsEnding(verify_handle)", epoch_read + 1)
+
+    assert magic_read >= 0, "read-back must inspect the record magic"
+    assert version_read > magic_read, "read-back must inspect the version after magic"
+    assert epoch_read > version_read, "read-back must inspect the epoch after version"
+    assert eof_check > epoch_read, "read-back must verify the exact record boundary"
+
+    replace = fn.find(
+        "FileMove(tmp,FILE_COMMON,final_path,FILE_COMMON|FILE_REWRITE)"
+    )
+    verify_close = fn.find("FileClose(verify_handle)", eof_check)
+    assert verify_close > eof_check, "verification handle must be closed"
+    assert replace > verify_close, "replacement must occur only after read-back and close"
+    assert "verify_magic==FFBP_STATE_MAGIC" in fn
+    assert "verify_version==FFBP_STATE_VERSION" in fn
+    assert "verify_epoch==(long)epoch" in fn
+    assert "verify_eof" in fn
+    assert "if(!verify_ok)" in fn

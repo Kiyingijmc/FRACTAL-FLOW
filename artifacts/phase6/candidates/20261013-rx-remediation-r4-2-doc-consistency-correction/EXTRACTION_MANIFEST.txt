@@ -1,0 +1,5 @@
+archive=PHASE6_RX_REMEDIATION_CANDIDATE_20261013_R4_2.zip
+sha256=3b2afc0aef3a27551175d7f03f97e4d742a40ec79a0a7e429d99183a3a3a9977
+extracted_utc=2026-10-13T08:00:08Z
+repository=/home/kiyingijmc/projects/FractalFlow
+status=STAGED_ONLY_NOT_DEPLOYED

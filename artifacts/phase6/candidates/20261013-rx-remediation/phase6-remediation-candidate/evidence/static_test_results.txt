@@ -1,0 +1,6 @@
+Phase 6 candidate static verification
+Date: 2026-10-13
+Source under test: ea/FractalFlowBridgeEA.REMEDIATED.mq5
+Command: PYTHONPATH=. FFBP_EA_UNDER_TEST=ea/FractalFlowBridgeEA.REMEDIATED.mq5 python -m pytest -q tests/test_ffbp_ea_static_guards.py tests/test_ffbp_candidate_invariants.py
+Result: 11 passed in 0.05s
+Scope: static source guards only. This is not MetaEditor compilation, MT5 runtime proof, broker reconciliation, or Phase 6 closure.

@@ -1,0 +1,285 @@
+--- a/FractalFlowBridgeEA.mq5
++++ b/FractalFlowBridgeEA.mq5
+@@ -36,6 +36,7 @@
+ ulong g_rx_frame_started_ms=0;
+ string g_rx_failure_reason="";
+ int g_rx_failure_error=0;
++int g_rx_failure_detail=-1;
+ 
+ #define FFBP_FRAME_ASSEMBLY_TIMEOUT_MS 2000
+ 
+@@ -112,57 +113,83 @@
+ // Strict RFC 3629 UTF-8 validation over the length-delimited wire bytes.
+ // Rejects overlong encodings, surrogate code points, values above U+10FFFF,
+ // stray continuation bytes, and truncated multibyte sequences before decoding.
+-bool FFBP_IsValidUtf8(const uchar &bytes[],const int offset,const int count)
+-{
+-   if(offset<0 || count<0 || offset+count>ArraySize(bytes))
+-      return false;
+-
+-   int i=offset;
+-   int end=offset+count;
++bool FFBP_IsValidUtf8(const uchar &buf[],const int start,const int count,int &bad_offset)
++{
++   bad_offset=-1;
++   const int total=ArraySize(buf);
++   if(start<0 || count<=0 || start>total-count)
++   {
++      bad_offset=0;
++      return false;
++   }
++
++   int i=start;
++   const int end=start+count;
+    while(i<end)
+    {
+-      uint c=(uint)bytes[i++];
+-      if(c<=0x7F)
++      const int b0=buf[i];
++      // NUL is forbidden in a compact JSON wire payload and must not be allowed
++      // through MQL5's NUL-terminated string conversion.
++      if(b0==0x00)
++      {
++         bad_offset=i-start;
++         return false;
++      }
++      if(b0<0x80)
++      {
++         i++;
+          continue;
+-
+-      if(c>=0xC2 && c<=0xDF)
+-      {
+-         if(i>=end) return false;
+-         uint c1=(uint)bytes[i++];
+-         if(c1<0x80 || c1>0xBF) return false;
+-         continue;
+-      }
+-
+-      if(c>=0xE0 && c<=0xEF)
+-      {
+-         if(i+1>=end) return false;
+-         uint c1=(uint)bytes[i++];
+-         uint c2=(uint)bytes[i++];
+-         if(c2<0x80 || c2>0xBF) return false;
+-         if(c==0xE0)
+-         { if(c1<0xA0 || c1>0xBF) return false; }
+-         else if(c==0xED)
+-         { if(c1<0x80 || c1>0x9F) return false; }
+-         else if(c1<0x80 || c1>0xBF) return false;
+-         continue;
+-      }
+-
+-      if(c>=0xF0 && c<=0xF4)
+-      {
+-         if(i+2>=end) return false;
+-         uint c1=(uint)bytes[i++];
+-         uint c2=(uint)bytes[i++];
+-         uint c3=(uint)bytes[i++];
+-         if(c2<0x80 || c2>0xBF || c3<0x80 || c3>0xBF) return false;
+-         if(c==0xF0)
+-         { if(c1<0x90 || c1>0xBF) return false; }
+-         else if(c==0xF4)
+-         { if(c1<0x80 || c1>0x8F) return false; }
+-         else if(c1<0x80 || c1>0xBF) return false;
+-         continue;
+-      }
+-
+-      return false;
++      }
++
++      int need=0;
++      int lo=0x80;
++      int hi=0xBF;
++      if(b0>=0xC2 && b0<=0xDF)
++         need=1;
++      else if(b0>=0xE0 && b0<=0xEF)
++      {
++         need=2;
++         if(b0==0xE0)
++            lo=0xA0;
++         else if(b0==0xED)
++            hi=0x9F;
++      }
++      else if(b0>=0xF0 && b0<=0xF4)
++      {
++         need=3;
++         if(b0==0xF0)
++            lo=0x90;
++         else if(b0==0xF4)
++            hi=0x8F;
++      }
++      else
++      {
++         bad_offset=i-start;
++         return false;
++      }
++
++      if(i+need>=end)
++      {
++         bad_offset=i-start;
++         return false;
++      }
++
++      const int b1=buf[i+1];
++      if(b1<lo || b1>hi)
++      {
++         bad_offset=i+1-start;
++         return false;
++      }
++      for(int k=2;k<=need;k++)
++      {
++         const int bk=buf[i+k];
++         if(bk<0x80 || bk>0xBF)
++         {
++            bad_offset=i+k-start;
++            return false;
++         }
++      }
++      i+=need+1;
+    }
+    return true;
+ }
+@@ -177,9 +204,17 @@
+       return 0;
+ 
+    uint len=ReadBE32(g_rx_buffer,0);
+-   if(len==0 || len>InpMaxFrameBytes)
+-   {
+-      g_rx_failure_reason="INVALID_FRAME_LENGTH";
++   if(len==0)
++   {
++      g_rx_failure_reason="ZERO_FRAME_LENGTH";
++      g_rx_failure_detail=0;
++      return -1;
++   }
++   if(len>InpMaxFrameBytes)
++   {
++      g_rx_failure_reason="FRAME_LENGTH_EXCEEDS_MAX";
++      // Do not cast an attacker-controlled uint length into a signed int.
++      g_rx_failure_detail=-1;
+       return -1;
+    }
+ 
+@@ -188,9 +223,11 @@
+       return 0;
+ 
+    // Validate wire bytes before MQL5's decoder can normalize malformed input.
+-   if(!FFBP_IsValidUtf8(g_rx_buffer,4,(int)len))
++   int bad_utf8_offset=-1;
++   if(!FFBP_IsValidUtf8(g_rx_buffer,4,(int)len,bad_utf8_offset))
+    {
+       g_rx_failure_reason="INVALID_UTF8";
++      g_rx_failure_detail=bad_utf8_offset;
+       return -1;
+    }
+ 
+@@ -198,6 +235,7 @@
+    if(StringLen(body)==0)
+    {
+       g_rx_failure_reason="EMPTY_DECODED_BODY";
++      g_rx_failure_detail=0;
+       return -1;
+    }
+ 
+@@ -208,11 +246,13 @@
+       if(ArrayResize(remainder,remaining)!=remaining)
+       {
+          g_rx_failure_reason="BUFFER_ALLOC_REMAINDER_FAILURE";
++         g_rx_failure_detail=1;
+          return -1;
+       }
+       if(ArrayCopy(remainder,g_rx_buffer,0,frame_size,remaining)!=remaining)
+       {
+          g_rx_failure_reason="BUFFER_COPY_REMAINDER_FAILURE";
++         g_rx_failure_detail=2;
+          return -1;
+       }
+    }
+@@ -220,11 +260,13 @@
+    if(ArrayResize(g_rx_buffer,remaining)!=remaining)
+    {
+       g_rx_failure_reason="BUFFER_RESIZE_REMAINDER_FAILURE";
++      g_rx_failure_detail=3;
+       return -1;
+    }
+    if(remaining>0 && ArrayCopy(g_rx_buffer,remainder,0,0,remaining)!=remaining)
+    {
+       g_rx_failure_reason="BUFFER_COPY_RETAINED_BYTES_FAILURE";
++      g_rx_failure_detail=4;
+       return -1;
+    }
+ 
+@@ -239,6 +281,7 @@
+    body="";
+    g_rx_failure_reason="";
+    g_rx_failure_error=0;
++   g_rx_failure_detail=-1;
+ 
+    int extracted=ExtractBufferedFrame(body);
+    if(extracted!=0)
+@@ -250,6 +293,7 @@
+       now-g_rx_frame_started_ms>FFBP_FRAME_ASSEMBLY_TIMEOUT_MS)
+    {
+       g_rx_failure_reason="FRAME_ASSEMBLY_TIMEOUT";
++      g_rx_failure_detail=(int)(now-g_rx_frame_started_ms);
+       return -1;
+    }
+ 
+@@ -259,6 +303,7 @@
+       if(!SocketIsConnected(g_socket))
+       {
+          g_rx_failure_reason=(buffered>0 ? "PEER_DISCONNECTED_PARTIAL_FRAME" : "PEER_DISCONNECTED_EMPTY_BUFFER");
++         g_rx_failure_detail=buffered;
+          return -1;
+       }
+       return 0;
+@@ -268,6 +313,7 @@
+    if(capacity<=0)
+    {
+       g_rx_failure_reason="RX_BUFFER_CAPACITY_EXHAUSTED";
++      g_rx_failure_detail=capacity;
+       return -1;
+    }
+    uint wanted=available;
+@@ -281,6 +327,7 @@
+    {
+       g_rx_failure_reason="SOCKET_READ_FAILURE";
+       g_rx_failure_error=GetLastError();
++      g_rx_failure_detail=received;
+       return -1;
+    }
+ 
+@@ -292,11 +339,13 @@
+       ArrayResize(g_rx_buffer,new_size)!=new_size)
+    {
+       g_rx_failure_reason="RX_BUFFER_RESIZE_FAILURE";
++      g_rx_failure_detail=new_size;
+       return -1;
+    }
+    if(ArrayCopy(g_rx_buffer,part,buffered,0,received)!=received)
+    {
+       g_rx_failure_reason="RX_BUFFER_COPY_FAILURE";
++      g_rx_failure_detail=received;
+       return -1;
+    }
+ 
+@@ -1036,6 +1085,7 @@
+ 
+    if(InpTimerMs<10 ||
+       InpMaxFrameBytes<1024 ||
++      InpMaxFrameBytes>65536 ||
+       InpMaxDrainPerTimer==0)
+    {
+       Print("FFBP INIT FAIL: input validation");
+@@ -1220,8 +1270,8 @@
+          if(failure_reason=="")
+             failure_reason="UNCLASSIFIED_READFRAME_FAILURE";
+          int diagnostic_error=(g_rx_failure_error!=0 ? g_rx_failure_error : read_error);
+-         PrintFormat("FFBP_RX_DIAG: reason=%s socket=%d buffered=%d frame_age_ms=%I64u error=%d; quarantining",
+-                     failure_reason,g_socket,buffered_at_failure,frame_age_ms,diagnostic_error);
++         PrintFormat("FFBP_RX_DIAG: reason=%s detail=%d socket=%d buffered=%d frame_age_ms=%I64u error=%d; quarantining",
++                     failure_reason,g_rx_failure_detail,g_socket,buffered_at_failure,frame_age_ms,diagnostic_error);
+          g_quarantined=true;
+          g_authenticated=false;
+          g_protective_only=true;

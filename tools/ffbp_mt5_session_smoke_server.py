@@ -119,6 +119,7 @@ def main() -> int:
     ap.add_argument("--account-id", required=True)
     ap.add_argument("--shared-secret", required=True)
     ap.add_argument("--hold-seconds", type=float, default=30.0)
+    ap.add_argument("--hold-open", action="store_true", help="keep the authenticated connection open until the peer closes")
     args = ap.parse_args()
     if args.hold_seconds < 0:
         ap.error("--hold-seconds must be non-negative")
@@ -206,12 +207,35 @@ def main() -> int:
                 f"account={args.account_id} handshake=authenticated ack=validated",
                 flush=True,
             )
-            print(
-                f"FFBP_SMOKE_DIAG connection_hold_seconds={args.hold_seconds:g}",
-                flush=True,
-            )
-            if args.hold_seconds:
-                time.sleep(args.hold_seconds)
+            if args.hold_open:
+                print(
+                    "FFBP_SMOKE_DIAG connection_hold_mode=until_peer_close",
+                    flush=True,
+                )
+                conn.settimeout(1.0)
+                while True:
+                    try:
+                        probe = conn.recv(1, socket.MSG_PEEK)
+                    except socket.timeout:
+                        continue
+
+                    if not probe:
+                        print("FFBP_SMOKE_PEER_CLOSED", flush=True)
+                        return 0
+
+                    print(
+                        "FFBP_SMOKE_UNEXPECTED_POST_ACK_DATA "
+                        "bytes_available=1",
+                        flush=True,
+                    )
+                    return 2
+            else:
+                print(
+                    f"FFBP_SMOKE_DIAG connection_hold_seconds={args.hold_seconds:g}",
+                    flush=True,
+                )
+                if args.hold_seconds:
+                    time.sleep(args.hold_seconds)
             return 0
 
 

@@ -52,6 +52,7 @@ int FFBP_HexNibble(const ushort c)
 
 bool FFBP_HexDecode(const string hex, uchar &out[])
 {
+   ArrayResize(out,0);
    int n=StringLen(hex);
 
    if((n&1)!=0)
@@ -122,6 +123,8 @@ bool FFBP_HMAC_SHA256(
    {
       if(!FFBP_SHA256(key_in,key))
          return false;
+
+      key_len=32;
    }
    else
    {

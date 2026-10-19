@@ -77,7 +77,9 @@ class Phase2DurableStore:
 
     @property
     def _aggregate_version(self) -> int:
-        return len(self.journal.get_events_for_aggregate(PHASE2_AGGREGATE_TYPE, self.pipeline_id))
+        return self.journal.get_aggregate_sequence(
+            PHASE2_AGGREGATE_TYPE, self.pipeline_id
+        )
 
     @staticmethod
     def _instrument_payload(instrument: InstrumentSpec) -> dict[str, object]:

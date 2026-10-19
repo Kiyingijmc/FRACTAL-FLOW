@@ -1,0 +1,9 @@
+Phase 6 candidate test run
+Date: 2026-10-13
+Command in analysis environment:
+  PYTHONPATH=.:<Oct-9-PROJECT_SNAPSHOT> FFBP_EA_UNDER_TEST=ea/FractalFlowBridgeEA.REMEDIATED.mq5 python -m pytest -q -p no:cacheprovider tests
+Result: 19 passed in 7.57s
+Scope and limitations:
+- The source tree used to satisfy src.fractal_flow imports was the available Oct 9 repository snapshot, not the exact Oct 12 canonical working tree.
+- The end-to-end UTF-8 tests exercise the Python server and Python protocol peer; they do not execute the MQL5 EA.
+- No MetaEditor compile or MT5 runtime test was performed.

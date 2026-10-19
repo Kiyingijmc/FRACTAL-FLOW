@@ -1,0 +1,10 @@
+--- a/mql5/Phase6Bridge/FractalFlowBridge/FractalFlowBridgeEA.mq5
++++ b/artifacts/phase6/candidates/20261019-g1-a-config-guard-only-r1/mql5/FractalFlowBridgeEA.G1A_CANDIDATE.mq5
+@@ -1036,6 +1036,7 @@
+ 
+    if(InpTimerMs<10 ||
+       InpMaxFrameBytes<1024 ||
++      InpMaxFrameBytes>65536 ||
+       InpMaxDrainPerTimer==0)
+    {
+       Print("FFBP INIT FAIL: input validation");

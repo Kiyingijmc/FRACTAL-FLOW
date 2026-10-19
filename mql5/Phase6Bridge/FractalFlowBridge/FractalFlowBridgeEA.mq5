@@ -1070,6 +1070,12 @@ int OnInit()
       "FFBP INIT: fence loaded epoch=%I64u",
       g_session_epoch);
 
+   if(g_session_epoch>=0x7FFFFFFFFFFFFFFF)
+   {
+      Print("FFBP INIT FAIL: session epoch exhausted");
+      return INIT_FAILED;
+   }
+
    g_session_epoch++;
 
    PrintFormat(

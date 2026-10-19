@@ -1,0 +1,15 @@
+--- a/ea/FractalFlowBridgeEA.REMEDIATED.mq5
++++ /mnt/data/fractal_recovery/r3_work/phase6-remediation-candidate/ea/FractalFlowBridgeEA.REMEDIATED.mq5	2026-10-12 22:57:37.755946371 +0000
+@@ -1194,8 +1194,12 @@
+       InpMaxDrainPerTimer,
+       InpConnectTimeoutMs);
+ 
++   // Keep the EA limit aligned with FFBP/1 Python's MAX_FRAME_BYTES=65536.
++   // The RX buffer arithmetic uses signed int lengths; reject larger user inputs
++   // before any uint-to-int conversion or allocation can overflow.
+    if(InpTimerMs<10 ||
+       InpMaxFrameBytes<1024 ||
++      InpMaxFrameBytes>65536 ||
+       InpMaxDrainPerTimer==0)
+    {
+       Print("FFBP INIT FAIL: input validation");
