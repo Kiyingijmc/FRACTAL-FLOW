@@ -177,3 +177,8 @@ These remain research questions:
 - Smart Overtrading budgets
 
 Constitutional architecture must not be optimized away to solve these questions.
+
+## D-043 — Operator Control Surface GUI Architecture and Safety Boundary
+* **Context:** The FRACTAL-FLOW systematic engine requires a dedicated, low-latency operator instrument panel to observe multi-timeframe regime alignment, gate-chain candidate evaluations, and manage live positions without compromising backend safety authority.
+* **Decision:** Implement `spec/control_surface_v1.yaml` and `control_surface/` as a high-density React/TypeScript instrument panel governed strictly by `docs/24_CONTROL_SURFACE_DESIGN_SYSTEM.md`. Enforce explicit operational mode badges (`SIMULATION` vs `CONNECTED`), a formal command lifecycle (`REQUESTED` -> `ACCEPTED` -> `DISPATCHED` -> `CONFIRMED` / `REJECTED`), client-side idempotency keys, and mandatory operator confirmation dialogs.
+* **Rationale:** Adheres to the constitutional invariant that the frontend is an observation and dispatch surface, never a rogue authority. Ensures simulation states cannot dispatch live broker orders and guarantees zero-pill, tabular-numeral typographic discipline across trading operations.
