@@ -6,6 +6,7 @@ import {
   GateCandidate, 
   ActionType, 
   CommandExecutionRecord, 
+  CommandLifecycleState,
   NavTab, 
   SystemEvent, 
   PositionsSubTab 
@@ -13,12 +14,14 @@ import {
 import { 
   ApplicationMode, 
   TelemetryProvenance, 
-  IntentFingerprint 
+  IntentFingerprint,
+  CommandLifecycle 
 } from './types/contracts';
 import { SimulationProvider } from './providers/SimulationProvider';
 import { LiveCommandAdapter } from './providers/LiveCommandAdapter';
-import { generateIntentFingerprint } from './utils/idempotency';
-import { isSafeKeyboardShortcutTarget } from './utils/keyboard';
+import { createIntentFingerprint } from './utils/idempotency';
+import { isKeyboardShortcutAllowed } from './utils/keyboard';
+import { evaluateTelemetryFreshness } from './utils/telemetry';
 import { Header } from './components/Header';
 import { NavRail } from './components/NavRail';
 import { GateChainStrip } from './components/GateChainStrip';
@@ -79,19 +82,41 @@ export const App: React.FC = () => {
     targetPosition: null,
   });
 
-  // Ticks Simulation State
+  // Ticks Simulation Pause State
   const [isSimPaused, setIsSimPaused] = useState<boolean>(false);
 
-  // Synchronize initial data from SimulationProvider
+  // Synchronize pause state to SimulationProvider
+  useEffect(() => {
+    simulationProvider.setPaused(isSimPaused);
+  }, [simulationProvider, isSimPaused]);
+
+  // Synchronize initial data and subscribe to provider-owned ticks
   useEffect(() => {
     let isMounted = true;
+
     simulationProvider.getPositions().then(data => {
       if (isMounted) setPositions(data);
     });
+
     simulationProvider.getHealth().then(health => {
       if (isMounted) setTelemetry(health);
     });
-    return () => { isMounted = false; };
+
+    // Provider owns tick updates and internal position pricing
+    const unsubscribeTicks = simulationProvider.subscribeTicks((_symbol, tick, updatedPositions) => {
+      if (!isMounted) return;
+      setPositions(updatedPositions);
+      setTelemetry((prev) => ({
+        ...prev,
+        freshnessTimestamp: tick.timestamp,
+        status: 'HEALTHY'
+      }));
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribeTicks();
+    };
   }, [simulationProvider]);
 
   // Derived Account Metrics (Strictly identified as client-derived simulation math)
@@ -113,16 +138,13 @@ export const App: React.FC = () => {
     return positions.find((p) => p.id === selectedPositionId) || positions[0] || null;
   }, [positions, selectedPositionId]);
 
-  // Telemetry Freshness Check (Evaluates STALE if no tick received within staleThresholdMs)
+  // Periodic Telemetry Freshness Evaluation using production utility
   useEffect(() => {
     const freshnessChecker = setInterval(() => {
       setTelemetry((prev) => {
-        const elapsed = Date.now() - prev.freshnessTimestamp;
-        const isStale = elapsed > prev.staleThresholdMs;
-        if (isStale && prev.status === 'HEALTHY') {
-          return { ...prev, status: 'STALE' };
-        } else if (!isStale && prev.status === 'STALE') {
-          return { ...prev, status: 'HEALTHY' };
+        const evaluation = evaluateTelemetryFreshness(prev, Date.now());
+        if (evaluation.status !== prev.status) {
+          return { ...prev, status: evaluation.status };
         }
         return prev;
       });
@@ -130,49 +152,6 @@ export const App: React.FC = () => {
 
     return () => clearInterval(freshnessChecker);
   }, []);
-
-  // Periodic Simulated Ticks via Simulation Provider
-  useEffect(() => {
-    if (isSimPaused) return;
-
-    const interval = setInterval(() => {
-      setPositions((prevPositions) => {
-        if (prevPositions.length === 0) return prevPositions;
-        const targetIndex = Math.floor(Math.random() * prevPositions.length);
-        const target = prevPositions[targetIndex];
-        const isTickUp = Math.random() > 0.48;
-        const tickStep = target.priceDecimals === 3 ? 0.008 : 0.00004;
-        const delta = isTickUp ? tickStep : -tickStep;
-        const newPrice = Number((target.currentPrice + delta).toFixed(target.priceDecimals));
-        const rDelta = (isTickUp ? 1 : -1) * (target.side === 'LONG' ? 0.02 : -0.02);
-        const newUnrealizedR = Number((target.unrealizedR + rDelta).toFixed(2));
-        const newMfe = Math.max(target.mfe, newUnrealizedR);
-        const newMae = Math.min(target.mae, newUnrealizedR);
-
-        // Update telemetry freshness timestamp
-        setTelemetry((prev) => ({
-          ...prev,
-          freshnessTimestamp: Date.now(),
-          status: 'HEALTHY',
-        }));
-
-        return prevPositions.map((p, idx) => {
-          if (idx !== targetIndex) return p;
-          return {
-            ...p,
-            currentPrice: newPrice,
-            unrealizedR: newUnrealizedR,
-            mfe: newMfe,
-            mae: newMae,
-            lastTickDir: isTickUp ? 'up' : 'down',
-            lastTickTimestamp: Date.now(),
-          };
-        });
-      });
-    }, 3200);
-
-    return () => clearInterval(interval);
-  }, [isSimPaused]);
 
   // Auditable System Event Logger
   const addEvent = useCallback(
@@ -214,25 +193,28 @@ export const App: React.FC = () => {
     });
   };
 
-  // Safe Keyboard Shortcut Listener (Guarded against text input focus)
+  // Safe Keyboard Shortcut Listener (Guarded against text focus, IME, repeat, modal, in-flight)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Risk N-01 Guard: Ignore if user is inside an input, textarea, or editable field
-      if (!isSafeKeyboardShortcutTarget(e)) {
-        return;
-      }
-
-      // If confirm dialog is active, dialog manages Enter/Escape
-      if (confirmModal.isOpen) {
-        return;
-      }
-
-      // Guard against double-dispatch while a command is actively in flight
-      const isCommandBusy =
+      const isCommandBusy = Boolean(
         activeCommand &&
         activeCommand.status !== 'CONFIRMED' &&
-        activeCommand.status !== 'REJECTED';
-      if (isCommandBusy) {
+        activeCommand.status !== 'REJECTED'
+      );
+
+      // Verify safety context
+      const isAllowed = isKeyboardShortcutAllowed(
+        e,
+        {
+          isModalOpen: confirmModal.isOpen,
+          isCommandInFlight: isCommandBusy,
+        },
+        {
+          allowRepeat: false,
+        }
+      );
+
+      if (!isAllowed) {
         return;
       }
 
@@ -302,6 +284,23 @@ export const App: React.FC = () => {
     selectedPositionId,
   ]);
 
+  const mapProgressStatus = (status: CommandLifecycle): CommandLifecycleState => {
+    switch (status) {
+      case 'ACCEPTED_BY_GATEWAY':
+        return 'ACCEPTED';
+      case 'DISPATCHED_TO_BROKER':
+        return 'DISPATCHED';
+      case 'CONFIRMED':
+        return 'CONFIRMED';
+      case 'REJECTED':
+        return 'REJECTED';
+      case 'UNKNOWN_PENDING_RECONCILIATION':
+        return 'UNKNOWN';
+      default:
+        return 'ACCEPTED';
+    }
+  };
+
   // Explicit Command Execution via Provider Boundary
   const handleConfirmAction = async (simulateRejection = false) => {
     const { action, targetPosition } = confirmModal;
@@ -314,13 +313,18 @@ export const App: React.FC = () => {
       move_to_breakeven: 'MOVE_TO_BREAKEVEN',
     };
 
-    // Generate deterministic IntentFingerprint (GUI-HPL-006: Identical across duplicate retries)
-    const intent: IntentFingerprint = generateIntentFingerprint(
+    // Generate canonical intent and fingerprint
+    const intent: IntentFingerprint = createIntentFingerprint(
       'daniel_operator',
       targetPosition.id,
       targetPosition.symbol,
       actionMap[action],
-      { side: targetPosition.side, entryPrice: targetPosition.entryPrice, currentPrice: targetPosition.currentPrice }
+      { 
+        side: targetPosition.side, 
+        entryPrice: targetPosition.entryPrice, 
+        currentPrice: targetPosition.currentPrice,
+        simulateRejection 
+      }
     );
 
     const requestedAt = new Date().toTimeString().slice(0, 8);
@@ -363,65 +367,41 @@ export const App: React.FC = () => {
       }
     }
 
-    // Simulation Sandbox Progression
-    setTimeout(async () => {
-      setActiveCommand((prev) =>
-        prev ? { ...prev, status: 'ACCEPTED', details: 'Sandbox constraint checks verified' } : null
+    // Simulation Sandbox Progression owned entirely by SimulationProvider
+    try {
+      const res = await simulationProvider.submitCommand(
+        intent,
+        (progress) => {
+          setActiveCommand((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  status: mapProgressStatus(progress.status),
+                  details: progress.details,
+                }
+              : null
+          );
+        }
       );
 
-      setTimeout(async () => {
-        if (simulateRejection) {
-          // Failure path: REJECTED (Zero mutation of positions)
-          setActiveCommand((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: 'REJECTED',
-                  details: 'Sandbox REJECTED: Invariant check failed (simulation test)',
-                }
-              : null
-          );
-          addEvent(
-            `[SANDBOX] Invariant violated: REJECTED intent ${intent.intentId}`,
-            'SIM_ENGINE',
-            'crit',
-            'SIMULATED'
-          );
-          setTimeout(() => setActiveCommand(null), 4000);
-          return;
-        }
+      const updatedPositions = await simulationProvider.getPositions();
+      setPositions(updatedPositions);
 
-        // Nominal path: DISPATCHED -> CONFIRMED via SimulationProvider
-        setActiveCommand((prev) =>
-          prev ? { ...prev, status: 'DISPATCHED', details: 'Dispatched to local memory sandbox' } : null
-        );
+      addEvent(
+        `[SANDBOX] ${res.status}: ${res.message} (AUTH: NO)`,
+        'SIM_ENGINE',
+        res.status === 'CONFIRMED' ? 'info' : 'crit',
+        'SIMULATED'
+      );
 
-        setTimeout(async () => {
-          const res = await simulationProvider.submitCommand(intent);
-          const updatedPositions = await simulationProvider.getPositions();
-          setPositions(updatedPositions);
-
-          setActiveCommand((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  status: 'CONFIRMED',
-                  details: `${res.message} (NON-BROKER)`,
-                }
-              : null
-          );
-
-          addEvent(
-            `[SANDBOX] CONFIRMED ${intent.actionType} for ${intent.symbol} (AUTH: NO)`,
-            'SIM_ENGINE',
-            'info',
-            'SIMULATED'
-          );
-
-          setTimeout(() => setActiveCommand(null), 3500);
-        }, 500);
-      }, 400);
-    }, 250);
+      setTimeout(() => setActiveCommand(null), 3500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setActiveCommand((prev) =>
+        prev ? { ...prev, status: 'REJECTED', details: msg } : null
+      );
+      setTimeout(() => setActiveCommand(null), 4000);
+    }
   };
 
   return (
@@ -439,21 +419,21 @@ export const App: React.FC = () => {
         applicationMode={applicationMode}
       />
 
-      {/* Signature Eleven-Gate Chain Strip */}
+      {/* Signature Element 1: Gate-Chain Strip (Candidate Intake Pipeline) */}
       <GateChainStrip
         candidates={candidates}
         selectedCandidateId={selectedCandidateId}
         onSelectCandidate={setSelectedCandidateId}
       />
 
-      {/* Main Workspace Body */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Compact Navigation Rail */}
+      {/* Main Body Grid */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Navigation Rail */}
         <NavRail activeTab={activeNavTab} onTabChange={setActiveNavTab} />
 
-        {/* View Routing */}
+        {/* Primary Viewport Area */}
         {activeNavTab === 'POS' ? (
-          <div className="flex-1 flex overflow-hidden">
+          <>
             <PositionsTable
               positions={positions}
               pendingOrders={pendingOrders}
@@ -463,13 +443,15 @@ export const App: React.FC = () => {
               activeSubTab={activeSubTab}
               onSubTabChange={setActiveSubTab}
             />
+
+            {/* Signature Element 2: Context Panel & Timeframe Cascade */}
             <ContextPanel
               position={selectedPosition}
               onTriggerAction={handleTriggerAction}
               activeCommand={activeCommand}
               closedTrades={closedTrades}
             />
-          </div>
+          </>
         ) : (
           <SecondaryViews
             activeTab={activeNavTab}
@@ -478,15 +460,15 @@ export const App: React.FC = () => {
         )}
       </div>
 
-      {/* Auditable System Event Journal Ticker */}
+      {/* Footer Log with Authoritative Journal Stream Metadata */}
       <FooterLog events={systemEvents} />
 
-      {/* Confirmation Modal */}
+      {/* Action Confirmation Modal with Idempotency & Rejection Testing */}
       <ConfirmDialog
         isOpen={confirmModal.isOpen}
         action={confirmModal.action}
         position={confirmModal.targetPosition}
-        onConfirm={(shouldReject) => handleConfirmAction(shouldReject)}
+        onConfirm={handleConfirmAction}
         onCancel={() => setConfirmModal({ isOpen: false, action: null, targetPosition: null })}
       />
     </div>

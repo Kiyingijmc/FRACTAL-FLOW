@@ -1,4 +1,4 @@
-import { IDataProvider, ICommandProvider } from './interfaces';
+import { IDataProvider, ICommandProvider, CommandProgressUpdate } from './interfaces';
 import { 
   TelemetryProvenance, 
   IntentFingerprint, 
@@ -22,26 +22,26 @@ import {
 /**
  * SimulationProvider
  * 
- * Self-contained, deterministic simulation provider for off-broker operator testing.
+ * Boundary-isolated, deterministic simulation provider for off-broker operator interaction.
  * 
- * INVARIANTS:
- * 1. NEVER initiates network connections to live brokers or external servers.
- * 2. ALL returned data is explicitly tagged with `isAuthoritative: false` and `source: 'SIM_ENGINE'`.
- * 3. Commands only modify the isolated local sandbox state and emit non-authoritative audit lines.
+ * Safety Invariants:
+ * 1. NEVER initiates network connections to live brokers, sockets, or external servers.
+ * 2. ALL returned data and progress updates are explicitly tagged with `authoritative: false` and `source: 'SIM_ENGINE'`.
+ * 3. Market tick simulation and command progression are owned entirely within this provider boundary.
+ * 4. State mutations are isolated strictly to local sandbox memory.
  */
 export class SimulationProvider implements IDataProvider, ICommandProvider {
   readonly isLiveAuthorized = false;
-
   private positions: Position[];
   private pendingOrders: PendingOrder[];
   private candidates: GateCandidate[];
   private systemEvents: SystemEvent[];
   private closedTrades: ClosedTrade[];
   private epoch = 418;
-  private lastTelemetryTime = Date.now();
+  private lastHeartbeatTime = Date.now();
+  private isPaused = false;
 
   constructor() {
-    // Deep clone initial fixtures into isolated sandbox memory
     this.positions = JSON.parse(JSON.stringify(INITIAL_POSITIONS));
     this.pendingOrders = JSON.parse(JSON.stringify(INITIAL_PENDING_ORDERS));
     this.candidates = JSON.parse(JSON.stringify(GATE_CANDIDATES));
@@ -49,12 +49,20 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     this.closedTrades = JSON.parse(JSON.stringify(INITIAL_CLOSED_TRADES));
   }
 
+  setPaused(paused: boolean): void {
+    this.isPaused = paused;
+  }
+
+  getPaused(): boolean {
+    return this.isPaused;
+  }
+
   async getHealth(): Promise<TelemetryProvenance> {
-    this.lastTelemetryTime = Date.now();
+    this.lastHeartbeatTime = Date.now();
     return {
       source: 'SIM_ENGINE',
       status: 'HEALTHY',
-      freshnessTimestamp: this.lastTelemetryTime,
+      freshnessTimestamp: this.lastHeartbeatTime,
       isAuthoritative: false,
       staleThresholdMs: 5000,
       epoch: this.epoch,
@@ -83,27 +91,96 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     return JSON.parse(JSON.stringify(this.closedTrades));
   }
 
-  subscribeTicks(callback: (symbol: string, tick: { bid: number; ask: number; timestamp: number }) => void): () => void {
-    const symbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD'];
+  /**
+   * Owns market tick generation and internal sandbox position price updates.
+   */
+  subscribeTicks(
+    callback: (symbol: string, tick: { bid: number; ask: number; timestamp: number }, updatedPositions: Position[]) => void
+  ): () => void {
     const timer = setInterval(() => {
-      const sym = symbols[Math.floor(Math.random() * symbols.length)];
-      const jitter = (Math.random() - 0.5) * 0.0004;
-      const basePrice = sym === 'USDJPY' ? 154.20 : 1.0850;
-      const current = +(basePrice + jitter).toFixed(sym === 'USDJPY' ? 3 : 5);
-      callback(sym, {
-        bid: current,
-        ask: +(current + 0.00015).toFixed(sym === 'USDJPY' ? 3 : 5),
-        timestamp: Date.now()
-      });
-    }, 2500);
+      if (this.isPaused || this.positions.length === 0) return;
+
+      const targetIndex = Math.floor(Math.random() * this.positions.length);
+      const target = this.positions[targetIndex];
+      const isTickUp = Math.random() > 0.48;
+      const tickStep = target.priceDecimals === 3 ? 0.008 : 0.00004;
+      const delta = isTickUp ? tickStep : -tickStep;
+      const newPrice = Number((target.currentPrice + delta).toFixed(target.priceDecimals));
+      const rDelta = (isTickUp ? 1 : -1) * (target.side === 'LONG' ? 0.02 : -0.02);
+      const newUnrealizedR = Number((target.unrealizedR + rDelta).toFixed(2));
+
+      target.currentPrice = newPrice;
+      target.unrealizedR = newUnrealizedR;
+
+      this.lastHeartbeatTime = Date.now();
+
+      callback(
+        target.symbol,
+        {
+          bid: newPrice,
+          ask: Number((newPrice + (target.priceDecimals === 3 ? 0.015 : 0.00015)).toFixed(target.priceDecimals)),
+          timestamp: this.lastHeartbeatTime
+        },
+        JSON.parse(JSON.stringify(this.positions))
+      );
+    }, 2000);
 
     return () => clearInterval(timer);
   }
 
-  async submitCommand(intent: IntentFingerprint): Promise<CommandResult> {
+  /**
+   * Owns simulated command execution and asynchronous step progression.
+   */
+  async submitCommand(
+    intent: IntentFingerprint,
+    onProgress?: (progress: CommandProgressUpdate) => void
+  ): Promise<CommandResult> {
     const targetIdx = this.positions.findIndex(p => p.id === intent.targetPositionId);
-    
+
+    // Initial simulation progression step: ACCEPTED_BY_GATEWAY
+    if (onProgress) {
+      onProgress({
+        status: 'ACCEPTED_BY_GATEWAY',
+        details: '[SANDBOX] In-memory validation passed (authoritative: false)',
+        timestamp: Date.now(),
+        authoritative: false
+      });
+      // Small simulated tick delay
+      await new Promise(res => setTimeout(res, 80));
+    }
+
+    // Check rejection simulation
+    const simulateRejection = Boolean(intent.parameters?.simulateRejection);
+
+    if (simulateRejection) {
+      if (onProgress) {
+        onProgress({
+          status: 'REJECTED',
+          details: 'Sandbox REJECTED: Simulated constraint invariant failure',
+          timestamp: Date.now(),
+          authoritative: false
+        });
+      }
+      return {
+        intentId: intent.intentId,
+        idempotencyKey: intent.idempotencyKey,
+        status: 'REJECTED',
+        authoritative: false,
+        message: 'Sandbox REJECTED: Invariant constraint check failed (simulated)',
+        timestamp: Date.now(),
+        rejectionReason: 'SIMULATED_CONSTRAINT_FAILURE'
+      };
+    }
+
     if (targetIdx === -1 && intent.actionType !== 'KILL_SWITCH') {
+      if (onProgress) {
+        onProgress({
+          status: 'REJECTED',
+          details: `Target position ${intent.targetPositionId} not found in sandbox`,
+          timestamp: Date.now(),
+          authoritative: false
+        });
+      }
       return {
         intentId: intent.intentId,
         idempotencyKey: intent.idempotencyKey,
@@ -115,23 +192,35 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       };
     }
 
+    // Second simulation progression step: DISPATCHED_TO_BROKER (simulated virtual broker)
+    if (onProgress) {
+      onProgress({
+        status: 'DISPATCHED_TO_BROKER',
+        details: '[SANDBOX] Dispatched to virtual matching engine (authoritative: false)',
+        timestamp: Date.now(),
+        authoritative: false
+      });
+      await new Promise(res => setTimeout(res, 120));
+    }
+
+    // Perform state mutation in local sandbox memory
     if (intent.actionType === 'CLOSE') {
       if (targetIdx >= 0) {
         this.positions.splice(targetIdx, 1);
       }
     } else if (intent.actionType === 'MOVE_TO_BREAKEVEN') {
       if (targetIdx >= 0) {
-        const pos = this.positions[targetIdx];
-        pos.breakevenStatus = 'confirmed @ BE (sim)';
+        this.positions[targetIdx].breakevenStatus = 'confirmed @ BE (sim)';
       }
     } else if (intent.actionType === 'TIGHTEN_STOP') {
       if (targetIdx >= 0) {
-        const pos = this.positions[targetIdx];
-        pos.trailDistance = 'tightened 2.0σ (sim)';
+        this.positions[targetIdx].trailDistance = 'tightened 2.0σ (sim)';
       }
+    } else if (intent.actionType === 'KILL_SWITCH') {
+      this.positions = [];
     }
 
-    // Record audit line in simulated events
+    // Record audit event in sandbox system events
     const auditEvent: SystemEvent = {
       id: `evt_sim_${Date.now()}`,
       eventId: `EVT-${Date.now().toString().slice(-4)}`,
@@ -144,7 +233,7 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     };
     this.systemEvents.unshift(auditEvent);
 
-    return {
+    const result: CommandResult = {
       intentId: intent.intentId,
       idempotencyKey: intent.idempotencyKey,
       status: 'CONFIRMED',
@@ -152,6 +241,17 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       message: `Simulated sandbox execution completed for ${intent.actionType}`,
       timestamp: Date.now()
     };
+
+    if (onProgress) {
+      onProgress({
+        status: 'CONFIRMED',
+        details: `${result.message} (NON-BROKER)`,
+        timestamp: Date.now(),
+        authoritative: false
+      });
+    }
+
+    return result;
   }
 
   async reconcileCommand(intentId: string): Promise<CommandResult> {

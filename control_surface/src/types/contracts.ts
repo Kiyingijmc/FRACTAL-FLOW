@@ -53,6 +53,8 @@ export interface IntentFingerprint {
   parameters: Record<string, unknown>;
   idempotencyKey: string;
   createdAt: number;
+  payloadFingerprint?: string;
+  transportAttempt?: number;
 }
 
 export interface CommandResult {

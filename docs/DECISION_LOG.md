@@ -194,3 +194,15 @@ Constitutional architecture must not be optimized away to solve these questions.
   6. Harden keyboard shortcuts via `isSafeKeyboardShortcutTarget` to prevent accidental triggers while typing in inputs, textareas, or selects.
   7. Implement 13 automated adversarial invariant tests in `safety_invariants.test.ts`.
 * **Rationale:** Preserves the core constitutional hierarchy (`SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY`). Prevents simulation state from masquerading as broker receipts, eliminates accidental operator dispatch, and provides an auditable foundation for future backend integration.
+
+## D-045 — PR #29 Stage B Forensic Remediation & Closure Reconciliation
+* **Context:** An adversarial source review of PR #29 identified residual discrepancies: `App.tsx` owned simulated tick and command timers bypassing the provider boundary; `idempotency.ts` used a non-standard 32-bit hash without deep recursive canonicalization and conflated logical intent IDs with payload fingerprints; keyboard checks omitted IME composition and repeat chatter; telemetry freshness was calculated in-line without testing edge cases; and tests included self-comparisons and mock calculations.
+* **Decision:**
+  1. Relocate all simulated tick generation, internal position updates, and asynchronous command progression into `SimulationProvider.ts`. `App.tsx` subscribes cleanly to provider events without nested `setTimeout` loops.
+  2. Separate logical intent identity (`intentId`) from semantic payload fingerprinting (`payloadFingerprint`). Distinct operator actions generate distinct `intentId`s; retries reuse the existing `intentId`.
+  3. Implement deterministic recursive canonicalization rejecting `undefined`, `NaN`, `Infinity`, functions, and cyclic structures, backed by standard FIPS 180-4 SHA-256 and verified with NIST/RFC 6234 KAT vectors.
+  4. Author production `evaluateTelemetryFreshness()` in `telemetry.ts` handling fresh, threshold boundary, expired, missing, and disconnected telemetry.
+  5. Harden keyboard safety with IME composition suppression (`isComposing`, `keyCode === 229`), key chatter repeat guards (`event.repeat`), modifier enforcement, and modal/in-flight context gates.
+  6. Generate and track `control_surface/package-lock.json` for reproducible clean installs.
+  7. Expand automated safety test suite to 17 adversarial assertions exercising actual production code.
+* **Rationale:** Adheres strictly to `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Ensures simulation boundaries cannot masquerade as broker receipts, establishes cryptographic intent fingerprinting semantics, prevents keyboard-driven operator errors, and provides verifiable evidence across all safety invariants.

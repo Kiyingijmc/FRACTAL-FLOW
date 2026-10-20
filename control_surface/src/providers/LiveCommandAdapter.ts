@@ -1,4 +1,4 @@
-import { ICommandProvider } from './interfaces';
+import { ICommandProvider, CommandProgressUpdate } from './interfaces';
 import { 
   IntentFingerprint, 
   CommandResult, 
@@ -18,7 +18,10 @@ import {
 export class LiveCommandAdapter implements ICommandProvider {
   readonly isLiveAuthorized = false;
 
-  async submitCommand(intent: IntentFingerprint): Promise<CommandResult> {
+  async submitCommand(
+    intent: IntentFingerprint,
+    _onProgress?: (progress: CommandProgressUpdate) => void
+  ): Promise<CommandResult> {
     // Fail-closed gate: live execution is strictly blocked
     throw new LiveExecutionBlockedError(
       `LIVE_EXECUTION_BLOCKED: Cannot dispatch command '${intent.actionType}' for position '${intent.targetPositionId}'. ` +
