@@ -182,3 +182,15 @@ Constitutional architecture must not be optimized away to solve these questions.
 * **Context:** The FRACTAL-FLOW systematic engine requires a dedicated, low-latency operator instrument panel to observe multi-timeframe regime alignment, gate-chain candidate evaluations, and manage live positions without compromising backend safety authority.
 * **Decision:** Implement `spec/control_surface_v1.yaml` and `control_surface/` as a high-density React/TypeScript instrument panel governed strictly by `docs/24_CONTROL_SURFACE_DESIGN_SYSTEM.md`. Enforce explicit operational mode badges (`SIMULATION` vs `CONNECTED`), a formal command lifecycle (`REQUESTED` -> `ACCEPTED` -> `DISPATCHED` -> `CONFIRMED` / `REJECTED`), client-side idempotency keys, and mandatory operator confirmation dialogs.
 * **Rationale:** Adheres to the constitutional invariant that the frontend is an observation and dispatch surface, never a rogue authority. Ensures simulation states cannot dispatch live broker orders and guarantees zero-pill, tabular-numeral typographic discipline across trading operations.
+
+## D-044 — Stage B GUI Safe Simulation Boundary & Provider Isolation Architecture
+* **Context:** Remediation of initial GUI findings (GUI-HPL-001 through GUI-HPL-015) identified that client-side simulation state and timer progressions could be conflated with real broker authority, idempotency keys lacked deterministic intent hashing, telemetry chips were hardcoded, and hotkeys lacked text-input focus guards.
+* **Decision:**
+  1. Implement explicit provider boundaries (`IDataProvider`, `ICommandProvider`) separating `SimulationProvider` from `LiveCommandAdapter`.
+  2. Enforce fail-closed live execution: `LiveCommandAdapter` throws `LiveExecutionBlockedError` unconditionally until backend Control Service and ExecutionGateway are provisioned.
+  3. Require `SimulationProvider` to tag all telemetry and execution outcomes with `isAuthoritative: false` and `source: 'SIM_ENGINE'`.
+  4. Implement deterministic intent fingerprinting (`generateIntentFingerprint`) via canonicalized parameter hashing, guaranteeing identical idempotency keys across retries.
+  5. Refactor Header to render dynamic `TelemetryProvenance` with status transitions (`HEALTHY`, `STALE`, `DISCONNECTED`).
+  6. Harden keyboard shortcuts via `isSafeKeyboardShortcutTarget` to prevent accidental triggers while typing in inputs, textareas, or selects.
+  7. Implement 13 automated adversarial invariant tests in `safety_invariants.test.ts`.
+* **Rationale:** Preserves the core constitutional hierarchy (`SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY`). Prevents simulation state from masquerading as broker receipts, eliminates accidental operator dispatch, and provides an auditable foundation for future backend integration.

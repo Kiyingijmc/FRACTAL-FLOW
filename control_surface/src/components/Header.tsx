@@ -1,4 +1,5 @@
 import React from 'react';
+import { TelemetryProvenance, ApplicationMode } from '../types/contracts';
 
 interface HeaderProps {
   equity: number;
@@ -8,6 +9,8 @@ interface HeaderProps {
   onLaneChange: (lane: string) => void;
   isSimPaused: boolean;
   onToggleSimPause: () => void;
+  telemetry: TelemetryProvenance;
+  applicationMode: ApplicationMode;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,7 +21,25 @@ export const Header: React.FC<HeaderProps> = ({
   onLaneChange,
   isSimPaused,
   onToggleSimPause,
+  telemetry,
+  applicationMode,
 }) => {
+  const getStatusColor = () => {
+    switch (telemetry.status) {
+      case 'HEALTHY':
+        return 'bg-[#4FAE86] text-[#4FAE86]';
+      case 'STALE':
+        return 'bg-[#BFA13B] text-[#BFA13B] animate-pulse';
+      case 'DISCONNECTED':
+      case 'DEGRADED':
+        return 'bg-[#C25B6B] text-[#C25B6B]';
+      default:
+        return 'bg-[#6E7A8A] text-[#6E7A8A]';
+    }
+  };
+
+  const statusColorClass = getStatusColor();
+
   return (
     <header className="flex items-center gap-4 px-4 h-12 border-b border-[#232A35] bg-[#10151D] shrink-0 select-none overflow-x-auto">
       {/* Brand */}
@@ -30,7 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Operational Mode Boundary Badge (P0 Separation of Authority) */}
       <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-[2px] border border-[#BFA13B]/40 bg-[#BFA13B]/10 text-[#BFA13B] font-mono text-[10px] tracking-wide whitespace-nowrap shrink-0">
         <span className="w-1.5 h-1.5 rounded-full bg-[#BFA13B]" />
-        <span>MODE: SIMULATION SANDBOX (OFF-BROKER)</span>
+        <span>MODE: {applicationMode.replace('_', ' ')} (OFF-BROKER)</span>
       </div>
 
       {/* Lane Selector */}
@@ -44,9 +65,20 @@ export const Header: React.FC<HeaderProps> = ({
       </select>
 
       {/* Health & Provenance */}
-      <div className="flex items-center gap-2 text-xs text-[#6E7A8A] whitespace-nowrap shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-[#4FAE86] inline-block" />
-        <span>bridge live · fence OK · epoch 418</span>
+      <div className="flex items-center gap-2 font-mono text-[11px] text-[#6E7A8A] whitespace-nowrap shrink-0">
+        <span className={`w-1.5 h-1.5 rounded-full ${statusColorClass.split(' ')[0]} inline-block`} />
+        <span>
+          {telemetry.status === 'HEALTHY' 
+            ? `${telemetry.bridgeStatus} · ${telemetry.fenceStatus} · ep ${telemetry.epoch}`
+            : `TELEMETRY ${telemetry.status}`
+          }
+        </span>
+        <span className="px-1 py-0.2 rounded border border-[#232A35] bg-[#161C26] text-[9px] text-[#5B8FBF]">
+          SRC: {telemetry.source}
+        </span>
+        <span className="px-1 py-0.2 rounded border border-[#232A35] bg-[#161C26] text-[9px] text-[#6E7A8A]">
+          AUTH: {telemetry.isAuthoritative ? 'LIVE' : 'NO (SIM)'}
+        </span>
       </div>
 
       {/* Sim Tick Control */}
@@ -68,14 +100,16 @@ export const Header: React.FC<HeaderProps> = ({
             ${equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
+
         <div className="text-right">
-          <div className="text-[10px] text-[#6E7A8A]">daily P&amp;L</div>
+          <div className="text-[10px] text-[#6E7A8A]">daily P&amp;L (sim)</div>
           <div className={`font-mono text-[15px] tabular-nums ${dailyPnl >= 0 ? 'text-[#4FAE86]' : 'text-[#C25B6B]'}`}>
             {dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}
           </div>
         </div>
+
         <div className="text-right">
-          <div className="text-[10px] text-[#6E7A8A]">open risk</div>
+          <div className="text-[10px] text-[#6E7A8A]">open risk (sim)</div>
           <div className="font-mono text-[15px] text-[#E7EAEE] tabular-nums">
             {openRiskR.toFixed(1)}R
           </div>

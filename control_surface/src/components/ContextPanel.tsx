@@ -302,6 +302,9 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
               <span>HISTORICAL PERFORMANCE</span>
               <span className="text-[#4FAE86] font-semibold">{stats.totalTrades} TRADES</span>
             </div>
+            <div className="px-2 py-1 bg-[#BFA13B]/10 border border-[#BFA13B]/30 rounded-[2px] text-[10px] font-mono text-[#BFA13B]">
+              <span className="font-semibold">[DEMO CALCULATION]</span> Local client math from simulation fixtures. Non-authoritative.
+            </div>
 
             {/* Primary KPI Grid */}
             <div className="grid grid-cols-2 gap-2">

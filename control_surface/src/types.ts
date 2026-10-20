@@ -95,7 +95,8 @@ export interface SystemEvent {
   message: string;
   source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE';
   level: 'info' | 'warn' | 'crit';
-  status?: 'PERSISTED' | 'DISPATCHED' | 'SIMULATED';
+  status?: 'PERSISTED' | 'DISPATCHED' | 'SIMULATED' | 'CONFIRMED' | 'REJECTED';
+  isAuthoritative?: boolean;
 }
 
 export type NavTab = 'POS' | 'DEC' | 'RISK' | 'MODE' | 'NEWS' | 'CALIB' | 'HEALTH';
