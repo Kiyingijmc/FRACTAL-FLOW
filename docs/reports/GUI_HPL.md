@@ -108,10 +108,10 @@
 
 ### GUI-HPL-011: Dependency Installation Reproducibility
 - **Threat Scenario:** Non-deterministic package resolution leads to unverified build behavior across environments.
-- **Evidence:** `control_surface/package-lock.json` was missing.
-- **Required Invariant:** Tracked lockfile pinned for deterministic clean installs.
-- **Mitigation:** Generated and verified `control_surface/package-lock.json` using Node v22.23.3 and npm 10.9.9.
-- **Disposition:** REMEDIATED — TESTED.
+- **Evidence:** The original tracked lockfile contained nonportable local `node_modules` link/resolution entries, including paths under `../../../app/applet/node_modules`; it was present but unsuitable for an isolated clean install.
+- **Required Invariant:** A tracked lockfile resolves the declared manifest dependencies without relying on another project's local `node_modules` tree.
+- **Mitigation:** Regenerated the lockfile with npm 11.6.2 after aligning the manifest's `esbuild` range to `^0.28.0` for Vite 8 peer compatibility. Clean validation used Node v20.20.2 and npm 10.8.2. Recorded gates: `npm ci --ignore-scripts`, `npm ls --depth=0`, `npm run lint`, `npm test` (17/17 passed), and `npm run build` all passed. The build emitted a Vite `__dirname`/native config-loader warning; that warning is not addressed by this dependency repair.
+- **Disposition:** REMEDIATED — TESTED; structural lockfile audit passed. Final patch review remains pending.
 
 ### GUI-HPL-012: Client-Derived Statistics Provenance
 - **Threat Scenario:** Operator relies on client math as authoritative financial risk calculations.
