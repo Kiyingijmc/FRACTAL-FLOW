@@ -1,5 +1,4 @@
 export type Side = 'LONG' | 'SHORT';
-
 export type Timeframe = '4H' | '1H' | '30M' | '15M' | '5M' | '1M';
 
 export interface Position {
@@ -62,7 +61,6 @@ export interface ClosedTrade {
 }
 
 export type GateLetter = 'Q' | 'E' | 'R' | 'P' | 'L' | 'O' | 'T' | 'N' | 'K' | 'A' | 'X';
-
 export type GateStatus = 'pass' | 'fail' | 'na';
 
 export interface GateEvaluation {
@@ -95,14 +93,13 @@ export interface SystemEvent {
   message: string;
   source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE';
   level: 'info' | 'warn' | 'crit';
-  status?: 'PERSISTED' | 'DISPATCHED' | 'SIMULATED' | 'CONFIRMED' | 'REJECTED';
+  status?: 'PERSISTED' | 'DISPATCHED' | 'SIMULATED' | 'CONFIRMED' | 'REJECTED' | 'SESSION' | 'IN_MEMORY';
   isAuthoritative?: boolean;
 }
 
-export type NavTab = 'POS' | 'DEC' | 'RISK' | 'MODE' | 'NEWS' | 'CALIB' | 'HEALTH';
+export type NavTab = 'POS' | 'DEC' | 'RISK' | 'MODE' | 'NEWS' | 'CALIB' | 'HEALTH' | 'STATS';
 
 export type NewsImpactLevel = 'High' | 'Med' | 'Low';
-
 export type NewsCategory =
   | 'MACRO_ECONOMIC'
   | 'CENTRAL_BANK'

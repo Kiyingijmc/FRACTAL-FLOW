@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { NavTab, MarketNewsItem, NewsImpactLevel, NewsCategory } from '../types.ts';
-import { INITIAL_MARKET_NEWS } from '../data/mockData.ts';
+import { NavTab, MarketNewsItem, NewsImpactLevel, NewsCategory } from '../types';
+import { INITIAL_MARKET_NEWS, INITIAL_CLOSED_TRADES } from '../data/mockData';
 
 interface SecondaryViewsProps {
   activeTab: NavTab;
@@ -89,39 +89,25 @@ const ActiveSymbolsCell: React.FC<{ symbols: string[] }> = ({ symbols }) => {
     <div ref={containerRef} className="relative inline-flex items-center gap-1.5 font-mono text-[11px] text-[#E7EAEE]">
       <span>{displayedSymbols.join(', ')}</span>
       {hasMore && (
-        <div className="relative inline-block">
+        <>
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsOpen((prev) => !prev);
-            }}
-            className="px-1.5 py-0.5 font-mono text-[10px] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/15 border border-[#232A35] hover:border-[#5B8FBF] rounded-[2px] transition-colors cursor-pointer select-none inline-flex items-center gap-1"
+            onClick={() => setIsOpen(!isOpen)}
+            className="px-1 py-0.5 min-h-[26px] text-[9px] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/20 border border-[#232A35] rounded-[2px] cursor-pointer"
           >
-            <span>+{extraSymbols.length} more</span>
-            <span className="text-[8px] text-[#6E7A8A]">{isOpen ? '▲' : '▼'}</span>
+            +{extraSymbols.length}
           </button>
-
           {isOpen && (
-            <div className="absolute left-0 top-full mt-1 z-30 min-w-[150px] bg-[#10151D] border border-[#232A35] py-1 text-xs select-none">
-              <div className="px-2.5 py-1 text-[10px] font-sans font-medium text-[#6E7A8A] border-b border-[#232A35] flex justify-between items-center">
-                <span>Active Symbols</span>
-                <span className="font-mono text-[#4FAE86] text-[9px]">+{extraSymbols.length}</span>
-              </div>
-              <div className="max-h-44 overflow-y-auto py-0.5">
-                {extraSymbols.map((sym) => (
-                  <div
-                    key={sym}
-                    className="px-2.5 py-1.5 font-mono text-[11px] text-[#E7EAEE] hover:bg-[#161C26] flex items-center justify-between border-b border-[#232A35]/50 last:border-b-0"
-                  >
-                    <span>{sym}</span>
-                    <span className="font-mono text-[9px] text-[#4FAE86] px-1 py-0.2 rounded-[2px] bg-[#4FAE86]/10">ACTIVE</span>
-                  </div>
+            <div className="absolute left-0 top-full mt-1 z-30 bg-[#10151D] border border-[#232A35] p-2 text-xs rounded shadow-lg min-w-[140px]">
+              <div className="text-[10px] text-[#6E7A8A] mb-1 font-sans">All Symbols</div>
+              <div className="space-y-1 font-mono text-[11px] text-[#E7EAEE]">
+                {symbols.map((sym) => (
+                  <div key={sym}>{sym}</div>
                 ))}
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -130,128 +116,172 @@ const ActiveSymbolsCell: React.FC<{ symbols: string[] }> = ({ symbols }) => {
 export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
   activeTab,
   onReturnToPositions,
-  newsItems,
+  newsItems = INITIAL_MARKET_NEWS,
 }) => {
-  const [selectedImpact, setSelectedImpact] = useState<string>('ALL');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [newsFilterImpact, setNewsFilterImpact] = useState<NewsImpactLevel | 'ALL'>('ALL');
+  const [newsFilterCategory, setNewsFilterCategory] = useState<NewsCategory | 'ALL'>('ALL');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [expandedNewsId, setExpandedNewsId] = useState<string | null>('news_01');
-
-  const allNews = newsItems || INITIAL_MARKET_NEWS;
+  const [isFilterCollapsed, setIsFilterCollapsed] = useState<boolean>(true);
 
   const filteredNews = useMemo(() => {
-    return allNews.filter((item) => {
-      if (selectedImpact !== 'ALL' && item.impact !== selectedImpact) return false;
-      if (selectedCategory !== 'ALL' && item.category !== selectedCategory) return false;
+    return newsItems.filter((item) => {
+      if (newsFilterImpact !== 'ALL' && item.impact !== newsFilterImpact) return false;
+      if (newsFilterCategory !== 'ALL' && item.category !== newsFilterCategory) return false;
       if (selectedCurrency !== 'ALL' && item.currency !== selectedCurrency) return false;
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          item.title.toLowerCase().includes(q) ||
-          item.details.toLowerCase().includes(q) ||
-          item.source.toLowerCase().includes(q)
-        );
-      }
       return true;
     });
-  }, [allNews, selectedImpact, selectedCategory, selectedCurrency, searchQuery]);
+  }, [newsItems, newsFilterImpact, newsFilterCategory, selectedCurrency]);
+
+  const activeEmbargoCount = useMemo(() => {
+    return newsItems.filter((item) => item.embargoActive).length;
+  }, [newsItems]);
+
+  const highImpactCount = useMemo(() => {
+    return newsItems.filter((item) => item.impact === 'High').length;
+  }, [newsItems]);
+
+  // Derived closed trades statistics for STATS tab
+  const stats = useMemo(() => {
+    const closed = INITIAL_CLOSED_TRADES;
+    const totalTrades = closed.length;
+    const winning = closed.filter(t => t.realizedR > 0);
+    const losing = closed.filter(t => t.realizedR <= 0);
+    const winRate = totalTrades > 0 ? (winning.length / totalTrades) * 100 : 0;
+    const totalR = closed.reduce((acc, t) => acc + t.realizedR, 0);
+    const totalPnl = closed.reduce((acc, t) => acc + t.realizedPnl, 0);
+    const grossProfit = winning.reduce((acc, t) => acc + t.realizedPnl, 0);
+    const grossLoss = Math.abs(losing.reduce((acc, t) => acc + t.realizedPnl, 0));
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : 99.99;
+    const avgWin = winning.length > 0 ? winning.reduce((acc, t) => acc + t.realizedR, 0) / winning.length : 0;
+    const avgLoss = losing.length > 0 ? Math.abs(losing.reduce((acc, t) => acc + t.realizedR, 0) / losing.length) : 0;
+    const expectancy = totalTrades > 0 ? totalR / totalTrades : 0;
+    return {
+      totalTrades,
+      winCount: winning.length,
+      lossCount: losing.length,
+      winRate,
+      totalR,
+      totalPnl,
+      profitFactor,
+      avgWin,
+      avgLoss,
+      expectancy
+    };
+  }, []);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 bg-[#0A0E14] overflow-auto p-4 select-none">
+    <div className="flex-1 flex flex-col bg-[#0A0E14] overflow-y-auto p-3 sm:p-5 text-[#E7EAEE] w-full">
+      {/* View Header with 44px touch target Back button */}
       <div className="flex items-center justify-between pb-3 mb-4 border-b border-[#232A35]">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xs font-semibold text-[#E7EAEE] tracking-tight">
+        <div>
+          <h2 className="text-sm font-semibold tracking-wide text-[#E7EAEE]">
             {activeTab === 'DEC' && 'Decision Snapshots & Candidate Gate Rejections'}
             {activeTab === 'RISK' && 'Per-Lane Risk State & Exposure Caps'}
             {activeTab === 'MODE' && 'Mode Profiles & Regime Confidence Gate'}
             {activeTab === 'NEWS' && 'Market Event Feed & Gate N Embargo Telemetry'}
             {activeTab === 'CALIB' && 'Calibration Service & Parameter Rollout Stages'}
             {activeTab === 'HEALTH' && 'System Health, Bridge Session & Fence Peer'}
+            {activeTab === 'STATS' && 'Closed Trade Analytics & System Performance'}
           </h2>
-          <span className="font-mono text-[10px] text-[#6E7A8A]">lane ACT_PRIMARY</span>
+          <div className="text-[11px] text-[#6E7A8A]">
+            FRACTAL-FLOW Control Surface · Off-Broker Operator Monitor
+          </div>
         </div>
+
         <button
+          type="button"
           onClick={onReturnToPositions}
-          title="Return to Positions table (Hotkey: Esc or Backspace)"
-          className="px-2.5 py-1 text-xs font-sans text-[#5B8FBF] hover:bg-[#5B8FBF]/10 border border-[#5B8FBF] rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5"
+          className="min-h-[44px] px-3 py-1.5 text-xs font-sans rounded-[2px] border border-[#232A35] hover:border-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/10 text-[#5B8FBF] transition-colors cursor-pointer flex items-center gap-1.5"
         >
-          <span>Back to Positions (POS)</span>
-          <span className="font-mono text-[10px] bg-[#5B8FBF]/20 px-1 py-0.5 rounded-[2px]">Esc</span>
+          <span>← Back to Positions</span>
+          <span className="font-mono text-[10px] bg-[#5B8FBF]/20 px-1 py-0.5 rounded-[2px] hidden sm:inline">
+            Esc
+          </span>
         </button>
       </div>
 
+      {/* DECISION VIEW */}
       {activeTab === 'DEC' && (
         <div className="space-y-4">
           <div className="text-xs text-[#6E7A8A]">
             Sequential 11-gate chain telemetry for recent candidate evaluations (<span className="font-mono">Q E R P L O T N K A X</span>).
           </div>
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
-                <th className="py-2 px-3">time</th>
-                <th className="py-2 px-3">symbol</th>
-                <th className="py-2 px-3">setup</th>
-                <th className="py-2 px-3">gate status</th>
-                <th className="py-2 px-3">terminal outcome</th>
-                <th className="py-2 px-3">rejection rationale</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
-                <td className="py-2 px-3 font-mono text-[#6E7A8A]">14:04:12</td>
-                <td className="py-2 px-3 text-[#E7EAEE] font-medium">EURUSD</td>
-                <td className="py-2 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-01</td>
-                <td className="py-2 px-3 font-mono text-[11px]">
-                  <span className="text-[#4FAE86]">Q E R P</span> <span className="text-[#B23B3B] font-semibold">L</span> <span className="text-[#454E5C]">O T N K A X</span>
-                </td>
-                <td className="py-2 px-3 text-[#C25B6B] font-mono text-[11px]">REJECTED</td>
-                <td className="py-2 px-3 text-[#6E7A8A]">Location congested: price inside 15M swing congestion zone</td>
-              </tr>
-              <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
-                <td className="py-2 px-3 font-mono text-[#6E7A8A]">13:48:05</td>
-                <td className="py-2 px-3 text-[#E7EAEE] font-medium">GBPUSD</td>
-                <td className="py-2 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-03</td>
-                <td className="py-2 px-3 font-mono text-[11px]">
-                  <span className="text-[#4FAE86]">Q E R P L O T</span> <span className="text-[#B23B3B] font-semibold">N</span> <span className="text-[#454E5C]">K A X</span>
-                </td>
-                <td className="py-2 px-3 text-[#C25B6B] font-mono text-[11px]">REJECTED</td>
-                <td className="py-2 px-3 text-[#6E7A8A]">News embargo window active: UK CPI release in 8m</td>
-              </tr>
-              <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
-                <td className="py-2 px-3 font-mono text-[#6E7A8A]">13:12:44</td>
-                <td className="py-2 px-3 text-[#E7EAEE] font-medium">USDJPY</td>
-                <td className="py-2 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-02</td>
-                <td className="py-2 px-3 font-mono text-[11px] text-[#4FAE86]">
-                  Q E R P L O T N K A X
-                </td>
-                <td className="py-2 px-3 text-[#4FAE86] font-mono text-[11px]">ACCEPTED</td>
-                <td className="py-2 px-3 text-[#6E7A8A]">All 11 gates cleared; routed to ExecutionGateway (ord_usdjpy_01)</td>
-              </tr>
-            </tbody>
-          </table>
+
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs min-w-[650px]">
+              <thead>
+                <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
+                  <th className="py-2 px-3">time</th>
+                  <th className="py-2 px-3">symbol</th>
+                  <th className="py-2 px-3">setup</th>
+                  <th className="py-2 px-3">gate status (11 gates)</th>
+                  <th className="py-2 px-3">terminal outcome</th>
+                  <th className="py-2 px-3">rejection rationale</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
+                  <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">14:04:12</td>
+                  <td className="py-2.5 px-3 text-[#E7EAEE] font-medium">EURUSD</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-01</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px]">
+                    <span className="text-[#4FAE86]">Q E R P</span>{' '}
+                    <span className="text-[#B23B3B] font-semibold">L</span>{' '}
+                    <span className="text-[#454E5C]">O T N K A X</span>
+                  </td>
+                  <td className="py-2.5 px-3 text-[#C25B6B] font-mono text-[11px]">REJECTED</td>
+                  <td className="py-2.5 px-3 text-[#6E7A8A]">Location congested: price inside 15M swing congestion zone</td>
+                </tr>
+                <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
+                  <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">13:48:05</td>
+                  <td className="py-2.5 px-3 text-[#E7EAEE] font-medium">GBPUSD</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-03</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px]">
+                    <span className="text-[#4FAE86]">Q E R P L O T</span>{' '}
+                    <span className="text-[#B23B3B] font-semibold">N</span>{' '}
+                    <span className="text-[#454E5C]">K A X</span>
+                  </td>
+                  <td className="py-2.5 px-3 text-[#C25B6B] font-mono text-[11px]">REJECTED</td>
+                  <td className="py-2.5 px-3 text-[#6E7A8A]">News embargo window active: UK CPI release in 8m</td>
+                </tr>
+                <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
+                  <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">13:12:44</td>
+                  <td className="py-2.5 px-3 text-[#E7EAEE] font-medium">USDJPY</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px] text-[#6E7A8A]">FF-02</td>
+                  <td className="py-2.5 px-3 font-mono text-[11px] text-[#4FAE86]">
+                    Q E R P L O T N K A X
+                  </td>
+                  <td className="py-2.5 px-3 text-[#4FAE86] font-mono text-[11px]">ACCEPTED</td>
+                  <td className="py-2.5 px-3 text-[#6E7A8A]">All 11 gates cleared; routed to ExecutionGateway (ord_usdjpy_01)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
+      {/* RISK VIEW */}
       {activeTab === 'RISK' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">Open Lane Risk</div>
-              <div className="font-mono text-base text-[#E7EAEE]">1.8R <span className="text-xs text-[#6E7A8A]">/ 3.0R cap</span></div>
+              <div className="font-mono text-base text-[#E7EAEE]">
+                1.8R <span className="text-xs text-[#6E7A8A]">/ 3.0R cap</span>
+              </div>
               <div className="text-[10px] text-[#4FAE86] mt-1">60% utilization (Nominal)</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">Active Margin Used</div>
               <div className="font-mono text-base text-[#E7EAEE]">$8,420.00</div>
               <div className="text-[10px] text-[#6E7A8A] mt-1">17.4% of total equity</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">Daily Drawdown</div>
               <div className="font-mono text-base text-[#4FAE86]">+0.65%</div>
               <div className="text-[10px] text-[#6E7A8A] mt-1">Halt limit: -3.00%</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">Kill Switch Ladder</div>
               <div className="font-mono text-base text-[#4FAE86]">LEVEL 0</div>
               <div className="text-[10px] text-[#6E7A8A] mt-1">All execution systems active</div>
@@ -260,277 +290,214 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
         </div>
       )}
 
+      {/* MODE VIEW */}
       {activeTab === 'MODE' && (
         <div className="space-y-3">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
-                <th className="py-2 px-3">mode profile</th>
-                <th className="py-2 px-3">status</th>
-                <th className="py-2 px-3">regime confidence</th>
-                <th className="py-2 px-3">anchor timeframe</th>
-                <th className="py-2 px-3">active symbols</th>
-                <th className="py-2 px-3">calibration state</th>
-              </tr>
-            </thead>
-            <tbody>
-              {MODE_PROFILES.map((profile) => (
-                <tr key={profile.name} className="border-b border-[#232A35] hover:bg-[#161C26]">
-                  <td className="py-2 px-3 font-mono text-[#E7EAEE]">{profile.name}</td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={`font-mono text-[10px] ${
-                        profile.status === 'ACTIVE'
-                          ? 'text-[#4FAE86]'
-                          : profile.status === 'CONSTRAINED'
-                          ? 'text-[#BFA13B]'
-                          : 'text-[#6E7A8A]'
-                      }`}
-                    >
-                      {profile.status}
-                    </span>
-                  </td>
-                  <td className={`py-2 px-3 font-mono ${profile.regimeConfidenceClass}`}>
-                    {profile.regimeConfidence}
-                  </td>
-                  <td className="py-2 px-3 font-mono text-[#5B8FBF]">{profile.anchorTimeframe}</td>
-                  <td className="py-2 px-3">
-                    <ActiveSymbolsCell symbols={profile.activeSymbols} />
-                  </td>
-                  <td className="py-2 px-3 text-[#6E7A8A]">{profile.calibrationState}</td>
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs min-w-[650px]">
+              <thead>
+                <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
+                  <th className="py-2 px-3">mode profile</th>
+                  <th className="py-2 px-3">status</th>
+                  <th className="py-2 px-3">regime confidence</th>
+                  <th className="py-2 px-3">anchor timeframe</th>
+                  <th className="py-2 px-3">active symbols</th>
+                  <th className="py-2 px-3">calibration state</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {MODE_PROFILES.map((profile) => (
+                  <tr key={profile.name} className="border-b border-[#232A35] hover:bg-[#161C26]">
+                    <td className="py-2.5 px-3 font-mono text-[#E7EAEE]">{profile.name}</td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`font-mono text-[10px] ${
+                          profile.status === 'ACTIVE'
+                            ? 'text-[#4FAE86]'
+                            : profile.status === 'CONSTRAINED'
+                            ? 'text-[#BFA13B]'
+                            : 'text-[#6E7A8A]'
+                        }`}
+                      >
+                        {profile.status}
+                      </span>
+                    </td>
+                    <td className={`py-2.5 px-3 font-mono ${profile.regimeConfidenceClass}`}>
+                      {profile.regimeConfidence}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[#5B8FBF]">{profile.anchorTimeframe}</td>
+                    <td className="py-2.5 px-3">
+                      <ActiveSymbolsCell symbols={profile.activeSymbols} />
+                    </td>
+                    <td className="py-2.5 px-3 text-[#6E7A8A]">{profile.calibrationState}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
+      {/* NEWS VIEW */}
       {activeTab === 'NEWS' && (
         <div className="space-y-4">
-          {/* Top Quick Status Strip */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+          {/* Quick Status Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">Active Gate N Embargo</div>
-              <div className="font-mono text-base text-[#C25B6B] font-medium">1 ENGAGED</div>
+              <div className="font-mono text-base text-[#C25B6B] font-medium">
+                {activeEmbargoCount} ENGAGED
+              </div>
               <div className="text-[10px] text-[#6E7A8A] mt-1">GBPUSD, EURGBP, GBPJPY (T-15m)</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
               <div className="text-[11px] text-[#6E7A8A] mb-1">High-Impact Events</div>
-              <div className="font-mono text-base text-[#C25B6B] font-medium">3 Scheduled</div>
+              <div className="font-mono text-base text-[#C25B6B] font-medium">
+                {highImpactCount} Scheduled
+              </div>
               <div className="text-[10px] text-[#6E7A8A] mt-1">UK CPI, US NFP, ECB Deposit Rate</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">System Announcements</div>
-              <div className="font-mono text-base text-[#BFA13B] font-medium">3 Directives</div>
-              <div className="text-[10px] text-[#6E7A8A] mt-1">Fence Epoch 418, Cooldown, Calib</div>
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Embargo Buffer Window</div>
+              <div className="font-mono text-base text-[#E7EAEE]">±15 min</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">Strict Gate N block prior to release</div>
             </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">Pipeline Feed Status</div>
-              <div className="font-mono text-base text-[#4FAE86] font-medium">NOMINAL</div>
-              <div className="text-[10px] text-[#4FAE86] mt-1">Low-latency wire connected (0 gaps)</div>
-            </div>
-          </div>
-
-          {/* Filters Bar */}
-          <div className="bg-[#10151D] border border-[#232A35] p-2.5 flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#6E7A8A] font-medium">Impact Level:</span>
-              <div className="flex gap-1">
-                {['ALL', 'High', 'Med', 'Low'].map((lvl) => (
-                  <button
-                    key={lvl}
-                    onClick={() => setSelectedImpact(lvl)}
-                    className={`px-2 py-0.5 text-[10px] font-mono rounded-[2px] border transition-colors cursor-pointer ${
-                      selectedImpact === lvl
-                        ? 'border-[#5B8FBF] bg-[#5B8FBF]/15 text-[#5B8FBF] font-semibold'
-                        : 'border-[#232A35] bg-[#161C26] text-[#6E7A8A] hover:text-[#E7EAEE]'
-                    }`}
-                  >
-                    {lvl === 'ALL' ? 'ALL IMPACT' : lvl.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#6E7A8A] font-medium">Category:</span>
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="bg-[#161C26] text-[#E7EAEE] font-mono text-[11px] border border-[#232A35] rounded-[2px] px-2 py-0.5 outline-none cursor-pointer focus:border-[#5B8FBF]"
-              >
-                <option value="ALL">All Categories</option>
-                <option value="GATE_N_EMBARGO">Gate N Embargo</option>
-                <option value="MACRO_ECONOMIC">Macro Economic</option>
-                <option value="CENTRAL_BANK">Central Bank</option>
-                <option value="SYSTEM_ANNOUNCEMENT">System Announcement</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-[#6E7A8A] font-medium">Currency:</span>
-              <select
-                value={selectedCurrency}
-                onChange={(e) => setSelectedCurrency(e.target.value)}
-                className="bg-[#161C26] text-[#E7EAEE] font-mono text-[11px] border border-[#232A35] rounded-[2px] px-2 py-0.5 outline-none cursor-pointer focus:border-[#5B8FBF]"
-              >
-                <option value="ALL">All Currencies</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
-                <option value="EUR">EUR</option>
-                <option value="CHF">CHF</option>
-              </select>
-            </div>
-
-            <div className="flex-1 min-w-[180px] max-w-[260px]">
-              <input
-                type="text"
-                placeholder="Search headlines / wire..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-[#161C26] text-[#E7EAEE] placeholder-[#454E5C] font-sans text-xs border border-[#232A35] rounded-[2px] px-2.5 py-1 outline-none focus:border-[#5B8FBF]"
-              />
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Feed Freshness</div>
+              <div className="font-mono text-base text-[#4FAE86]">SYNCED (0.4s)</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">Macro Calendar Gateway nominal</div>
             </div>
           </div>
 
-          {/* Curated Feed Table */}
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
-                <th className="py-2 px-3 w-20">time</th>
-                <th className="py-2 px-3 w-20">impact</th>
-                <th className="py-2 px-3 w-16">cur</th>
-                <th className="py-2 px-3 w-40">category</th>
-                <th className="py-2 px-3">headline &amp; market telemetry</th>
-                <th className="py-2 px-3 text-right w-44">source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredNews.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-[#6E7A8A] text-xs">
-                    No market news or announcements matching the active filter criteria.
-                  </td>
+          {/* Collapsible Mobile Filter Controls */}
+          <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+            <div className="flex items-center justify-between sm:hidden mb-2">
+              <span className="text-xs text-[#6E7A8A]">Filter Event Risk</span>
+              <button
+                type="button"
+                onClick={() => setIsFilterCollapsed(!isFilterCollapsed)}
+                className="text-xs text-[#5B8FBF] min-h-[36px] px-2"
+              >
+                {isFilterCollapsed ? 'Show Filters ▾' : 'Hide Filters ▴'}
+              </button>
+            </div>
+
+            <div className={`flex flex-wrap items-center gap-2 sm:flex ${isFilterCollapsed ? 'hidden sm:flex' : 'flex'}`}>
+              <div className="text-xs text-[#6E7A8A] mr-1">Impact:</div>
+              {(['ALL', 'High', 'Med', 'Low'] as const).map((imp) => (
+                <button
+                  key={imp}
+                  type="button"
+                  onClick={() => setNewsFilterImpact(imp)}
+                  className={`min-h-[36px] px-2.5 py-1 text-xs font-mono rounded-[2px] transition-colors cursor-pointer ${
+                    newsFilterImpact === imp
+                      ? 'bg-[#5B8FBF] text-[#10151D] font-semibold'
+                      : 'bg-[#161C26] text-[#6E7A8A] hover:text-[#E7EAEE] border border-[#232A35]'
+                  }`}
+                >
+                  {imp}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Event Items */}
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs min-w-[700px]">
+              <thead>
+                <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
+                  <th className="py-2 px-3">time</th>
+                  <th className="py-2 px-3">ccy</th>
+                  <th className="py-2 px-3">impact</th>
+                  <th className="py-2 px-3">event &amp; details</th>
+                  <th className="py-2 px-3">embargo state</th>
+                  <th className="py-2 px-3 text-right">source</th>
                 </tr>
-              ) : (
-                filteredNews.map((item) => {
-                  const isExpanded = expandedNewsId === item.id;
-                  let impactStyle = 'bg-[#4FAE86]/[0.16] text-[#4FAE86] border-[#4FAE86]/40';
-                  if (item.impact === 'High') {
-                    impactStyle = 'bg-[#C25B6B]/[0.18] text-[#C25B6B] border-[#C25B6B]/45 font-semibold';
-                  } else if (item.impact === 'Med') {
-                    impactStyle = 'bg-[#BFA13B]/[0.18] text-[#BFA13B] border-[#BFA13B]/45 font-medium';
-                  }
-
-                  return (
-                    <tr
-                      key={item.id}
-                      onClick={() => setExpandedNewsId(isExpanded ? null : item.id)}
-                      className="border-b border-[#232A35] hover:bg-[#161C26] cursor-pointer transition-colors"
-                    >
-                      <td className="py-2.5 px-3 font-mono text-[#6E7A8A] tabular-nums align-top text-[11px]">
-                        {item.timestamp}
-                      </td>
-                      <td className="py-2.5 px-3 align-top">
-                        <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded-[2px] border ${impactStyle}`}>
-                          {item.impact.toUpperCase()}
+              </thead>
+              <tbody>
+                {filteredNews.map((item) => (
+                  <tr key={item.id} className="border-b border-[#232A35] hover:bg-[#161C26]">
+                    <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">{item.timestamp}</td>
+                    <td className="py-2.5 px-3 font-mono font-semibold text-[#E7EAEE]">{item.currency}</td>
+                    <td className="py-2.5 px-3">
+                      <span
+                        className={`font-mono text-[10px] px-1.5 py-0.5 rounded-[2px] ${
+                          item.impact === 'High'
+                            ? 'bg-[#C25B6B]/20 text-[#C25B6B]'
+                            : item.impact === 'Med'
+                            ? 'bg-[#BFA13B]/20 text-[#BFA13B]'
+                            : 'bg-[#6E7A8A]/20 text-[#6E7A8A]'
+                        }`}
+                      >
+                        {item.impact}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="text-[#E7EAEE] font-medium">{item.title}</div>
+                      <div className="text-[11px] text-[#6E7A8A] mt-0.5">{item.details}</div>
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[11px]">
+                      {item.embargoActive ? (
+                        <span className="text-[#C25B6B] font-semibold bg-[#C25B6B]/10 px-1.5 py-0.5 rounded-[2px] border border-[#C25B6B]/30">
+                          EMBARGO ACTIVE
                         </span>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-[#E7EAEE] font-medium align-top">
-                        {item.currency}
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-[10px] text-[#6E7A8A] align-top">
-                        {item.category.replace(/_/g, ' ')}
-                      </td>
-                      <td className="py-2.5 px-3 align-top">
-                        <div className="font-medium text-[#E7EAEE] mb-1 flex items-center gap-2 flex-wrap">
-                          <span>{item.title}</span>
-                          {item.embargoActive && (
-                            <span className="font-mono text-[9px] px-1 py-0.2 rounded-[2px] bg-[#B23B3B]/20 text-[#B23B3B] border border-[#B23B3B]/40 font-semibold">
-                              GATE N HALT
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Macro metrics strip if present */}
-                        {(item.actual || item.forecast || item.previous) && (
-                          <div className="flex items-center gap-3 font-mono text-[10px] text-[#6E7A8A] my-1 bg-[#10151D] px-2 py-0.5 rounded-[2px] w-fit border border-[#232A35]">
-                            {item.actual && (
-                              <span>
-                                ACTUAL: <strong className="text-[#4FAE86]">{item.actual}</strong>
-                              </span>
-                            )}
-                            {item.forecast && <span>FCST: {item.forecast}</span>}
-                            {item.previous && <span>PREV: {item.previous}</span>}
-                          </div>
-                        )}
-
-                        {/* Detailed narrative */}
-                        <div className={`text-[11px] text-[#6E7A8A] leading-relaxed ${isExpanded ? '' : 'line-clamp-1'}`}>
-                          {item.details}
-                        </div>
-
-                        {item.affectedSymbols && item.affectedSymbols.length > 0 && (
-                          <div className="flex items-center gap-1.5 mt-1.5 text-[10px] font-mono text-[#5B8FBF]">
-                            <span className="text-[#6E7A8A]">AFFECTED:</span>
-                            {item.affectedSymbols.map((sym) => (
-                              <span key={sym} className="bg-[#161C26] px-1 rounded-[2px] border border-[#232A35]">
-                                {sym}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-[10px] text-[#6E7A8A] text-right align-top whitespace-nowrap">
-                        {item.source}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                      ) : (
+                        <span className="text-[#6E7A8A]">None</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-[10px] text-[#6E7A8A] text-right">
+                      {item.source}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
+      {/* CALIBRATION VIEW */}
       {activeTab === 'CALIB' && (
         <div className="space-y-3">
           <div className="text-xs text-[#6E7A8A]">
             Parameter rollout stage tracking per Quant Layer discipline (SHADOW → PAPER → CANARY → ACTIVE).
           </div>
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
-                <th className="py-2 px-3">parameter</th>
-                <th className="py-2 px-3">effective config</th>
-                <th className="py-2 px-3">rollout stage</th>
-                <th className="py-2 px-3">current value</th>
-                <th className="py-2 px-3">validation sample</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
-                <td className="py-2 px-3 font-mono text-[#E7EAEE]">adaptive_trail_k_factor</td>
-                <td className="py-2 px-3 font-mono text-[#6E7A8A]">cfg_7f2a19c4</td>
-                <td className="py-2 px-3 text-[#4FAE86] font-mono text-[10px]">ACTIVE</td>
-                <td className="py-2 px-3 font-mono text-[#E7EAEE]">3.60</td>
-                <td className="py-2 px-3 text-[#6E7A8A]">1,420 trades (p &lt; 0.001)</td>
-              </tr>
-              <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
-                <td className="py-2 px-3 font-mono text-[#E7EAEE]">counterflow_exhaustion_threshold</td>
-                <td className="py-2 px-3 font-mono text-[#6E7A8A]">cfg_5e1b82a0</td>
-                <td className="py-2 px-3 text-[#BFA13B] font-mono text-[10px]">CANARY</td>
-                <td className="py-2 px-3 font-mono text-[#E7EAEE]">2.00σ</td>
-                <td className="py-2 px-3 text-[#6E7A8A]">240 trades (live sandbox)</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="w-full overflow-x-auto">
+            <table className="w-full border-collapse text-left text-xs min-w-[650px]">
+              <thead>
+                <tr className="bg-[#10151D] border-b border-[#232A35] text-[11px] text-[#6E7A8A]">
+                  <th className="py-2 px-3">parameter</th>
+                  <th className="py-2 px-3">effective config</th>
+                  <th className="py-2 px-3">rollout stage</th>
+                  <th className="py-2 px-3">current value</th>
+                  <th className="py-2 px-3">validation sample</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
+                  <td className="py-2.5 px-3 font-mono text-[#E7EAEE]">adaptive_trail_k_factor</td>
+                  <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">cfg_7f2a19c4</td>
+                  <td className="py-2.5 px-3 text-[#4FAE86] font-mono text-[10px]">ACTIVE</td>
+                  <td className="py-2.5 px-3 font-mono text-[#E7EAEE]">3.60</td>
+                  <td className="py-2.5 px-3 text-[#6E7A8A]">1,420 trades (p &lt; 0.001)</td>
+                </tr>
+                <tr className="border-b border-[#232A35] hover:bg-[#161C26]">
+                  <td className="py-2.5 px-3 font-mono text-[#E7EAEE]">counterflow_exhaustion_threshold</td>
+                  <td className="py-2.5 px-3 font-mono text-[#6E7A8A]">cfg_5e1b82a0</td>
+                  <td className="py-2.5 px-3 text-[#BFA13B] font-mono text-[10px]">CANARY</td>
+                  <td className="py-2.5 px-3 font-mono text-[#E7EAEE]">2.00σ</td>
+                  <td className="py-2.5 px-3 text-[#6E7A8A]">240 trades (live sandbox)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
+      {/* HEALTH VIEW */}
       {activeTab === 'HEALTH' && (
         <div className="space-y-4">
-          <div className="bg-[#10151D] border border-[#232A35] p-3 text-xs space-y-2">
+          <div className="bg-[#10151D] border border-[#232A35] p-3 text-xs space-y-2 rounded-[2px]">
             <div className="flex justify-between border-b border-[#232A35] pb-1.5">
               <span className="text-[#6E7A8A]">Execution Gateway Bridge</span>
               <span className="text-[#4FAE86] font-mono">CONNECTED (0.7ms latency)</span>
@@ -546,6 +513,56 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
             <div className="flex justify-between">
               <span className="text-[#6E7A8A]">Authentication &amp; Role</span>
               <span className="text-[#E7EAEE] font-mono">daniel · OPERATOR (write_gated)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STATS VIEW */}
+      {activeTab === 'STATS' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Win Rate</div>
+              <div className="font-mono text-xl text-[#4FAE86] font-semibold">{stats.winRate.toFixed(1)}%</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">{stats.winCount} wins / {stats.lossCount} losses</div>
+            </div>
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Profit Factor</div>
+              <div className="font-mono text-xl text-[#4FAE86] font-semibold">{stats.profitFactor.toFixed(2)}</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">Gross Win / Gross Loss</div>
+            </div>
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Trade Expectancy</div>
+              <div className="font-mono text-xl text-[#4FAE86] font-semibold">+{stats.expectancy.toFixed(2)}R</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">Average return per risk unit</div>
+            </div>
+            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+              <div className="text-[11px] text-[#6E7A8A] mb-1">Cumulative Realized PnL</div>
+              <div className="font-mono text-xl text-[#4FAE86] font-semibold">+${stats.totalPnl.toFixed(2)}</div>
+              <div className="text-[10px] text-[#6E7A8A] mt-1">From {stats.totalTrades} journal-verified trades</div>
+            </div>
+          </div>
+
+          <div className="bg-[#10151D] border border-[#232A35] p-4 rounded-[2px] space-y-2 text-xs">
+            <div className="font-semibold text-xs text-[#E7EAEE] mb-2 uppercase tracking-wide">
+              Trade Performance Invariant Breakdown
+            </div>
+            <div className="flex justify-between border-b border-[#232A35] py-1.5">
+              <span className="text-[#6E7A8A]">Average Win Magnitude</span>
+              <span className="font-mono text-[#4FAE86]">+{stats.avgWin.toFixed(2)}R</span>
+            </div>
+            <div className="flex justify-between border-b border-[#232A35] py-1.5">
+              <span className="text-[#6E7A8A]">Average Loss Magnitude</span>
+              <span className="font-mono text-[#C25B6B]">-{stats.avgLoss.toFixed(2)}R</span>
+            </div>
+            <div className="flex justify-between border-b border-[#232A35] py-1.5">
+              <span className="text-[#6E7A8A]">Total Realized R</span>
+              <span className="font-mono text-[#4FAE86]">+{stats.totalR.toFixed(2)}R</span>
+            </div>
+            <div className="flex justify-between pt-1.5">
+              <span className="text-[#6E7A8A]">Ledger Verification Status</span>
+              <span className="font-mono text-[#5B8FBF]">CONFIRMED HISTORICAL (NO OPEN RISK INCLUDED)</span>
             </div>
           </div>
         </div>

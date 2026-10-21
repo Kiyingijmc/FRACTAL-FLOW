@@ -1,4 +1,8 @@
-import { IDataProvider, ICommandProvider, CommandProgressUpdate } from './interfaces';
+import { 
+  IDataProvider, 
+  ICommandProvider, 
+  CommandProgressUpdate 
+} from './interfaces';
 import { 
   TelemetryProvenance, 
   IntentFingerprint, 
@@ -29,9 +33,11 @@ import {
  * 2. ALL returned data and progress updates are explicitly tagged with `authoritative: false` and `source: 'SIM_ENGINE'`.
  * 3. Market tick simulation and command progression are owned entirely within this provider boundary.
  * 4. State mutations are isolated strictly to local sandbox memory.
+ * 5. SC-07: Validates reconciliation against recorded simulated intents; strictly rejects unknown intent IDs.
  */
 export class SimulationProvider implements IDataProvider, ICommandProvider {
   readonly isLiveAuthorized = false;
+
   private positions: Position[];
   private pendingOrders: PendingOrder[];
   private candidates: GateCandidate[];
@@ -40,6 +46,8 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
   private epoch = 418;
   private lastHeartbeatTime = Date.now();
   private isPaused = false;
+  // SC-07: Track recorded simulated intents in local memory
+  private simulatedIntents = new Map<string, CommandResult>();
 
   constructor() {
     this.positions = JSON.parse(JSON.stringify(INITIAL_POSITIONS));
@@ -105,13 +113,13 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       const isTickUp = Math.random() > 0.48;
       const tickStep = target.priceDecimals === 3 ? 0.008 : 0.00004;
       const delta = isTickUp ? tickStep : -tickStep;
+
       const newPrice = Number((target.currentPrice + delta).toFixed(target.priceDecimals));
       const rDelta = (isTickUp ? 1 : -1) * (target.side === 'LONG' ? 0.02 : -0.02);
       const newUnrealizedR = Number((target.unrealizedR + rDelta).toFixed(2));
 
       target.currentPrice = newPrice;
       target.unrealizedR = newUnrealizedR;
-
       this.lastHeartbeatTime = Date.now();
 
       callback(
@@ -151,7 +159,6 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
 
     // Check rejection simulation
     const simulateRejection = Boolean(intent.parameters?.simulateRejection);
-
     if (simulateRejection) {
       if (onProgress) {
         onProgress({
@@ -161,7 +168,7 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
           authoritative: false
         });
       }
-      return {
+      const rejectionResult: CommandResult = {
         intentId: intent.intentId,
         idempotencyKey: intent.idempotencyKey,
         status: 'REJECTED',
@@ -170,6 +177,8 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
         timestamp: Date.now(),
         rejectionReason: 'SIMULATED_CONSTRAINT_FAILURE'
       };
+      this.simulatedIntents.set(intent.intentId, rejectionResult);
+      return rejectionResult;
     }
 
     if (targetIdx === -1 && intent.actionType !== 'KILL_SWITCH') {
@@ -181,7 +190,7 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
           authoritative: false
         });
       }
-      return {
+      const notFoundResult: CommandResult = {
         intentId: intent.intentId,
         idempotencyKey: intent.idempotencyKey,
         status: 'REJECTED',
@@ -190,6 +199,8 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
         timestamp: Date.now(),
         rejectionReason: 'POSITION_NOT_FOUND'
       };
+      this.simulatedIntents.set(intent.intentId, notFoundResult);
+      return notFoundResult;
     }
 
     // Second simulation progression step: DISPATCHED_TO_BROKER (simulated virtual broker)
@@ -220,7 +231,7 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       this.positions = [];
     }
 
-    // Record audit event in sandbox system events
+    // Record audit event in sandbox system events (SC-09: labeled SIMULATED / SESSION, never false PERSISTED)
     const auditEvent: SystemEvent = {
       id: `evt_sim_${Date.now()}`,
       eventId: `EVT-${Date.now().toString().slice(-4)}`,
@@ -242,6 +253,9 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       timestamp: Date.now()
     };
 
+    // SC-07: Record simulated intent
+    this.simulatedIntents.set(intent.intentId, result);
+
     if (onProgress) {
       onProgress({
         status: 'CONFIRMED',
@@ -254,14 +268,26 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     return result;
   }
 
+  /**
+   * SC-07: Validates reconciliation against recorded intents.
+   * Unknown intent IDs are strictly rejected.
+   */
   async reconcileCommand(intentId: string): Promise<CommandResult> {
+    const recorded = this.simulatedIntents.get(intentId);
+    if (!recorded) {
+      return {
+        intentId,
+        idempotencyKey: `unknown_${intentId}`,
+        status: 'REJECTED',
+        authoritative: false,
+        message: `Intent '${intentId}' not found in simulation memory`,
+        timestamp: Date.now(),
+        rejectionReason: 'INTENT_NOT_RECORDED'
+      };
+    }
     return {
-      intentId,
-      idempotencyKey: `sim_${intentId}`,
-      status: 'CONFIRMED',
-      authoritative: false,
-      message: 'Simulated intent is reconciled against local sandbox memory',
-      timestamp: Date.now()
+      ...recorded,
+      message: `Reconciled simulated intent '${intentId}' against local sandbox memory`
     };
   }
 }

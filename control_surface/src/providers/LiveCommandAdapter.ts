@@ -35,3 +35,5 @@ export class LiveCommandAdapter implements ICommandProvider {
     );
   }
 }
+
+export { LiveExecutionBlockedError };

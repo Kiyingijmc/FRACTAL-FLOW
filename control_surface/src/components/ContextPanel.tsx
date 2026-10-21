@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { Position, Timeframe, ActionType, CommandExecutionRecord, ClosedTrade } from '../types.ts';
+import { Position, Timeframe, ActionType, CommandExecutionRecord, ClosedTrade } from '../types';
 
 interface ContextPanelProps {
   position: Position | null;
   onTriggerAction: (action: ActionType, pos: Position) => void;
   activeCommand: CommandExecutionRecord | null;
   closedTrades?: ClosedTrade[];
+  onBackToTable?: () => void;
 }
 
 const TIMEFRAMES: Timeframe[] = ['4H', '1H', '30M', '15M', '5M', '1M'];
@@ -15,6 +16,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
   onTriggerAction,
   activeCommand,
   closedTrades = [],
+  onBackToTable,
 }) => {
   const [panelTab, setPanelTab] = useState<'detail' | 'stats'>('detail');
 
@@ -44,7 +46,6 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
     const winningTrades = closedTrades.filter((t) => t.realizedR > 0);
     const losingTrades = closedTrades.filter((t) => t.realizedR <= 0);
     const winRate = (winningTrades.length / totalTrades) * 100;
-
     const totalRealizedR = closedTrades.reduce((acc, t) => acc + t.realizedR, 0);
     const totalRealizedPnl = closedTrades.reduce((acc, t) => acc + t.realizedPnl, 0);
 
@@ -56,7 +57,6 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       winningTrades.length > 0
         ? winningTrades.reduce((acc, t) => acc + t.realizedR, 0) / winningTrades.length
         : 0;
-
     const avgLossR =
       losingTrades.length > 0
         ? Math.abs(losingTrades.reduce((acc, t) => acc + t.realizedR, 0) / losingTrades.length)
@@ -65,7 +65,6 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
     const expectancyR = totalRealizedR / totalTrades;
 
     // Calculate maximum drawdown in R from cumulative equity curve
-    // Reverse array to follow chronological sequence (oldest to newest)
     const chronological = [...closedTrades].reverse();
     let peakR = 0;
     let runningR = 0;
@@ -84,14 +83,11 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
 
     const longTrades = closedTrades.filter((t) => t.side === 'LONG');
     const shortTrades = closedTrades.filter((t) => t.side === 'SHORT');
-    const longWinRate =
-      longTrades.length > 0
-        ? (longTrades.filter((t) => t.realizedR > 0).length / longTrades.length) * 100
-        : 0;
-    const shortWinRate =
-      shortTrades.length > 0
-        ? (shortTrades.filter((t) => t.realizedR > 0).length / shortTrades.length) * 100
-        : 0;
+    const longWins = longTrades.filter((t) => t.realizedR > 0).length;
+    const shortWins = shortTrades.filter((t) => t.realizedR > 0).length;
+
+    const longWinRate = longTrades.length > 0 ? (longWins / longTrades.length) * 100 : 0;
+    const shortWinRate = shortTrades.length > 0 ? (shortWins / shortTrades.length) * 100 : 0;
 
     return {
       totalTrades,
@@ -112,12 +108,6 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
     };
   }, [closedTrades]);
 
-  // Excursion bar logic for Detail view
-  const currentR = position?.unrealizedR || 0;
-  const isPos = currentR >= 0;
-  const maxScale = 2.5;
-  const fillWidthPercent = Math.min((Math.abs(currentR) / maxScale) * 50, 50);
-
   const isCommandInFlight =
     activeCommand &&
     (activeCommand.status === 'REQUESTED' ||
@@ -125,298 +115,221 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
       activeCommand.status === 'DISPATCHED');
 
   return (
-    <aside className="w-[310px] border-l border-[#232A35] bg-[#10151D] p-3.5 select-none shrink-0 overflow-y-auto flex flex-col justify-between">
+    <aside className="w-full md:w-80 border-t md:border-t-0 md:border-l border-[#232A35] bg-[#10151D] p-3.5 flex flex-col justify-between shrink-0 overflow-y-auto">
       <div>
-        {/* Context Panel Mode Switcher Tabs */}
-        <div className="flex border-b border-[#232A35] mb-3 select-none">
+        {/* Mobile Navigation Header: Back to Positions */}
+        {onBackToTable && (
+          <div className="flex md:hidden items-center justify-between pb-2 mb-2 border-b border-[#232A35]">
+            <button
+              type="button"
+              onClick={onBackToTable}
+              className="min-h-[44px] px-3 py-1.5 text-xs font-sans font-medium text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/15 border border-[#232A35] hover:border-[#5B8FBF] rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <span>← Back to Positions</span>
+            </button>
+            <span className="font-mono text-[10px] text-[#6E7A8A]">
+              {position?.symbol || 'NO SELECTION'}
+            </span>
+          </div>
+        )}
+
+        {/* Tab Switcher: Detail vs Stats */}
+        <div className="flex border-b border-[#232A35] mb-3">
           <button
             type="button"
             onClick={() => setPanelTab('detail')}
-            className={`flex-1 pb-1.5 text-xs font-sans transition-colors cursor-pointer border-b-2 text-center ${
+            className={`min-h-[38px] flex-1 py-1 text-xs font-sans text-center transition-colors cursor-pointer border-b-2 ${
               panelTab === 'detail'
-                ? 'text-[#E7EAEE] border-[#5B8FBF] font-medium'
+                ? 'text-[#E7EAEE] border-[#5B8FBF] font-medium bg-[#161C26]/30'
                 : 'text-[#6E7A8A] border-transparent hover:text-[#E7EAEE]'
             }`}
           >
-            Position Detail
+            Position detail
           </button>
           <button
             type="button"
             onClick={() => setPanelTab('stats')}
-            className={`flex-1 pb-1.5 text-xs font-sans transition-colors cursor-pointer border-b-2 text-center ${
+            className={`min-h-[38px] flex-1 py-1 text-xs font-sans text-center transition-colors cursor-pointer border-b-2 ${
               panelTab === 'stats'
-                ? 'text-[#E7EAEE] border-[#5B8FBF] font-medium'
+                ? 'text-[#E7EAEE] border-[#5B8FBF] font-medium bg-[#161C26]/30'
                 : 'text-[#6E7A8A] border-transparent hover:text-[#E7EAEE]'
             }`}
           >
-            Stats ({closedTrades.length})
+            Performance stats
           </button>
         </div>
 
-        {panelTab === 'detail' ? (
+        {panelTab === 'detail' && (
           <>
-            {/* Panel Header with Explicit Active Trade Scope */}
-            <div className="flex items-center justify-between text-[10px] font-mono text-[#6E7A8A] border-b border-[#232A35] pb-1 mb-2">
-              <span>MANAGED POSITION TELEMETRY</span>
-              <span className="text-[#BFA13B] font-semibold">SIMULATED</span>
-            </div>
-
             {position ? (
               <>
-                <h3 className="text-xs font-semibold text-[#E7EAEE] mb-0.5 tracking-tight flex items-center justify-between">
-                  <span>{position.symbol} · {position.side}</span>
-                  <span className={`font-mono text-xs ${position.unrealizedR >= 0 ? 'text-[#4FAE86]' : 'text-[#C25B6B]'}`}>
-                    {position.unrealizedR >= 0 ? '+' : ''}{position.unrealizedR.toFixed(2)}R
-                  </span>
-                </h3>
-                <div className="text-[11px] text-[#6E7A8A] mb-3.5">
-                  {position.setup} flow continuation · lane {position.lane}
-                </div>
-
-                {/* Timeframe Cascade Indicator (Signature Element 2) */}
-                <div className="text-[10px] text-[#6E7A8A] mb-1 flex justify-between">
-                  <span>timeframe cascade anchor</span>
-                  <span className="font-mono text-[#5B8FBF]">{position.drivingTimeframe} ACTIVE</span>
-                </div>
-                <div className="flex gap-1 mb-4">
-                  {TIMEFRAMES.map((tf) => {
-                    const isDriving = position.drivingTimeframe === tf;
-                    return (
-                      <div
-                        key={tf}
-                        title={isDriving ? `${tf}: Active driving anchor for trail / breakeven` : `${tf} tier`}
-                        className={`flex-1 text-center py-1 font-mono text-[10px] rounded-[2px] border transition-colors ${
-                          isDriving
-                            ? 'text-[#5B8FBF] border-[#5B8FBF] bg-[#5B8FBF]/10 font-medium'
-                            : 'text-[#454E5C] border-[#232A35] bg-transparent'
-                        }`}
-                      >
-                        {tf}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Key-Value Telemetry */}
-                <div className="space-y-0 text-xs">
-                  <div
-                    title="Structural swing pivot level defending current trailing stop on the driving timeframe."
-                    className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-                  >
-                    <span className="text-[#6E7A8A]">structural anchor</span>
-                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.structuralAnchor}</span>
-                  </div>
-                  <div
-                    title="Adaptive volatility trail distance scaled by market efficiency ratio (ER). Formula: k_factor × ATR."
-                    className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-                  >
-                    <span className="text-[#6E7A8A]">trail distance</span>
-                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.trailDistance}</span>
-                  </div>
-                  <div
-                    title="Ratchet status for breakeven threshold. Automatically transitions stop to entry price when MFE reaches 1.5R."
-                    className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-                  >
-                    <span className="text-[#6E7A8A]">breakeven</span>
-                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.breakevenStatus}</span>
-                  </div>
-                  <div
-                    title="Time-decay penalty counter. Tracks elapsed bars since entry relative to median setup duration."
-                    className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-                  >
-                    <span className="text-[#6E7A8A]">decay state</span>
-                    <span className={`font-mono text-[11px] ${position.decayState.includes('WARN') ? 'text-[#BFA13B]' : 'text-[#E7EAEE]'}`}>
-                      {position.decayState}
+                {/* Header Info */}
+                <div className="flex justify-between items-baseline mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-[#E7EAEE]">
+                      {position.symbol}
                     </span>
-                  </div>
-                  <div
-                    title="Canonical cryptographic hash of the active Quant Layer configuration governing this position."
-                    className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-                  >
-                    <span className="text-[#6E7A8A]">effective config</span>
-                    <span className="font-mono text-[#6E7A8A] text-[11px]">{position.effectiveConfig}</span>
-                  </div>
-                </div>
-
-                {/* Excursion Bar */}
-                <div className="mt-4">
-                  <div className="flex justify-between text-[11px] text-[#6E7A8A] mb-1">
-                    <span>excursion since entry (R)</span>
-                    <span className="font-mono text-[10px]">
-                      MAE <span className="text-[#C25B6B]">{position.mae.toFixed(2)}R</span> / MFE <span className="text-[#4FAE86]">+{position.mfe.toFixed(2)}R</span>
+                    <span
+                      className={`font-mono text-[10px] px-1.5 py-0.5 rounded-[2px] tracking-[0.3px] font-medium ${
+                        position.side === 'LONG'
+                          ? 'bg-[#4FAE86]/[0.16] text-[#4FAE86]'
+                          : 'bg-[#C25B6B]/[0.16] text-[#C25B6B]'
+                      }`}
+                    >
+                      {position.side}
                     </span>
+                    <span className="text-[11px] text-[#6E7A8A]">{position.lane}</span>
                   </div>
-                  <div
-                    title={`Maximum Adverse Excursion: ${position.mae.toFixed(2)}R | Maximum Favorable Excursion: +${position.mfe.toFixed(2)}R`}
-                    className="h-1.5 bg-[#161C26] rounded-[2px] relative overflow-hidden border border-[#232A35] cursor-help"
-                  >
-                    <div className="absolute top-0 bottom-0 left-1/2 w-[1px] bg-[#232A35] z-10" />
-                    {isPos ? (
-                      <div
-                        className="absolute top-0 bottom-0 left-1/2 bg-[#4FAE86] transition-all duration-300"
-                        style={{ width: `${fillWidthPercent}%` }}
-                      />
-                    ) : (
-                      <div
-                        className="absolute top-0 bottom-0 bg-[#C25B6B] transition-all duration-300"
-                        style={{ right: '50%', width: `${fillWidthPercent}%` }}
-                      />
-                    )}
+                  <div className="font-mono text-xs text-[#6E7A8A]">
+                    {position.mode} · {position.setup}
                   </div>
                 </div>
 
-                {/* Active Command Lifecycle Tracker */}
+                {/* In-Flight Command Lifecycle Banner */}
                 {activeCommand && (
-                  <div className="mt-4 p-2 bg-[#161C26] border border-[#232A35] text-[11px]">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-[#6E7A8A] uppercase font-mono text-[10px]">Command Lifecycle</span>
-                      <span
-                        className={`font-mono text-[10px] font-bold px-1 rounded-[2px] ${
-                          activeCommand.status === 'CONFIRMED'
-                            ? 'text-[#4FAE86] bg-[#4FAE86]/10'
-                            : activeCommand.status === 'REJECTED'
-                            ? 'text-[#B23B3B] bg-[#B23B3B]/10'
-                            : 'text-[#BFA13B] bg-[#BFA13B]/10 animate-pulse'
-                        }`}
-                      >
+                  <div
+                    className={`mb-3 p-2 rounded-[2px] border text-xs font-mono space-y-1 ${
+                      activeCommand.status === 'CONFIRMED'
+                        ? 'border-[#4FAE86]/40 bg-[#4FAE86]/10 text-[#4FAE86]'
+                        : activeCommand.status === 'REJECTED'
+                        ? 'border-[#C25B6B]/40 bg-[#C25B6B]/10 text-[#C25B6B]'
+                        : 'border-[#5B8FBF]/40 bg-[#5B8FBF]/10 text-[#5B8FBF] animate-pulse'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center text-[10px]">
+                      <span className="font-semibold uppercase tracking-wider">
                         {activeCommand.status}
                       </span>
+                      <span>{activeCommand.requestedAt}</span>
                     </div>
-                    <div className="font-mono text-[10px] text-[#E7EAEE] truncate">
-                      {activeCommand.idempotencyKey}
-                    </div>
-                    <div className="text-[10px] text-[#6E7A8A] mt-1">
-                      {activeCommand.details}
+                    <div className="text-[11px] truncate text-[#E7EAEE]">{activeCommand.details}</div>
+                    <div className="text-[9px] text-[#6E7A8A] truncate">
+                      IDEMP: {activeCommand.idempotencyKey.slice(0, 22)}...
                     </div>
                   </div>
                 )}
+
+                {/* Signature Element: Timeframe Cascade Strip */}
+                <div className="mb-4">
+                  <div className="text-[10px] text-[#6E7A8A] uppercase tracking-wider mb-1.5 font-medium">
+                    Timeframe cascade
+                  </div>
+                  <div className="grid grid-cols-6 gap-1 text-center font-mono text-[10px]">
+                    {TIMEFRAMES.map((tf) => {
+                      const isDriving = tf === position.drivingTimeframe;
+                      return (
+                        <div
+                          key={tf}
+                          className={`py-1 rounded-[2px] border transition-colors ${
+                            isDriving
+                              ? 'border-[#5B8FBF] bg-[#5B8FBF]/15 text-[#5B8FBF] font-semibold'
+                              : 'border-[#232A35] bg-[#161C26] text-[#6E7A8A]'
+                          }`}
+                        >
+                          <div>{tf}</div>
+                          <div className="text-[8px] mt-0.5">{isDriving ? 'DRIVE' : 'CONF'}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Key Metrics Grid */}
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between py-1 border-b border-[#232A35]">
+                    <span className="text-[#6E7A8A]">structural anchor</span>
+                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.structuralAnchor}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[#232A35]">
+                    <span className="text-[#6E7A8A]">trail distance</span>
+                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.trailDistance}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[#232A35]">
+                    <span className="text-[#6E7A8A]">breakeven status</span>
+                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.breakevenStatus}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[#232A35]">
+                    <span className="text-[#6E7A8A]">decay state</span>
+                    <span className="font-mono text-[#E7EAEE] text-[11px]">{position.decayState}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-[#232A35]">
+                    <span className="text-[#6E7A8A]">effective config</span>
+                    <span className="font-mono text-[#6E7A8A] text-[10px]">{position.effectiveConfig}</span>
+                  </div>
+                </div>
               </>
             ) : (
-              <div className="text-xs text-[#6E7A8A] py-6 text-center">No active position selected.</div>
+              <div className="text-center py-10 text-xs text-[#6E7A8A]">
+                No position selected.
+              </div>
             )}
           </>
-        ) : (
-          /* Stats Tab: Historical Performance Metrics Calculated from closedTrades */
+        )}
+
+        {/* Performance Statistics Tab */}
+        {panelTab === 'stats' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-[10px] font-mono text-[#6E7A8A] border-b border-[#232A35] pb-1 mb-2">
-              <span>HISTORICAL PERFORMANCE</span>
-              <span className="text-[#4FAE86] font-semibold">{stats.totalTrades} TRADES</span>
-            </div>
-            <div className="px-2 py-1 bg-[#BFA13B]/10 border border-[#BFA13B]/30 rounded-[2px] text-[10px] font-mono text-[#BFA13B]">
-              <span className="font-semibold">[DEMO CALCULATION]</span> Local client math from simulation fixtures. Non-authoritative.
+            <div className="text-[10px] text-[#6E7A8A] uppercase tracking-wider font-medium">
+              Closed Trade Ledger Stats
             </div>
 
-            {/* Primary KPI Grid */}
-            <div className="grid grid-cols-2 gap-2">
-              <div
-                title="Win Rate = (Winning Trades ÷ Total Trades) × 100. Percentage of trades that yielded positive realized R."
-                className="bg-[#161C26] p-2 border border-[#232A35] hover:border-[#5B8FBF] transition-colors cursor-help"
-              >
-                <div className="text-[10px] text-[#6E7A8A] mb-0.5">Win Rate</div>
-                <div className="font-mono text-base text-[#4FAE86] font-medium tabular-nums">
+            {/* Quick KPI Strip */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-[#161C26] p-2 border border-[#232A35]">
+                <div className="text-[10px] text-[#6E7A8A]">Win Rate</div>
+                <div className="font-mono text-base font-semibold text-[#4FAE86] tabular-nums">
                   {stats.winRate.toFixed(1)}%
                 </div>
-                <div className="font-mono text-[10px] text-[#6E7A8A] tabular-nums mt-0.5">
-                  {stats.winCount}W - {stats.lossCount}L
-                </div>
+                <div className="text-[9px] text-[#6E7A8A]">{stats.winCount}W / {stats.lossCount}L</div>
               </div>
-
-              <div
-                title="Profit Factor = Gross Profits ÷ Gross Losses. Values above 2.0 represent robust systematic edge."
-                className="bg-[#161C26] p-2 border border-[#232A35] hover:border-[#5B8FBF] transition-colors cursor-help"
-              >
-                <div className="text-[10px] text-[#6E7A8A] mb-0.5">Profit Factor</div>
-                <div className="font-mono text-base text-[#E7EAEE] font-medium tabular-nums">
+              <div className="bg-[#161C26] p-2 border border-[#232A35]">
+                <div className="text-[10px] text-[#6E7A8A]">Profit Factor</div>
+                <div className="font-mono text-base font-semibold text-[#4FAE86] tabular-nums">
                   {stats.profitFactor.toFixed(2)}
                 </div>
-                <div className="font-mono text-[10px] text-[#4FAE86] tabular-nums mt-0.5">
-                  Gross: +${stats.totalRealizedPnl.toFixed(0)}
-                </div>
-              </div>
-
-              <div
-                title="Total Realized R = Cumulative sum of realized R-multiples across all closed executions."
-                className="bg-[#161C26] p-2 border border-[#232A35] hover:border-[#5B8FBF] transition-colors cursor-help"
-              >
-                <div className="text-[10px] text-[#6E7A8A] mb-0.5">Total Realized R</div>
-                <div className={`font-mono text-base font-medium tabular-nums ${stats.totalRealizedR >= 0 ? 'text-[#4FAE86]' : 'text-[#C25B6B]'}`}>
-                  {stats.totalRealizedR >= 0 ? '+' : ''}{stats.totalRealizedR.toFixed(2)}R
-                </div>
-                <div className="font-mono text-[10px] text-[#6E7A8A] tabular-nums mt-0.5">
-                  Net Realized P&amp;L
-                </div>
-              </div>
-
-              <div
-                title="Maximum Drawdown = Largest peak-to-trough drop in cumulative realized R across the closed trade sequence."
-                className="bg-[#161C26] p-2 border border-[#232A35] hover:border-[#5B8FBF] transition-colors cursor-help"
-              >
-                <div className="text-[10px] text-[#6E7A8A] mb-0.5">Max Drawdown (R)</div>
-                <div className="font-mono text-base text-[#C25B6B] font-medium tabular-nums">
-                  -{stats.maxDrawdownR.toFixed(2)}R
-                </div>
-                <div className="font-mono text-[10px] text-[#6E7A8A] tabular-nums mt-0.5">
-                  Peak equity drop
-                </div>
+                <div className="text-[9px] text-[#6E7A8A]">Total {stats.totalTrades} trades</div>
               </div>
             </div>
 
             {/* Detailed Metric Key-Values */}
-            <div className="space-y-0 text-xs pt-1">
-              <div
-                title="Average realized R per winning trade."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+            <div className="space-y-1 text-xs pt-1">
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">avg win</span>
                 <span className="font-mono text-[#4FAE86] text-[11px] tabular-nums">
                   +{stats.avgWinR.toFixed(2)}R
                 </span>
               </div>
-
-              <div
-                title="Average realized R per losing trade (absolute value)."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">avg loss</span>
                 <span className="font-mono text-[#C25B6B] text-[11px] tabular-nums">
                   -{stats.avgLossR.toFixed(2)}R
                 </span>
               </div>
-
-              <div
-                title="Mathematical Expectancy per trade = (Win Rate × Avg Win) - (Loss Rate × Avg Loss). Expected return per unit risked."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">trade expectancy</span>
                 <span className="font-mono text-[#4FAE86] text-[11px] font-medium tabular-nums">
                   +{stats.expectancyR.toFixed(2)}R / trade
                 </span>
               </div>
-
-              <div
-                title="Win rate for LONG positions vs total LONG trades executed."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
+                <span className="text-[#6E7A8A]">max drawdown</span>
+                <span className="font-mono text-[#C25B6B] text-[11px] tabular-nums">
+                  -{stats.maxDrawdownR.toFixed(2)}R
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">long win rate</span>
                 <span className="font-mono text-[#E7EAEE] text-[11px] tabular-nums">
-                  {stats.longWinRate.toFixed(1)}% <span className="text-[#6E7A8A]">({stats.longCount})</span>
+                  {stats.longWinRate.toFixed(1)}% ({stats.longCount})
                 </span>
               </div>
-
-              <div
-                title="Win rate for SHORT positions vs total SHORT trades executed."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">short win rate</span>
                 <span className="font-mono text-[#E7EAEE] text-[11px] tabular-nums">
-                  {stats.shortWinRate.toFixed(1)}% <span className="text-[#6E7A8A]">({stats.shortCount})</span>
+                  {stats.shortWinRate.toFixed(1)}% ({stats.shortCount})
                 </span>
               </div>
-
-              <div
-                title="Net realized dollar earnings across closed trade ledger."
-                className="flex justify-between py-1 border-b border-[#232A35] hover:bg-[#161C26] px-1 -mx-1 transition-colors cursor-help"
-              >
+              <div className="flex justify-between py-1 border-b border-[#232A35]">
                 <span className="text-[#6E7A8A]">cumulative net P&amp;L</span>
                 <span className="font-mono text-[#4FAE86] text-[11px] font-medium tabular-nums">
                   +${stats.totalRealizedPnl.toFixed(2)}
@@ -424,7 +337,6 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
               </div>
             </div>
 
-            {/* Audit Reference Footnote */}
             <div className="text-[10px] text-[#454E5C] font-mono pt-1">
               SAMPLE: {stats.totalTrades} closed trades · JOURNAL VERIFIED
             </div>
@@ -432,37 +344,39 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
         )}
       </div>
 
-      {/* Action Buttons (Rendered only on Detail tab, or persistent if requested) */}
+      {/* Action Buttons with 44px minimum touch targets */}
       {panelTab === 'detail' && position && (
-        <div className="mt-5 pt-3 border-t border-[#232A35]">
+        <div className="mt-4 pt-3 border-t border-[#232A35]">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-[10px] text-[#6E7A8A] uppercase tracking-wider font-medium">Gated Execution</span>
+            <span className="text-[10px] text-[#6E7A8A] uppercase tracking-wider font-medium">
+              Gated Execution
+            </span>
             <span className="text-[10px] font-mono text-[#454E5C]">HOTKEYS ACTIVE</span>
           </div>
           <div className="flex flex-col gap-2">
             <button
               disabled={Boolean(isCommandInFlight)}
               onClick={() => onTriggerAction('tighten_stop', position)}
-              className="w-full py-1.5 px-2.5 text-xs font-sans rounded-[2px] border border-[#5B8FBF] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
+              className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#5B8FBF] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/10 active:bg-[#5B8FBF]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
             >
               <span>Tighten stop</span>
-              <span className="font-mono text-[10px] bg-[#5B8FBF]/20 px-1 py-0.5 rounded-[2px]">T</span>
+              <span className="font-mono text-[10px] bg-[#5B8FBF]/20 px-1.5 py-0.5 rounded-[2px]">T</span>
             </button>
             <button
               disabled={Boolean(isCommandInFlight)}
               onClick={() => onTriggerAction('move_to_breakeven', position)}
-              className="w-full py-1.5 px-2.5 text-xs font-sans rounded-[2px] border border-[#232A35] text-[#E7EAEE] bg-[#161C26] hover:bg-[#232A35] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between"
+              className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#232A35] text-[#E7EAEE] bg-[#161C26] hover:bg-[#232A35] active:bg-[#232A35]/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between"
             >
               <span>Move to breakeven</span>
-              <span className="font-mono text-[10px] bg-[#232A35] text-[#6E7A8A] px-1 py-0.5 rounded-[2px]">B</span>
+              <span className="font-mono text-[10px] bg-[#232A35] text-[#6E7A8A] px-1.5 py-0.5 rounded-[2px]">B</span>
             </button>
             <button
               disabled={Boolean(isCommandInFlight)}
               onClick={() => onTriggerAction('close_position', position)}
-              className="w-full py-1.5 px-2.5 text-xs font-sans rounded-[2px] border border-[#C25B6B] text-[#C25B6B] bg-[#161C26] hover:bg-[#C25B6B]/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
+              className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#C25B6B] text-[#C25B6B] bg-[#161C26] hover:bg-[#C25B6B]/10 active:bg-[#C25B6B]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
             >
               <span>Close position</span>
-              <span className="font-mono text-[10px] bg-[#C25B6B]/20 px-1 py-0.5 rounded-[2px]">C</span>
+              <span className="font-mono text-[10px] bg-[#C25B6B]/20 px-1.5 py-0.5 rounded-[2px]">C</span>
             </button>
           </div>
         </div>
@@ -472,7 +386,7 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
         <div className="mt-4 pt-3 border-t border-[#232A35] text-[11px] text-[#6E7A8A]">
           <button
             onClick={() => setPanelTab('detail')}
-            className="w-full py-1.5 px-2.5 text-xs font-sans rounded-[2px] border border-[#232A35] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/10 transition-colors cursor-pointer text-center"
+            className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#232A35] text-[#5B8FBF] bg-[#161C26] hover:bg-[#5B8FBF]/10 transition-colors cursor-pointer text-center"
           >
             Switch to Position Detail
           </button>

@@ -2,14 +2,14 @@ import { IntentFingerprint } from '../types/contracts';
 
 export class CanonicalizationError extends Error {
   constructor(message: string) {
-    super(`CANONICALIZATION_ERROR: ${message}`);
+    super(message);
     this.name = 'CanonicalizationError';
   }
 }
 
 /**
- * Standard FIPS 180-4 / RFC 6234 SHA-256 Implementation in pure TypeScript.
- * Zero-dependency, deterministic, synchronous across Node.js, TSX, and Vite Browser runtimes.
+ * Standard FIPS 180-4 SHA-256 implementation in pure TypeScript.
+ * Produces identical output to standard crypto implementations without external dependencies.
  */
 export function sha256Hex(message: string): string {
   // Convert UTF-8 string to byte array
@@ -125,15 +125,18 @@ export function sha256Hex(message: string): string {
  * Rules:
  * 1. Object keys are recursively sorted at all nesting levels.
  * 2. Explicit null is preserved.
- * 3. Arrays preserve exact element order; elements are canonically serialized.
+ * 3. Arrays preserve exact element order; sparse arrays are rejected.
  * 4. Strings are strictly JSON-encoded.
  * 5. Numbers must be finite. NaN and Infinity throw CanonicalizationError.
- * 6. undefined, functions, symbols, and cyclic structures throw CanonicalizationError.
+ * 6. BigInt, undefined, functions, symbols, non-plain object instances, and cyclic structures throw CanonicalizationError.
  */
 export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): string {
   if (val === null) return 'null';
   if (val === undefined) {
     throw new CanonicalizationError('undefined values are not permitted in canonical payloads');
+  }
+  if (typeof val === 'bigint') {
+    throw new CanonicalizationError('BigInt values are not permitted in canonical payloads');
   }
   if (typeof val === 'number') {
     if (!Number.isFinite(val)) {
@@ -154,9 +157,20 @@ export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): s
     seen.add(val);
 
     if (Array.isArray(val)) {
+      // Deterministically reject sparse arrays (SC-02)
+      if (Object.keys(val).length !== val.length) {
+        throw new CanonicalizationError('Sparse arrays are not permitted in canonical payloads');
+      }
       const items = val.map(item => canonicalizeValue(item, seen));
       seen.delete(val);
       return `[${items.join(',')}]`;
+    }
+
+    // Deterministically reject non-plain object instances (Date, RegExp, Map, Set, custom classes)
+    const proto = Object.getPrototypeOf(val);
+    if (proto !== null && proto !== Object.prototype) {
+      const className = (val as { constructor?: { name?: string } }).constructor?.name || typeof val;
+      throw new CanonicalizationError(`Non-plain object '${className}' is not permitted in canonical payloads`);
     }
 
     const keys = Object.keys(val as Record<string, unknown>).sort();
@@ -196,15 +210,13 @@ export function computePayloadFingerprint(
   actionType: 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'KILL_SWITCH',
   parameters: Record<string, unknown> = {}
 ): string {
-  const canonicalParams = canonicalizeValue(parameters);
   const normalizedEnvelope = {
     actionType,
     operatorId,
-    parameters: canonicalParams,
+    parameters,
     symbol,
     targetPositionId
   };
-  // Build canonical string representation
   const canonicalString = canonicalizeValue(normalizedEnvelope);
   return sha256Hex(canonicalString);
 }
@@ -216,7 +228,8 @@ export function computePayloadFingerprint(
  * 1. A new operator action MUST generate a new logical intentId.
  * 2. Retries of an existing intent MUST supply the existing intentId to preserve idempotency identity.
  * 3. Payload fingerprinting is deterministic SHA-256 over recursively sorted canonical parameters.
- * 4. NOTICE: Client-side fingerprinting is NOT authoritative server deduplication.
+ * 4. Idempotency key explicitly binds intentId (SC-01) so distinct actions with identical payloads never collide.
+ * 5. NOTICE: Client-side fingerprinting is NOT authoritative server deduplication.
  *    Authoritative deduplication requires backend Control Service persistence.
  */
 export function createIntentFingerprint(
@@ -237,7 +250,8 @@ export function createIntentFingerprint(
   );
 
   const intentId = existingIntentId || createLogicalIntentId(operatorId, actionType);
-  const idempotencyKey = `idemp_${actionType.toLowerCase()}_${payloadFingerprint.slice(0, 32)}`;
+  // SC-01: Idempotency key binds intentId to guarantee uniqueness across distinct actions
+  const idempotencyKey = `idemp_${actionType.toLowerCase()}_${intentId}_${payloadFingerprint.slice(0, 24)}`;
 
   return {
     intentId,

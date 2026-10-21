@@ -21,9 +21,9 @@ import { SimulationProvider } from './providers/SimulationProvider';
 import { LiveCommandAdapter } from './providers/LiveCommandAdapter';
 import { createIntentFingerprint } from './utils/idempotency';
 import { isKeyboardShortcutAllowed } from './utils/keyboard';
-import { evaluateTelemetryFreshness } from './utils/telemetry';
 import { Header } from './components/Header';
 import { NavRail } from './components/NavRail';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { GateChainStrip } from './components/GateChainStrip';
 import { PositionsTable } from './components/PositionsTable';
 import { ContextPanel } from './components/ContextPanel';
@@ -59,19 +59,34 @@ export const App: React.FC = () => {
   // Navigation & Sub-Tabs
   const [activeNavTab, setActiveNavTab] = useState<NavTab>('POS');
   const [activeSubTab, setActiveSubTab] = useState<PositionsSubTab>('open');
+  const [isMoreNavOpen, setIsMoreNavOpen] = useState(false);
+
+  // Mobile View Switcher for Positions: 'table' vs 'detail'
+  const [mobileViewTab, setMobileViewTab] = useState<'table' | 'detail'>('table');
+
+  // Lane selection
   const [selectedLane, setSelectedLane] = useState<string>('ACT_PRIMARY');
 
-  // Core Data States
+  // Simulation Controls & Data State
+  const [isSimPaused, setIsSimPaused] = useState<boolean>(false);
   const [positions, setPositions] = useState<Position[]>(INITIAL_POSITIONS);
   const [pendingOrders] = useState<PendingOrder[]>(INITIAL_PENDING_ORDERS);
-  const [candidates] = useState<GateCandidate[]>(GATE_CANDIDATES);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string>(GATE_CANDIDATES[0]?.id || '');
-  const [selectedPositionId, setSelectedPositionId] = useState<string>(INITIAL_POSITIONS[0]?.id || '');
   const [closedTrades] = useState<ClosedTrade[]>(INITIAL_CLOSED_TRADES);
+  const [candidates] = useState<GateCandidate[]>(GATE_CANDIDATES);
   const [systemEvents, setSystemEvents] = useState<SystemEvent[]>(INITIAL_SYSTEM_EVENTS);
 
-  // Command & Confirmation Dialog States
+  // Selection state
+  const [selectedPositionId, setSelectedPositionId] = useState<string>(
+    INITIAL_POSITIONS[0]?.id || ''
+  );
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>(
+    GATE_CANDIDATES[0]?.id || ''
+  );
+
+  // Active Command in flight
   const [activeCommand, setActiveCommand] = useState<CommandExecutionRecord | null>(null);
+
+  // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     action: ActionType | null;
@@ -82,30 +97,55 @@ export const App: React.FC = () => {
     targetPosition: null,
   });
 
-  // Ticks Simulation Pause State
-  const [isSimPaused, setIsSimPaused] = useState<boolean>(false);
+  // Compute live KPIs
+  const selectedPosition = useMemo(() => {
+    return positions.find((p) => p.id === selectedPositionId) || positions[0] || null;
+  }, [positions, selectedPositionId]);
 
-  // Synchronize pause state to SimulationProvider
+  const equity = useMemo(() => {
+    const baseEquity = 48250.0;
+    const totalUnrealizedDollar = positions.reduce((acc, pos) => {
+      const pipValue = pos.priceDecimals === 3 ? 10.0 : 10.0;
+      const rDollar = pos.unrealizedR * (pos.size * 100 * pipValue);
+      return acc + rDollar;
+    }, 0);
+    return baseEquity + totalUnrealizedDollar;
+  }, [positions]);
+
+  const dailyPnl = useMemo(() => {
+    return positions.reduce((acc, pos) => acc + pos.unrealizedR * 125.0, 312.5);
+  }, [positions]);
+
+  const openRiskR = useMemo(() => {
+    return positions.length * 0.6;
+  }, [positions]);
+
+  // Synchronize tick stream from SimulationProvider
   useEffect(() => {
     simulationProvider.setPaused(isSimPaused);
-  }, [simulationProvider, isSimPaused]);
+  }, [isSimPaused, simulationProvider]);
 
-  // Synchronize initial data and subscribe to provider-owned ticks
   useEffect(() => {
-    let isMounted = true;
+    const unsubscribe = simulationProvider.subscribeTicks((symbol, tick, updatedPositions) => {
+      setPositions((prev) =>
+        prev.map((p) => {
+          if (p.symbol === symbol) {
+            const up = updatedPositions.find((item) => item.id === p.id);
+            return up
+              ? {
+                  ...p,
+                  currentPrice: up.currentPrice,
+                  unrealizedR: up.unrealizedR,
+                  lastTickDir: up.currentPrice >= p.currentPrice ? 'up' : 'down',
+                  lastTickTimestamp: tick.timestamp,
+                }
+              : p;
+          }
+          return p;
+        })
+      );
 
-    simulationProvider.getPositions().then(data => {
-      if (isMounted) setPositions(data);
-    });
-
-    simulationProvider.getHealth().then(health => {
-      if (isMounted) setTelemetry(health);
-    });
-
-    // Provider owns tick updates and internal position pricing
-    const unsubscribeTicks = simulationProvider.subscribeTicks((_symbol, tick, updatedPositions) => {
-      if (!isMounted) return;
-      setPositions(updatedPositions);
+      // Periodically update heartbeat telemetry
       setTelemetry((prev) => ({
         ...prev,
         freshnessTimestamp: tick.timestamp,
@@ -113,78 +153,33 @@ export const App: React.FC = () => {
       }));
     });
 
-    return () => {
-      isMounted = false;
-      unsubscribeTicks();
-    };
+    return () => unsubscribe();
   }, [simulationProvider]);
 
-  // Derived Account Metrics (Strictly identified as client-derived simulation math)
-  const openRiskR = useMemo(() => {
-    return positions.reduce((acc, p) => acc + (p.size * 0.5), 0);
-  }, [positions]);
-
-  const dailyPnl = useMemo(() => {
-    const closedPnl = closedTrades.slice(0, 4).reduce((acc, t) => acc + t.realizedPnl, 0);
-    const openPnl = positions.reduce((acc, p) => acc + p.unrealizedR * 120, 0);
-    return Math.round((closedPnl + openPnl) * 100) / 100;
-  }, [positions, closedTrades]);
-
-  const equity = useMemo(() => {
-    return 48210.33 + (dailyPnl - 312.08);
-  }, [dailyPnl]);
-
-  const selectedPosition = useMemo(() => {
-    return positions.find((p) => p.id === selectedPositionId) || positions[0] || null;
-  }, [positions, selectedPositionId]);
-
-  // Periodic Telemetry Freshness Evaluation using production utility
-  useEffect(() => {
-    const freshnessChecker = setInterval(() => {
-      setTelemetry((prev) => {
-        const evaluation = evaluateTelemetryFreshness(prev, Date.now());
-        if (evaluation.status !== prev.status) {
-          return { ...prev, status: evaluation.status };
-        }
-        return prev;
-      });
-    }, 1500);
-
-    return () => clearInterval(freshnessChecker);
-  }, []);
-
-  // Auditable System Event Logger
+  // Append audit event safely with proper non-persisted labeling (SC-09)
   const addEvent = useCallback(
     (
-      message: string,
-      source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE' = 'SIM_ENGINE',
-      level: 'info' | 'warn' | 'crit' = 'info',
-      status: 'PERSISTED' | 'DISPATCHED' | 'SIMULATED' = 'SIMULATED'
+      message: string, 
+      source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE' = 'SIM_ENGINE', 
+      level: 'info' | 'warn' | 'crit' = 'info', 
+      status: 'SESSION' | 'IN_MEMORY' | 'SIMULATED' | 'DISPATCHED' | 'CONFIRMED' | 'REJECTED' = 'SESSION'
     ) => {
-      const now = new Date();
-      const timeStr = [
-        String(now.getHours()).padStart(2, '0'),
-        String(now.getMinutes()).padStart(2, '0'),
-        String(now.getSeconds()).padStart(2, '0'),
-      ].join(':');
-
       const newEvt: SystemEvent = {
         id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        eventId: `EVT-${Date.now().toString().slice(-4)}`,
-        timestamp: timeStr,
+        eventId: `EVT-${Math.floor(1000 + Math.random() * 9000)}`,
+        timestamp: new Date().toLocaleTimeString(),
         message,
         source,
         level,
         status,
-        isAuthoritative: false,
+        isAuthoritative: false
       };
-
-      setSystemEvents((prev) => [newEvt, ...prev]);
+      setSystemEvents((prev) => [newEvt, ...prev.slice(0, 49)]);
     },
     []
   );
 
-  // Trigger Action (Opens explicit confirmation dialog)
+  // Trigger modal for confirmation
   const handleTriggerAction = (action: ActionType, pos: Position) => {
     setConfirmModal({
       isOpen: true,
@@ -193,35 +188,16 @@ export const App: React.FC = () => {
     });
   };
 
-  // Safe Keyboard Shortcut Listener (Guarded against text focus, IME, repeat, modal, in-flight)
+  // Keyboard Navigation & Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isCommandBusy = Boolean(
-        activeCommand &&
-        activeCommand.status !== 'CONFIRMED' &&
-        activeCommand.status !== 'REJECTED'
-      );
-
-      // Verify safety context
-      const isAllowed = isKeyboardShortcutAllowed(
-        e,
-        {
-          isModalOpen: confirmModal.isOpen,
-          isCommandInFlight: isCommandBusy,
-        },
-        {
-          allowRepeat: false,
-        }
-      );
-
-      if (!isAllowed) {
+      if (!isKeyboardShortcutAllowed(e, { isModalOpen: confirmModal.isOpen, isCommandInFlight: Boolean(activeCommand) })) {
         return;
       }
 
       const key = e.key;
 
-      // Escape / Backspace / 0 returns to Positions view
-      if (key === 'Escape' || key === 'Backspace' || key === '0') {
+      if (key === 'Escape') {
         if (activeNavTab !== 'POS') {
           e.preventDefault();
           setActiveNavTab('POS');
@@ -361,7 +337,7 @@ export const App: React.FC = () => {
         setActiveCommand((prev) =>
           prev ? { ...prev, status: 'REJECTED', details: errorMsg } : null
         );
-        addEvent(`LIVE EXECUTION BLOCKED: ${errorMsg}`, 'GATEWAY', 'crit', 'PERSISTED');
+        addEvent(`LIVE EXECUTION BLOCKED: ${errorMsg}`, 'GATEWAY', 'crit', 'SESSION');
         setTimeout(() => setActiveCommand(null), 5000);
         return;
       }
@@ -405,7 +381,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#10151D] text-[#E7EAEE] font-sans antialiased">
+    <div className="flex flex-col h-screen w-full max-w-full overflow-hidden bg-[#10151D] text-[#E7EAEE] font-sans antialiased pb-14 md:pb-0">
       {/* Dynamic Telemetry & Mode-Aware Header */}
       <Header
         equity={equity}
@@ -426,31 +402,59 @@ export const App: React.FC = () => {
         onSelectCandidate={setSelectedCandidateId}
       />
 
-      {/* Main Body Grid */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Navigation Rail */}
+      {/* Main Body Area */}
+      <div className="flex-1 flex min-h-0 overflow-hidden w-full">
+        {/* Navigation Rail for Desktop */}
         <NavRail activeTab={activeNavTab} onTabChange={setActiveNavTab} />
 
         {/* Primary Viewport Area */}
         {activeNavTab === 'POS' ? (
           <>
-            <PositionsTable
-              positions={positions}
-              pendingOrders={pendingOrders}
-              closedTrades={closedTrades}
-              selectedPositionId={selectedPositionId}
-              onSelectPosition={setSelectedPositionId}
-              activeSubTab={activeSubTab}
-              onSubTabChange={setActiveSubTab}
-            />
+            {/* Desktop View: Side-by-side Table + Context Panel */}
+            <div className="hidden md:flex flex-1 min-h-0 overflow-hidden">
+              <PositionsTable
+                positions={positions}
+                pendingOrders={pendingOrders}
+                closedTrades={closedTrades}
+                selectedPositionId={selectedPositionId}
+                onSelectPosition={setSelectedPositionId}
+                activeSubTab={activeSubTab}
+                onSubTabChange={setActiveSubTab}
+              />
+              <ContextPanel
+                position={selectedPosition}
+                onTriggerAction={handleTriggerAction}
+                activeCommand={activeCommand}
+                closedTrades={closedTrades}
+              />
+            </div>
 
-            {/* Signature Element 2: Context Panel & Timeframe Cascade */}
-            <ContextPanel
-              position={selectedPosition}
-              onTriggerAction={handleTriggerAction}
-              activeCommand={activeCommand}
-              closedTrades={closedTrades}
-            />
+            {/* Mobile View (< 768px): Toggleable Table vs Diagnostics Panel */}
+            <div className="flex md:hidden flex-1 min-h-0 overflow-hidden w-full">
+              {mobileViewTab === 'table' ? (
+                <PositionsTable
+                  positions={positions}
+                  pendingOrders={pendingOrders}
+                  closedTrades={closedTrades}
+                  selectedPositionId={selectedPositionId}
+                  onSelectPosition={(id) => {
+                    setSelectedPositionId(id);
+                    setMobileViewTab('detail');
+                  }}
+                  activeSubTab={activeSubTab}
+                  onSubTabChange={setActiveSubTab}
+                  onOpenDetail={() => setMobileViewTab('detail')}
+                />
+              ) : (
+                <ContextPanel
+                  position={selectedPosition}
+                  onTriggerAction={handleTriggerAction}
+                  activeCommand={activeCommand}
+                  closedTrades={closedTrades}
+                  onBackToTable={() => setMobileViewTab('table')}
+                />
+              )}
+            </div>
           </>
         ) : (
           <SecondaryViews
@@ -462,6 +466,17 @@ export const App: React.FC = () => {
 
       {/* Footer Log with Authoritative Journal Stream Metadata */}
       <FooterLog events={systemEvents} />
+
+      {/* Docked Mobile Bottom Navigation Bar (< 768px) */}
+      <MobileBottomNav
+        activeTab={activeNavTab}
+        onTabChange={(tab) => {
+          setActiveNavTab(tab);
+          if (tab === 'POS') setMobileViewTab('table');
+        }}
+        isMoreOpen={isMoreNavOpen}
+        onToggleMore={setIsMoreNavOpen}
+      />
 
       {/* Action Confirmation Modal with Idempotency & Rejection Testing */}
       <ConfirmDialog
