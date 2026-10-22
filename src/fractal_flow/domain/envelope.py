@@ -99,8 +99,6 @@ class StateRegistry:
         No speculative transition is invented: every emitted edge must exist in
         ``spec/transitions.yaml``.
         """
-        if current_state == requested_state:
-            return ()
         if not self.is_known_machine(machine_name) or not self.is_valid_state(machine_name, current_state):
             raise InvalidStateTransitionException(
                 f"Unknown state '{current_state}' for machine '{machine_name}'. Fail-closed."
@@ -109,6 +107,8 @@ class StateRegistry:
             raise InvalidStateTransitionException(
                 f"Unknown target state '{requested_state}' for machine '{machine_name}'. Fail-closed."
             )
+        if current_state == requested_state:
+            return ()
 
         transitions = self._transitions.get(machine_name, {})
         queue: list[tuple[str, tuple[str, ...]]] = [(current_state, ())]

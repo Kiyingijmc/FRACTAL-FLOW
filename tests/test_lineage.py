@@ -168,6 +168,7 @@ def test_adversarial_lineage_authority_scenarios() -> None:
         quote_timestamp=1000,
         spread_pips=Decimal("1.0"),
         authorized=True,
+        account_id="account-A",
     )
 
     lineage = Lineage(
@@ -196,7 +197,7 @@ def test_adversarial_lineage_authority_scenarios() -> None:
     act_dec = MarketActivationDecision("EURUSD", "ACTIVE", [], 90.0, True, True, True)
     murg_ctx = GLOBAL_MURG_ISSUER.issue_context(act_dec, desc, sess, current_time_ns=1000)
 
-    ledger = OpportunityRiskLedger("budget_1", "opp_123", Decimal("500.0"), Decimal("2.0"))
+    ledger = OpportunityRiskLedger("budget_1", "opp_123", Decimal("500.0"), Decimal("2.0"), account_id="account-A")
     ledger.record_operation(
         "res_tx_lineage", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_lineage", "cause_1", 1000
     )
@@ -246,6 +247,7 @@ def test_adversarial_lineage_authority_scenarios() -> None:
             risk_ledger=ledger,
             reservation_id="res_lineage",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is True
     )
@@ -326,6 +328,7 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
         quote_timestamp=1000,
         spread_pips=Decimal("1.0"),
         authorized=True,
+        account_id="account-A",
     )
 
     desc = InstrumentDescriptor(
@@ -351,7 +354,7 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
     act_dec = MarketActivationDecision("EURUSD", "ACTIVE", [], 90.0, True, True, True)
     murg_ctx = GLOBAL_MURG_ISSUER.issue_context(act_dec, desc, sess, current_time_ns=1000)
 
-    ledger = OpportunityRiskLedger("budget_1", "opp_A", Decimal("500.0"), Decimal("2.0"))
+    ledger = OpportunityRiskLedger("budget_1", "opp_A", Decimal("500.0"), Decimal("2.0"), account_id="account-A")
     ledger.record_operation(
         "res_tx_ap", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_ap", "cause_1", 1000
     )
@@ -429,7 +432,9 @@ def test_comprehensive_adversarial_authority_matrix_a_through_p() -> None:
 
     GLOBAL_PARENT_RESOLVER.register_parent("opp_A", 1, parent_opp_a)
     global_seal_a = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_A", 1)
-    assert decision.is_authorized(lineage, global_seal_a, murg_ctx, ledger, "res_ap", 1000)
+    assert decision.is_authorized(
+        lineage, global_seal_a, murg_ctx, ledger, "res_ap", 1000, expected_account_id="account-A"
+    )
 
     # L. Authoritative parent substitution attack -> False
     sub_parent = MockParent("opp_A", 1, False)

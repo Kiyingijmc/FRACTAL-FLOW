@@ -14,10 +14,12 @@ def test_position_ticket_and_identifier_are_distinct_and_serializable():
     assert obs.digest
 
 
-def test_authoritative_absence_is_rejection_but_non_authoritative_absence_is_unknown():
+def test_absence_without_observed_orders_or_deals_is_unknown():
     auth = BrokerObservation("O1", account(), (), (), (), "BROKER_QUERY", ObservationAuthority.AUTHORITATIVE, 10)
     weak = BrokerObservation("O2", account(), (), (), (), "EVENT", ObservationAuthority.NON_AUTHORITATIVE, 11)
-    assert reconcile_command("C1", Decimal("1"), auth).status is ReconciliationStatus.REJECTED
+    authoritative_absence = reconcile_command("C1", Decimal("1"), auth)
+    assert authoritative_absence.status is ReconciliationStatus.UNKNOWN
+    assert authoritative_absence.reason == "COMMAND_NOT_OBSERVED_NO_REJECTION_PROOF"
     assert reconcile_command("C1", Decimal("1"), weak).status is ReconciliationStatus.UNKNOWN
 
 

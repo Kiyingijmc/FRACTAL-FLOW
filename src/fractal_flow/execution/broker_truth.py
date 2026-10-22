@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
-from src.fractal_flow.execution.ffbp_protocol import canonical_json, payload_hash
+from src.fractal_flow.execution.ffbp_protocol import payload_hash
 
 
 class MarginMode(StrEnum):
@@ -112,7 +112,10 @@ class BrokerObservation:
             if isinstance(v, dict):
                 return {k: normalize(x) for k, x in v.items()}
             return v
-        return normalize(asdict(self))
+        normalized = normalize(asdict(self))
+        if not isinstance(normalized, dict):
+            raise TypeError("BrokerObservation wire representation must be a dictionary")
+        return normalized
 
 
 @dataclass(frozen=True)
@@ -161,9 +164,18 @@ def reconcile_command(
                                     position.ticket if position else None, position.identifier if position else None,
                                     filled, Decimal("0"), "broker filled volume exceeds requested volume")
     if not orders and not deals:
-        status = ReconciliationStatus.REJECTED if observation.authority is ObservationAuthority.AUTHORITATIVE else ReconciliationStatus.UNKNOWN
-        return ReconciliationResult(status, command_id, observation.observation_id, None, (), None, None,
-                                    Decimal("0"), requested_volume, "no authoritative broker evidence" if status is ReconciliationStatus.UNKNOWN else "authoritative broker absence")
+        return ReconciliationResult(
+            ReconciliationStatus.UNKNOWN,
+            command_id,
+            observation.observation_id,
+            None,
+            (),
+            None,
+            None,
+            Decimal("0"),
+            requested_volume,
+            "COMMAND_NOT_OBSERVED_NO_REJECTION_PROOF",
+        )
     remaining = requested_volume - filled
     status = ReconciliationStatus.CONFIRMED if remaining == 0 else ReconciliationStatus.PARTIAL
     return ReconciliationResult(status, command_id, observation.observation_id,

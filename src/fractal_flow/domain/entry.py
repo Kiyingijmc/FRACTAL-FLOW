@@ -121,12 +121,32 @@ class OpportunityRiskBudget:
         allocated_volume: Union[Decimal, float, int, str] = Decimal("0.0"),
         reserved_risk: Union[Decimal, float, int, str] = Decimal("0.0"),
         ledger: Optional[OpportunityRiskLedger] = None,
+        account_id: Optional[str] = None,
     ) -> None:
         self.opportunity_id = opportunity_id
         self.total_risk_currency = _to_decimal(total_risk_currency) or Decimal("0.0")
         self.total_allowed_volume = _to_decimal(total_allowed_volume) or Decimal("0.0")
+        if account_id is not None and (not isinstance(account_id, str) or not account_id.strip()):
+            raise ValueError("account_id must be a non-empty string when provided")
+        self.account_id = account_id
 
         if ledger is not None:
+            if ledger.opportunity_id != opportunity_id:
+                raise ValueError("Injected ledger opportunity_id does not match budget opportunity_id")
+            if ledger.total_risk != self.total_risk_currency:
+                raise ValueError("Injected ledger total_risk does not match budget total_risk_currency")
+            if ledger.total_volume != self.total_allowed_volume:
+                raise ValueError("Injected ledger total_volume does not match budget total_allowed_volume")
+            ledger_account_id = getattr(ledger, "account_id", None)
+            if self.account_id is not None or ledger_account_id is not None:
+                if (
+                    not isinstance(self.account_id, str)
+                    or not self.account_id.strip()
+                    or not isinstance(ledger_account_id, str)
+                    or not ledger_account_id.strip()
+                    or self.account_id != ledger_account_id
+                ):
+                    raise ValueError("Injected ledger account_id does not match budget account_id")
             self._ledger = ledger
         else:
             self._ledger = OpportunityRiskLedger(
@@ -134,6 +154,7 @@ class OpportunityRiskBudget:
                 opportunity_id=opportunity_id,
                 total_risk=self.total_risk_currency,
                 total_volume=self.total_allowed_volume,
+                account_id=self.account_id,
             )
             init_res = _to_decimal(reserved_risk) or Decimal("0.0")
             init_alloc_risk = _to_decimal(allocated_risk) or Decimal("0.0")
