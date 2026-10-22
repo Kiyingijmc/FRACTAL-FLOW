@@ -120,20 +120,51 @@ export function evaluateTelemetryFreshness(
  * 4. Invalid thresholds, timestamps, or malformed telemetry safely produce DEGRADED or UNKNOWN status.
  * 5. Sources in DISCONNECTED state cannot be promoted to HEALTHY without verified epoch advance for that source.
  */
+const VALID_SOURCES: Set<TelemetrySource> = new Set([
+  'SIM_ENGINE',
+  'BROKER_FEED',
+  'CONTROL_SERVICE',
+  'FALLBACK_FIXTURE'
+]);
+
+export interface TelemetryUpdateOptions extends Partial<TelemetryProvenance> {
+  allowSourceMigration?: boolean;
+}
+
+/**
+ * SC-01 / SC-05 / FF-D-01 / FF-D-02: Safe telemetry state updater enforcing source provenance.
+ *
+ * Invariants:
+ * 1. A simulation tick (SIM_ENGINE) CANNOT heal or refresh an external broker/feed source (BROKER_FEED/CONTROL_SERVICE).
+ * 2. Cross-source migration requires explicit authorization (allowSourceMigration: true); unauthorized migration is strictly rejected.
+ * 3. Stale events (older timestamps or regressed epochs) cannot overwrite newer valid state.
+ * 4. Invalid thresholds, timestamps, or malformed epochs safely produce DEGRADED or UNKNOWN status.
+ * 5. Sources in DISCONNECTED state CANNOT refresh freshnessTimestamp or clear DISCONNECTED without verified epoch advance (epoch > current.epoch) for that source.
+ * 6. Explicitly tracks sourceEventTimeMs vs localReceiveTimeMs.
+ */
 export function updateTelemetryState(
   current: TelemetryProvenance,
-  incoming: Partial<TelemetryProvenance>
+  incoming: TelemetryUpdateOptions
 ): TelemetryProvenance {
   if (!current) {
+    const initialSource: TelemetrySource =
+      incoming.source && VALID_SOURCES.has(incoming.source) ? incoming.source : 'SIM_ENGINE';
+    const initialEpoch =
+      incoming.epoch && Number.isSafeInteger(incoming.epoch) && incoming.epoch > 0
+        ? incoming.epoch
+        : 1;
+
     return {
-      source: incoming.source || 'SIM_ENGINE',
+      source: initialSource,
       status: incoming.status || 'UNKNOWN',
       freshnessTimestamp: incoming.freshnessTimestamp || Date.now(),
       isAuthoritative: Boolean(incoming.isAuthoritative),
       staleThresholdMs: incoming.staleThresholdMs || 5000,
-      epoch: incoming.epoch || 1,
+      epoch: initialEpoch,
       bridgeStatus: incoming.bridgeStatus || 'UNKNOWN',
-      fenceStatus: incoming.fenceStatus || 'UNKNOWN'
+      fenceStatus: incoming.fenceStatus || 'UNKNOWN',
+      sourceEventTimeMs: incoming.sourceEventTimeMs ?? incoming.freshnessTimestamp ?? Date.now(),
+      localReceiveTimeMs: incoming.localReceiveTimeMs ?? Date.now()
     };
   }
 
@@ -144,11 +175,65 @@ export function updateTelemetryState(
     incoming.source === 'SIM_ENGINE' &&
     current.source !== 'SIM_ENGINE'
   ) {
-    // External source remains untouched by internal simulation tick
     return current;
   }
 
-  // 2. Out-of-order timestamp protection (stale events cannot overwrite newer state)
+  // 2. Source Identifier Validation & Migration Gate (FF-D-02):
+  let targetSource: TelemetrySource = current.source;
+  if (incoming.source !== undefined) {
+    if (!VALID_SOURCES.has(incoming.source)) {
+      // Invalid/unrecognized source identifier -> fail safely to DEGRADED without migrating source
+      return {
+        ...current,
+        status: 'DEGRADED',
+        localReceiveTimeMs: Date.now()
+      };
+    }
+    if (incoming.source !== current.source) {
+      if (!incoming.allowSourceMigration) {
+        // Unauthorized source migration attempt is strictly rejected!
+        return current;
+      }
+      targetSource = incoming.source;
+    }
+  }
+
+  // 3. Epoch Validation & Regression Protection:
+  let finalEpoch = current.epoch;
+  let epochIsMalformed = false;
+  if (incoming.epoch !== undefined) {
+    if (!Number.isSafeInteger(incoming.epoch) || incoming.epoch <= 0) {
+      epochIsMalformed = true;
+    } else if (incoming.epoch < current.epoch && targetSource === current.source) {
+      // Stale out-of-order epoch regression for the same source
+      return current;
+    } else {
+      finalEpoch = incoming.epoch;
+    }
+  }
+
+  // 4. Disconnected State Invariant (FF-D-01):
+  // In DISCONNECTED state, no timestamp refresh is permitted unless an explicit reconnect handshake
+  // advances the epoch (epoch > current.epoch). Otherwise, timestamp remains FROZEN.
+  const isCurrentlyDisconnected = current.status === 'DISCONNECTED';
+  if (isCurrentlyDisconnected) {
+    const isReconnectionAttempt = Boolean(incoming.status && incoming.status !== 'DISCONNECTED');
+    const hasValidAdvancingEpoch = Boolean(
+      incoming.epoch !== undefined &&
+      Number.isSafeInteger(incoming.epoch) &&
+      incoming.epoch > current.epoch
+    );
+
+    if (!isReconnectionAttempt || !hasValidAdvancingEpoch) {
+      // Reconnection rejected or not attempted: stay DISCONNECTED with FROZEN timestamp
+      return {
+        ...current,
+        status: 'DISCONNECTED'
+      };
+    }
+  }
+
+  // 5. Out-of-order timestamp protection for connected streams
   if (
     typeof incoming.freshnessTimestamp === 'number' &&
     incoming.freshnessTimestamp < current.freshnessTimestamp
@@ -157,47 +242,47 @@ export function updateTelemetryState(
     return current;
   }
 
-  // 3. Validate runtime thresholds
-  let finalStatus = incoming.status ?? current.status;
+  // 6. Validate runtime stale threshold
   const staleThreshold = incoming.staleThresholdMs ?? current.staleThresholdMs;
-
+  let thresholdIsInvalid = false;
   if (
     typeof staleThreshold !== 'number' ||
     !Number.isFinite(staleThreshold) ||
     staleThreshold <= 0
   ) {
-    finalStatus = 'DEGRADED';
+    thresholdIsInvalid = true;
   }
 
-  // 4. Validate runtime timestamp
+  // 7. Validate runtime timestamp
   const timestamp = incoming.freshnessTimestamp ?? current.freshnessTimestamp;
+  let timestampIsInvalid = false;
   if (
     typeof timestamp !== 'number' ||
     !Number.isFinite(timestamp) ||
     timestamp <= 0
   ) {
+    timestampIsInvalid = true;
+  }
+
+  let finalStatus: TelemetryStatus = incoming.status ?? current.status;
+  if (epochIsMalformed || thresholdIsInvalid) {
+    finalStatus = 'DEGRADED';
+  } else if (timestampIsInvalid) {
     finalStatus = 'UNKNOWN';
   }
 
-  // 5. Preserving DISCONNECTED state (cannot be cleared by age or tick alone)
-  if (current.status === 'DISCONNECTED' && incoming.status && incoming.status !== 'DISCONNECTED') {
-    // Only permit reconnection if incoming advances epoch for the same source
-    if (!incoming.epoch || incoming.epoch <= current.epoch) {
-      finalStatus = 'DISCONNECTED';
-    }
-  }
-
-  // Preserve source provenance
-  const source = (incoming.source && incoming.source.trim().length > 0)
-    ? incoming.source as TelemetrySource
-    : current.source;
+  const receiveTime = Date.now();
+  const eventTime = incoming.sourceEventTimeMs ?? incoming.freshnessTimestamp ?? current.sourceEventTimeMs ?? timestamp;
 
   return {
     ...current,
     ...incoming,
-    source,
+    source: targetSource,
+    epoch: epochIsMalformed ? current.epoch : finalEpoch,
     staleThresholdMs: staleThreshold,
     freshnessTimestamp: timestamp,
     status: finalStatus,
+    sourceEventTimeMs: eventTime,
+    localReceiveTimeMs: receiveTime
   };
 }

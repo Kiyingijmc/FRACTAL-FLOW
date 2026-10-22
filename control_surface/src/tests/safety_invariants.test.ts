@@ -8,7 +8,8 @@ import {
   createLogicalIntentId,
   clearIntentRegistry,
   CanonicalizationError,
-  IntentReplayMismatchError
+  IntentReplayMismatchError,
+  IDEMPOTENCY_AUTHORITY_BOUNDARY
 } from '../utils/idempotency';
 import {
   isSafeKeyboardShortcutTarget,
@@ -210,6 +211,182 @@ async function runStageDAdversarialTests() {
     }
   });
 
+  await test('SC-01.7: Disconnected state timestamp refresh prevention (FF-D-01)', () => {
+    const disconnectedFeed: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'DISCONNECTED',
+      freshnessTimestamp: 5000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'DISCONNECTED',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Incoming attempt with newer timestamp (8000) and HEALTHY status but same epoch (10)
+    const blockedUpdate = updateTelemetryState(disconnectedFeed, {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 8000,
+      epoch: 10
+    });
+
+    if (blockedUpdate.status !== 'DISCONNECTED') {
+      throw new Error(`Disconnected feed improperly cleared without advancing epoch! Got: ${blockedUpdate.status}`);
+    }
+    if (blockedUpdate.freshnessTimestamp !== 5000) {
+      throw new Error(`Disconnected feed timestamp refreshed without authorized epoch advance! Got: ${blockedUpdate.freshnessTimestamp}`);
+    }
+  });
+
+  await test('SC-01.8: Strict epoch advance requirement for reconnection (FF-D-01)', () => {
+    const disconnectedFeed: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'DISCONNECTED',
+      freshnessTimestamp: 5000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'DISCONNECTED',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Reconnection with advancing epoch (11 > 10) succeeds
+    const reconnected = updateTelemetryState(disconnectedFeed, {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 9000,
+      epoch: 11
+    });
+
+    if (reconnected.status !== 'HEALTHY') {
+      throw new Error(`Valid reconnection with advancing epoch failed! Got: ${reconnected.status}`);
+    }
+    if (reconnected.epoch !== 11) {
+      throw new Error(`Epoch failed to advance to 11! Got: ${reconnected.epoch}`);
+    }
+    if (reconnected.freshnessTimestamp !== 9000) {
+      throw new Error(`Freshness timestamp failed to update on valid reconnection! Got: ${reconnected.freshnessTimestamp}`);
+    }
+  });
+
+  await test('SC-01.9: Epoch regression rejection', () => {
+    const nominalFeed: TelemetryProvenance = {
+      source: 'CONTROL_SERVICE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 15,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Stale message with regressed epoch (14 < 15)
+    const regressed = updateTelemetryState(nominalFeed, {
+      source: 'CONTROL_SERVICE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 11000,
+      epoch: 14
+    });
+
+    if (regressed.epoch !== 15 || regressed.freshnessTimestamp !== 10000) {
+      throw new Error('Regressed epoch message was improperly accepted');
+    }
+  });
+
+  await test('SC-01.10: Malformed epoch handling fails safely to DEGRADED', () => {
+    const nominalFeed: TelemetryProvenance = {
+      source: 'SIM_ENGINE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: false,
+      staleThresholdMs: 5000,
+      epoch: 5,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const badEpochs = [-1, 0, 1.5, NaN, Infinity];
+    for (const bad of badEpochs) {
+      const result = updateTelemetryState(nominalFeed, {
+        source: 'SIM_ENGINE',
+        epoch: bad,
+        freshnessTimestamp: 12000
+      });
+
+      if (result.status !== 'DEGRADED') {
+        throw new Error(`Malformed epoch ${bad} did not fail safe to DEGRADED, got: ${result.status}`);
+      }
+      if (result.epoch !== 5) {
+        throw new Error(`Malformed epoch ${bad} modified state epoch: ${result.epoch}`);
+      }
+    }
+  });
+
+  await test('SC-01.11: Unauthorized source migration rejection (FF-D-02)', () => {
+    const brokerStream: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Attempt unauthorized switch to CONTROL_SERVICE without allowSourceMigration flag
+    const unauthorizedAttempt = updateTelemetryState(brokerStream, {
+      source: 'CONTROL_SERVICE',
+      freshnessTimestamp: 11000
+    });
+
+    if (unauthorizedAttempt.source !== 'BROKER_FEED') {
+      throw new Error(`Unauthorized migration changed source to ${unauthorizedAttempt.source}`);
+    }
+    if (unauthorizedAttempt.freshnessTimestamp !== 10000) {
+      throw new Error('Unauthorized migration updated freshness timestamp');
+    }
+
+    // Explicitly authorized migration succeeds
+    const authorizedMigration = updateTelemetryState(brokerStream, {
+      source: 'CONTROL_SERVICE',
+      freshnessTimestamp: 11000,
+      allowSourceMigration: true
+    });
+
+    if (authorizedMigration.source !== 'CONTROL_SERVICE') {
+      throw new Error(`Authorized migration failed to update source! Got: ${authorizedMigration.source}`);
+    }
+  });
+
+  await test('SC-01.12: Dual timestamp tracking preserves sourceEventTime and localReceiveTime', () => {
+    const feed: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const updated = updateTelemetryState(feed, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 11000,
+      sourceEventTimeMs: 10980
+    });
+
+    if (updated.sourceEventTimeMs !== 10980) {
+      throw new Error(`sourceEventTimeMs failed to record, got: ${updated.sourceEventTimeMs}`);
+    }
+    if (typeof updated.localReceiveTimeMs !== 'number' || updated.localReceiveTimeMs <= 0) {
+      throw new Error(`localReceiveTimeMs was not populated: ${updated.localReceiveTimeMs}`);
+    }
+  });
+
   // =========================================================================
   // SC-02: Secure Intent Identity & Idempotency
   // =========================================================================
@@ -296,6 +473,18 @@ async function runStageDAdversarialTests() {
       if (!threw) {
         throw new Error(`Malformed existingIntentId '${badId}' was not rejected`);
       }
+    }
+  });
+
+  await test('SC-02.6: Explicit non-authoritative boundary scoping (FF-D-03)', () => {
+    if (IDEMPOTENCY_AUTHORITY_BOUNDARY.isAuthoritative !== false) {
+      throw new Error('Idempotency boundary falsely declared authoritative status');
+    }
+    if (IDEMPOTENCY_AUTHORITY_BOUNDARY.layer !== 'CLIENT_GUI_SESSION') {
+      throw new Error(`Unexpected idempotency layer: ${IDEMPOTENCY_AUTHORITY_BOUNDARY.layer}`);
+    }
+    if (IDEMPOTENCY_AUTHORITY_BOUNDARY.backendDependency !== 'UNRESOLVED_CONTROL_SERVICE_STORE') {
+      throw new Error('Backend durable store dependency was not explicitly documented as unresolved');
     }
   });
 
@@ -533,6 +722,36 @@ async function runStageDAdversarialTests() {
     const afterPositions = await sim.getPositions();
     if (JSON.stringify(afterPositions) !== JSON.stringify(beforePositions)) {
       throw new Error('Blocked live action modified simulation state');
+    }
+  });
+
+  await test('SC-05.3: Bit-for-bit protected state immutability proof (FF-D-04)', async () => {
+    const sim = new SimulationProvider();
+    const beforeSnapshot = sim.getProtectedTradingStateSnapshot();
+
+    // 1. Rejection due to simulated constraint failure
+    const pos = beforeSnapshot.positions[0];
+    const rejectIntent1 = createIntentFingerprint('op_test', pos.id, pos.symbol, 'CLOSE', { simulateRejection: true });
+    const res1 = await sim.submitCommand(rejectIntent1);
+    if (res1.status !== 'REJECTED') {
+      throw new Error(`Expected REJECTED, got ${res1.status}`);
+    }
+
+    const midSnapshot = sim.getProtectedTradingStateSnapshot();
+    if (JSON.stringify(midSnapshot) !== JSON.stringify(beforeSnapshot)) {
+      throw new Error('Protected trading state mutated after simulated rejection!');
+    }
+
+    // 2. Rejection due to missing position
+    const rejectIntent2 = createIntentFingerprint('op_test', 'pos_nonexistent_999', 'EURUSD', 'CLOSE');
+    const res2 = await sim.submitCommand(rejectIntent2);
+    if (res2.status !== 'REJECTED') {
+      throw new Error(`Expected REJECTED, got ${res2.status}`);
+    }
+
+    const finalSnapshot = sim.getProtectedTradingStateSnapshot();
+    if (JSON.stringify(finalSnapshot) !== JSON.stringify(beforeSnapshot)) {
+      throw new Error('Protected trading state mutated after missing position rejection!');
     }
   });
 

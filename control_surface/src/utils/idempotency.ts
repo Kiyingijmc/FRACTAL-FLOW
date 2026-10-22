@@ -218,6 +218,27 @@ export function getSecureRandomString(): string {
 }
 
 /**
+ * FF-D-03: Explicit Non-Authoritative Architecture & Scope Boundary.
+ *
+ * Invariant: The client in-memory Map (activeIntentRegistry) is strictly process/tab-local.
+ * It guards against client-side double-submissions and parameter tampering across retries within
+ * an active browser session.
+ *
+ * DURABLE DISTRIBUTED DEDUPLICATION:
+ * True multi-session, multi-operator distributed idempotency requires the backend Control Service
+ * persistent atomic store (e.g. Postgres / Redis transactional lease). That backend store is an
+ * UNRESOLVED EXTERNAL DEPENDENCY. The frontend NEVER claims authoritative persistence.
+ */
+export const IDEMPOTENCY_AUTHORITY_BOUNDARY = {
+  layer: 'CLIENT_GUI_SESSION',
+  isAuthoritative: false,
+  durability: 'EPHEMERAL_IN_MEMORY',
+  backendDependency: 'UNRESOLVED_CONTROL_SERVICE_STORE',
+  deduplicationGuarantee: 'PROCESS_LOCAL_ONLY',
+  algorithm: 'SHA-256 (FIPS 180-4)'
+} as const;
+
+/**
  * In-memory registry tracking recorded intent fingerprints to enforce SC-02:
  * Reusing an existing intent identity with a different semantic payload MUST be rejected!
  */
@@ -268,7 +289,7 @@ export function computePayloadFingerprint(
 
 /**
  * Creates an IntentFingerprint adhering to FRACTAL-FLOW safety invariants.
- * 
+ *
  * Invariants:
  * 1. A new operator action MUST generate a new logical intentId using cryptographically secure randomness.
  * 2. Retries of an existing intent MUST supply the existing intentId to preserve idempotency identity.

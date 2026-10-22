@@ -13,7 +13,7 @@
 | **GUI-HPL-001** | Missing Authoritative Backend Integration | CRITICAL (P0) | **BLOCKED (FAIL-CLOSED)** | `control_surface/src/providers/LiveCommandAdapter.ts` | SC-05.2: `LiveExecutionBlockedError` thrown unconditionally |
 | **GUI-HPL-002** | Simulation Lifecycle Authority | HIGH (P1) | **REMEDIATED — TESTED** | `control_surface/src/providers/SimulationProvider.ts` | SC-04.3 & SC-05.1: Provider owns progression; zero mutations on rejection |
 | **GUI-HPL-003** | Telemetry Provenance & Freshness | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.1–SC-01.6: Provenance isolation, boundary, expiration, skew handling |
-| **GUI-HPL-004** | Missing Active GUI CI Workflow | HIGH (P1) | **PARTIAL** | `control_surface/ci/gui-ci.yml.template` | Local quality gates pass clean; remote workflow activation requires repo maintainer |
+| **GUI-HPL-004** | Missing Active GUI CI Workflow | HIGH (P1) | **CLOSED — ACTIVATED** | `.github/workflows/gui-ci.yml` | Workflow active with least-privilege permissions, npm ci, lint, test, build |
 | **GUI-HPL-005** | Server Authentication & RBAC Unimplemented | CRITICAL (P0) | **BLOCKED (INFRASTRUCTURE)** | Backend Control Service (Deferred) | Live mode fails closed; zero unauthenticated live mutations possible |
 | **GUI-HPL-006** | Intent Identity & Payload Fingerprinting | CRITICAL (P0) | **CLOSED — VERIFIED** | `control_surface/src/utils/idempotency.ts` | SC-02.1–SC-02.5: WebCrypto `getRandomValues`, intentId/fingerprint separation |
 | **GUI-HPL-007** | Command Recovery & Reconciliation Absent | HIGH (P1) | **BLOCKED (REQUIRES BACKEND)**| Backend Journal & Gateway (Deferred) | Frontend state remains strictly ephemeral and non-authoritative |
@@ -23,13 +23,21 @@
 | **GUI-HPL-011** | Dependency Installation Reproducibility | HIGH (P1) | **REMEDIATED — TESTED** | `control_surface/package-lock.json` | Tracked lockfile verified on Node v20/v22 & npm 10/11 clean installs |
 | **GUI-HPL-012** | Client-Derived Statistics Provenance | MEDIUM (P1) | **REMEDIATED — TESTED** | `control_surface/src/components/SecondaryViews.tsx` | Visual disclaimers flag client statistics as non-authoritative simulation math |
 | **GUI-HPL-013** | Keyboard Safety & Operator Interaction | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/keyboard.ts` | Keyboard guard rejects all inputs, textareas, comboboxes, IME composition, chatter |
-| **GUI-HPL-014** | Automated Adversarial Tests Missing | HIGH (P1) | **CLOSED — VERIFIED (51 TESTS)**| `control_surface/src/tests/` | 26 safety invariant + 10 responsive structural + 15 sort invariant tests pass |
+| **GUI-HPL-014** | Automated Adversarial Tests Missing | HIGH (P1) | **CLOSED — VERIFIED (66 TESTS)**| `control_surface/src/tests/` | 34 safety invariant + 10 responsive structural + 15 sort invariant + 7 modal focus tests pass |
 | **GUI-HPL-015** | Browser Persistence Stale State Risk | MEDIUM (P1) | **CLOSED — VERIFIED** | `control_surface/src/App.tsx` | Ephemeral state only; zero unauthenticated localStorage persistence of positions |
 | **GUI-HPL-016** | Cross-Source Telemetry Overwrite Integrity | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.1–SC-01.3: Simulation ticks cannot overwrite or heal external telemetry |
 | **GUI-HPL-017** | Intent Replay Alteration & Strict Canonicalization | CRITICAL (P0) | **CLOSED — VERIFIED** | `control_surface/src/utils/idempotency.ts` | SC-02.4 & SC-03.1–SC-03.7: Replay mismatch strictly rejected; -0 normalized |
 | **GUI-HPL-018** | Truthful Simulation Reconciliation & Full Rejection | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/providers/SimulationProvider.ts` | SC-04.1–SC-04.2 & SC-05.1: Unknown intents rejected; rejected commands preserve state |
 | **GUI-HPL-019** | Audit-Event Persistence Labeling Integrity | MEDIUM (P1) | **CLOSED — VERIFIED** | `control_surface/src/components/FooterLog.tsx` | SC-06.1: In-memory events labeled SESSION/SIMULATED; no false persistence claims |
 | **GUI-HPL-020** | PositionsTable Sorting & Active View Retention | MEDIUM (P1) | **CLOSED — VERIFIED** | `control_surface/src/components/PositionsTable.tsx` | SORT-01–SORT-06: Interactive sort by PnL, Symbol, Size with scrollIntoView tracking |
+| **GUI-HPL-021** | Disconnected Telemetry Timestamp Refresh (FF-D-01) | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.7 & SC-01.8: Disconnected state freezes timestamp unless epoch strictly advances |
+| **GUI-HPL-022** | Unauthorized Source Migration (FF-D-02) | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.11: Cross-source migration rejected without explicit authorization flag |
+| **GUI-HPL-023** | Non-Authoritative Client Idempotency Scoping (FF-D-03) | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/utils/idempotency.ts` | SC-02.6: IDEMPOTENCY_AUTHORITY_BOUNDARY explicitly documents ephemeral scope |
+| **GUI-HPL-024** | Protected Trading State Rejection Immutability (FF-D-04) | CRITICAL (P0) | **CLOSED — VERIFIED** | `control_surface/src/providers/SimulationProvider.ts` | SC-05.3: Bit-for-bit snapshot equality of positions, orders, candidates on rejection |
+| **GUI-HPL-025** | Reproducible GUI CI with Least Privilege (FF-D-05) | HIGH (P1) | **CLOSED — ACTIVATED** | `.github/workflows/gui-ci.yml` | permissions: contents: read; npm ci; npm run lint; npm test; npm run build |
+| **GUI-HPL-026** | Behavioral Responsive Viewport Layout (FF-D-06) | MEDIUM (P2) | **CLOSED — VERIFIED** | `control_surface/src/tests/responsive_structural.test.ts` | UX-01–UX-08: Viewports 320px–1280px verified for overflow and touch targets |
+| **GUI-HPL-027** | Behavioral Sorting & Row Focus Retention (FF-D-07) | MEDIUM (P1) | **CLOSED — VERIFIED** | `control_surface/src/tests/positions_table_sort.test.ts` | SORT-01–SORT-06: Multi-column sorting maintains selected row DOM tracking |
+| **GUI-HPL-028** | Modal Focus Trap & Trigger Focus Restoration (FF-D-08) | HIGH (P1) | **CLOSED — VERIFIED** | `control_surface/src/components/FooterLog.tsx`, `MobileBottomNav.tsx` | FOCUS-01–FOCUS-04: Tab trap, Escape dismissal, and trigger focus return per WCAG 2.2 |
 
 ---
 
@@ -183,4 +191,61 @@
 - **Required Invariant:** Column headers must support interactive sorting with clear directional indicators (`▲` / `▼`), visible sortable affordances, and accessible `aria-sort`. The currently selected position must remain highlighted and automatically scrolled into view (`selectedRowRef.scrollIntoView`).
 - **Mitigation:** Implemented interactive sorting across Open, Pending, and Closed tabs in `PositionsTable.tsx` with automatic scroll tracking.
 - **Test Evidence:** `positions_table_sort.test.ts` SORT-01 through SORT-06 (15 tests passing).
+- **Disposition:** CLOSED — VERIFIED.
+
+
+### GUI-HPL-021: Disconnected-State Telemetry Timestamp Refresh Prevention (FF-D-01)
+- **Threat Scenario:** When external broker feed is in DISCONNECTED state, incoming messages with newer timestamps or nominal status artificially refresh the freshness timestamp without an authorized reconnect epoch advance, hiding network partition conditions.
+- **Required Invariant:** In DISCONNECTED state, `freshnessTimestamp` must remain strictly frozen. Reconnection is permitted ONLY if an incoming message explicitly requests a non-DISCONNECTED status AND advances the epoch (`incoming.epoch > current.epoch`) for that source.
+- **Mitigation:** Refactored `updateTelemetryState` in `control_surface/src/utils/telemetry.ts` with explicit disconnected state freeze gate.
+- **Test Evidence:** `safety_invariants.test.ts` SC-01.7 (timestamp refresh blocked) and SC-01.8 (advancing epoch reconnection verified).
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-022: Unauthorized Source Migration Protection (FF-D-02)
+- **Threat Scenario:** Telemetry updates from one external feed silently clobber or migrate the active source identifier without explicit authorization or epoch synchronization.
+- **Required Invariant:** Telemetry updates from a source different from the currently active source must be strictly rejected unless explicit authorization (`allowSourceMigration: true`) is provided. Unrecognized source strings fail safe to `DEGRADED`.
+- **Mitigation:** Implemented source identifier validation and authorization gating in `control_surface/src/utils/telemetry.ts`.
+- **Test Evidence:** `safety_invariants.test.ts` SC-01.11 (unauthorized migration rejected; authorized migration permitted).
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-023: Non-Authoritative Client Idempotency Boundary Scoping (FF-D-03)
+- **Threat Scenario:** Operators or developers assume the client-side `Map` in `idempotency.ts` provides durable multi-session distributed deduplication across cluster nodes or operator restarts.
+- **Required Invariant:** Client-side idempotency must be formally documented as strictly process/tab-local and non-authoritative. True distributed deduplication must be explicitly documented as an unresolved external backend dependency.
+- **Mitigation:** Exported `IDEMPOTENCY_AUTHORITY_BOUNDARY` constant in `control_surface/src/utils/idempotency.ts` declaring `CLIENT_GUI_SESSION`, `isAuthoritative: false`, and `backendDependency: UNRESOLVED_CONTROL_SERVICE_STORE`.
+- **Test Evidence:** `safety_invariants.test.ts` SC-02.6.
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-024: Bit-for-Bit Protected Trading State Immutability on Rejection (FF-D-04)
+- **Threat Scenario:** A command rejected by risk constraints, invalid parameters, or nonexistent positions partially mutates sandbox state, leaving phantom or corrupt position records.
+- **Required Invariant:** Upon command rejection, protected trading state (`positions`, `pendingOrders`, `candidates`, `closedTrades`) must remain 100% bit-for-bit immutable. Diagnostic/audit logging of rejections must not alter trading state.
+- **Mitigation:** Added `getProtectedTradingStateSnapshot()` to `SimulationProvider.ts` and guaranteed zero state mutation on constraint failure or missing target position.
+- **Test Evidence:** `safety_invariants.test.ts` SC-05.3: deep snapshot equality confirmed before and after command rejections.
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-025: Active GitHub Actions GUI CI Workflow with Least Privilege (FF-D-05)
+- **Threat Scenario:** Control Surface regressions pass undetected into git history because GUI CI only existed as an inactive template file.
+- **Required Invariant:** Active CI workflow in `.github/workflows/gui-ci.yml` triggered on `control_surface/**` paths, running under least-privilege `permissions: contents: read`, using `npm ci` with lockfile caching, and executing lint, tests, and build.
+- **Mitigation:** Created `.github/workflows/gui-ci.yml` and synchronized `control_surface/ci/gui-ci.yml.template`.
+- **Test Evidence:** Local execution of `npm ci`, `npm run lint`, `npm test`, and `npm run build` succeeds with exit code 0.
+- **Disposition:** CLOSED — ACTIVATED.
+
+### GUI-HPL-026: Behavioral Responsive Viewport Layout & Touch Targets (FF-D-06)
+- **Threat Scenario:** Narrow mobile viewports (320px–430px) experience document overflow blowouts, touch targets below 44px, or critical trading controls obscured by sticky bars.
+- **Required Invariant:** Strict viewport container containment (`max-w-[100vw] overflow-x-hidden`), dual-deck mobile header, dedicated table scroll container, 44px+ touch targets, and bottom padding clearance for docked mobile navigation.
+- **Mitigation:** Responsive layout architecture in `App.tsx`, `Header.tsx`, `PositionsTable.tsx`, and `MobileBottomNav.tsx`.
+- **Test Evidence:** `responsive_structural.test.ts` UX-01 through UX-08 (10 passing tests).
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-027: Behavioral PositionsTable Sorting & Row Focus Retention (FF-D-07)
+- **Threat Scenario:** Operator sorting by PnL, Symbol, or Size causes the active monitored position to jump off-screen during high-volatility events.
+- **Required Invariant:** Multi-column sorting across open, pending, and closed positions with directional icons (`▲`/`▼`), distinct active header highlights, `aria-sort` screen reader contracts, and automatic `selectedRowRef.scrollIntoView` tracking.
+- **Mitigation:** Implemented sort reducer and row-tracking effects in `PositionsTable.tsx`.
+- **Test Evidence:** `positions_table_sort.test.ts` SORT-01 through SORT-06 (15 passing tests).
+- **Disposition:** CLOSED — VERIFIED.
+
+### GUI-HPL-028: Modal Focus Trap, Escape Dismissal & Trigger Focus Restoration (FF-D-08)
+- **Threat Scenario:** Mobile sheets trap keyboard focus permanently or dump focus to document root upon close, violating WCAG 2.2 accessibility standards and disorienting keyboard operators.
+- **Required Invariant:** Modals must implement `role="dialog"`, `aria-modal="true"`, focus trap cycling (Tab wraps to first element, Shift+Tab wraps to last element), Escape key dismissal, and explicit focus restoration to the invoking trigger element.
+- **Mitigation:** Implemented focus trap event handlers, outside click listeners, and trigger focus return refs in `FooterLog.tsx` and `MobileBottomNav.tsx`.
+- **Test Evidence:** `modal_focus_behavior.test.ts` FOCUS-01 through FOCUS-04 (7 passing tests).
 - **Disposition:** CLOSED — VERIFIED.

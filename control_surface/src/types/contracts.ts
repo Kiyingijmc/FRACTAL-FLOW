@@ -33,6 +33,8 @@ export interface TelemetryProvenance {
   epoch: number;
   bridgeStatus: string;
   fenceStatus: string;
+  sourceEventTimeMs?: number;  // Event generation time at external source
+  localReceiveTimeMs?: number; // Local ingress receipt timestamp
 }
 
 export type CommandLifecycle = 

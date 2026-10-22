@@ -132,6 +132,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                     onClick={() => {
                       onTabChange(item.id);
                       onToggleMore(false);
+                      triggerRef.current?.focus();
                     }}
                     className={`min-h-[48px] w-full text-left px-3.5 py-2.5 rounded-[3px] border transition-all flex flex-col justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B8FBF] outline-none ${
                       isCurrent

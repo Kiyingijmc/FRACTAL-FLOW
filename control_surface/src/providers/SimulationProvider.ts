@@ -23,6 +23,13 @@ import {
   INITIAL_PENDING_ORDERS 
 } from '../data/mockData';
 
+export interface ProtectedTradingStateSnapshot {
+  positions: Position[];
+  pendingOrders: PendingOrder[];
+  candidates: GateCandidate[];
+  closedTrades: ClosedTrade[];
+}
+
 /**
  * SimulationProvider
  * 
@@ -34,6 +41,8 @@ import {
  * 3. Market tick simulation and command progression are owned entirely within this provider boundary.
  * 4. State mutations are isolated strictly to local sandbox memory.
  * 5. SC-07: Validates reconciliation against recorded simulated intents; strictly rejects unknown intent IDs.
+ * 6. SC-05 / FF-D-04: Rejection Invariant: Protected trading state (positions, orders, candidates, trades)
+ *    remains strictly immutable upon command rejection.
  */
 export class SimulationProvider implements IDataProvider, ICommandProvider {
   readonly isLiveAuthorized = false;
@@ -55,6 +64,19 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     this.candidates = JSON.parse(JSON.stringify(GATE_CANDIDATES));
     this.systemEvents = JSON.parse(JSON.stringify(INITIAL_SYSTEM_EVENTS));
     this.closedTrades = JSON.parse(JSON.stringify(INITIAL_CLOSED_TRADES));
+  }
+
+  /**
+   * Captures an immutable deep clone of protected trading state (FF-D-04).
+   * Used by safety invariant checks to verify zero mutation upon command rejection.
+   */
+  getProtectedTradingStateSnapshot(): ProtectedTradingStateSnapshot {
+    return {
+      positions: JSON.parse(JSON.stringify(this.positions)),
+      pendingOrders: JSON.parse(JSON.stringify(this.pendingOrders)),
+      candidates: JSON.parse(JSON.stringify(this.candidates)),
+      closedTrades: JSON.parse(JSON.stringify(this.closedTrades))
+    };
   }
 
   setPaused(paused: boolean): void {

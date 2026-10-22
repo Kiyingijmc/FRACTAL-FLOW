@@ -14,7 +14,7 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
 
-  // Focus trap & restoration on mobile journal sheet (UX-07)
+  // Focus trap & restoration on mobile journal sheet (UX-07 / FF-D-08)
   useEffect(() => {
     if (isMobileJournalOpen) {
       setTimeout(() => {
@@ -25,6 +25,7 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
         if (e.key === 'Escape') {
           e.preventDefault();
           setIsMobileJournalOpen(false);
+          triggerRef.current?.focus();
           return;
         }
 
@@ -55,6 +56,19 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
     }
   }, [isMobileJournalOpen]);
 
+  // Outside click closes mobile journal sheet & restores focus
+  useEffect(() => {
+    if (!isMobileJournalOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
+        setIsMobileJournalOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMobileJournalOpen]);
+
   return (
     <>
       {/* Mobile Compact Journal Strip (< 768px) */}
@@ -62,6 +76,8 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
         ref={triggerRef}
         role="button"
         tabIndex={0}
+        aria-haspopup="dialog"
+        aria-expanded={isMobileJournalOpen}
         aria-label="Open Event Journal Stream"
         onClick={() => setIsMobileJournalOpen(true)}
         onKeyDown={(e) => {
@@ -106,7 +122,10 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
               <button
                 ref={closeBtnRef}
                 type="button"
-                onClick={() => setIsMobileJournalOpen(false)}
+                onClick={() => {
+                  setIsMobileJournalOpen(false);
+                  triggerRef.current?.focus();
+                }}
                 className="min-h-[44px] min-w-[44px] flex items-center justify-center text-sm text-[#6E7A8A] hover:text-[#E7EAEE] rounded-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B8FBF] outline-none"
               >
                 ✕ Close
