@@ -239,7 +239,7 @@ async function runStageDAdversarialTests() {
     }
   });
 
-  await test('SC-01.8: Strict epoch advance requirement for reconnection (FF-D-01)', () => {
+  await test('SC-01.8: Strict authorized handshake requirement for reconnection (FF-D-01 / D2-A)', () => {
     const disconnectedFeed: TelemetryProvenance = {
       source: 'BROKER_FEED',
       status: 'DISCONNECTED',
@@ -251,16 +251,30 @@ async function runStageDAdversarialTests() {
       fenceStatus: 'ENFORCED'
     };
 
-    // Reconnection with advancing epoch (11 > 10) succeeds
+    // Reconnection attempt without reconnectAuthorized flag is REJECTED
+    const rejectedNoAuth = updateTelemetryState(disconnectedFeed, {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 9000,
+      epoch: 11,
+      bridgeStatus: 'CONNECTED'
+    });
+    if (rejectedNoAuth.status !== 'DISCONNECTED' || rejectedNoAuth.freshnessTimestamp !== 5000) {
+      throw new Error('Reconnection was accepted without explicit reconnectAuthorized handshake');
+    }
+
+    // Reconnection attempt with reconnectAuthorized: true, advancing epoch, and active bridge succeeds
     const reconnected = updateTelemetryState(disconnectedFeed, {
       source: 'BROKER_FEED',
       status: 'HEALTHY',
       freshnessTimestamp: 9000,
-      epoch: 11
+      epoch: 11,
+      bridgeStatus: 'CONNECTED',
+      reconnectAuthorized: true
     });
 
     if (reconnected.status !== 'HEALTHY') {
-      throw new Error(`Valid reconnection with advancing epoch failed! Got: ${reconnected.status}`);
+      throw new Error(`Valid authorized reconnection failed! Got: ${reconnected.status}`);
     }
     if (reconnected.epoch !== 11) {
       throw new Error(`Epoch failed to advance to 11! Got: ${reconnected.epoch}`);
@@ -295,7 +309,7 @@ async function runStageDAdversarialTests() {
     }
   });
 
-  await test('SC-01.10: Malformed epoch handling fails safely to DEGRADED', () => {
+  await test('SC-01.10: Malformed epoch rejects update atomically with zero field mutation (D2-A Risk 1)', () => {
     const nominalFeed: TelemetryProvenance = {
       source: 'SIM_ENGINE',
       status: 'HEALTHY',
@@ -312,19 +326,18 @@ async function runStageDAdversarialTests() {
       const result = updateTelemetryState(nominalFeed, {
         source: 'SIM_ENGINE',
         epoch: bad,
-        freshnessTimestamp: 12000
+        freshnessTimestamp: 12000,
+        bridgeStatus: 'COMPROMISED'
       });
 
-      if (result.status !== 'DEGRADED') {
-        throw new Error(`Malformed epoch ${bad} did not fail safe to DEGRADED, got: ${result.status}`);
-      }
-      if (result.epoch !== 5) {
-        throw new Error(`Malformed epoch ${bad} modified state epoch: ${result.epoch}`);
+      // D2-A: Snapshot must remain 100% bit-for-bit unchanged!
+      if (result.epoch !== 5 || result.freshnessTimestamp !== 10000 || result.bridgeStatus !== 'OK' || result.status !== 'HEALTHY') {
+        throw new Error(`Malformed epoch ${bad} caused partial mutation of snapshot fields!`);
       }
     }
   });
 
-  await test('SC-01.11: Unauthorized source migration rejection (FF-D-02)', () => {
+  await test('SC-01.11: Cross-source migration strictly rejected fail-closed (D2-A Risk 2)', () => {
     const brokerStream: TelemetryProvenance = {
       source: 'BROKER_FEED',
       status: 'HEALTHY',
@@ -336,32 +349,71 @@ async function runStageDAdversarialTests() {
       fenceStatus: 'ENFORCED'
     };
 
-    // Attempt unauthorized switch to CONTROL_SERVICE without allowSourceMigration flag
-    const unauthorizedAttempt = updateTelemetryState(brokerStream, {
+    // 1. Unauthorized migration without flags
+    const attempt1 = updateTelemetryState(brokerStream, {
       source: 'CONTROL_SERVICE',
       freshnessTimestamp: 11000
     });
-
-    if (unauthorizedAttempt.source !== 'BROKER_FEED') {
-      throw new Error(`Unauthorized migration changed source to ${unauthorizedAttempt.source}`);
-    }
-    if (unauthorizedAttempt.freshnessTimestamp !== 10000) {
-      throw new Error('Unauthorized migration updated freshness timestamp');
+    if (attempt1.source !== 'BROKER_FEED' || attempt1.freshnessTimestamp !== 10000) {
+      throw new Error('Cross-source migration was accepted');
     }
 
-    // Explicitly authorized migration succeeds
-    const authorizedMigration = updateTelemetryState(brokerStream, {
+    // 2. Forged caller-controlled boolean (allowSourceMigration: true) MUST BE REJECTED
+    const attempt2 = updateTelemetryState(brokerStream, {
       source: 'CONTROL_SERVICE',
       freshnessTimestamp: 11000,
       allowSourceMigration: true
     });
+    if (attempt2.source !== 'BROKER_FEED' || attempt2.freshnessTimestamp !== 10000) {
+      throw new Error('Caller-controlled allowSourceMigration flag was improperly honored');
+    }
 
-    if (authorizedMigration.source !== 'CONTROL_SERVICE') {
-      throw new Error(`Authorized migration failed to update source! Got: ${authorizedMigration.source}`);
+    // 3. Reverse direction migration (CONTROL_SERVICE -> BROKER_FEED) is also strictly rejected
+    const controlStream: TelemetryProvenance = {
+      ...brokerStream,
+      source: 'CONTROL_SERVICE'
+    };
+    const attempt3 = updateTelemetryState(controlStream, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 11000,
+      allowSourceMigration: true
+    });
+    if (attempt3.source !== 'CONTROL_SERVICE' || attempt3.freshnessTimestamp !== 10000) {
+      throw new Error('Reverse cross-source migration was improperly honored');
     }
   });
 
-  await test('SC-01.12: Dual timestamp tracking preserves sourceEventTime and localReceiveTime', () => {
+  await test('SC-01.12: Initial state creation does NOT synthesize Date.now() when timestamp absent (D2-A Risk 3)', () => {
+    // Missing timestamp
+    const initMissing = updateTelemetryState(undefined as any, {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY'
+    });
+    if (initMissing.freshnessTimestamp !== 0 || initMissing.status !== 'UNKNOWN') {
+      throw new Error(`Initial state with missing timestamp synthesized non-zero freshness: ${initMissing.freshnessTimestamp}`);
+    }
+
+    // Non-positive timestamp
+    const initZero = updateTelemetryState(undefined as any, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 0
+    });
+    if (initZero.freshnessTimestamp !== 0 || initZero.status !== 'UNKNOWN') {
+      throw new Error('Initial state with zero timestamp did not initialize to 0 and UNKNOWN');
+    }
+
+    // Valid positive timestamp succeeds
+    const initValid = updateTelemetryState(undefined as any, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 55000,
+      status: 'HEALTHY'
+    });
+    if (initValid.freshnessTimestamp !== 55000 || initValid.status !== 'HEALTHY') {
+      throw new Error('Initial state with valid timestamp was not accepted');
+    }
+  });
+
+  await test('SC-01.13: Dual timestamp tracking preserves sourceEventTime and localReceiveTime', () => {
     const feed: TelemetryProvenance = {
       source: 'BROKER_FEED',
       status: 'HEALTHY',

@@ -229,3 +229,31 @@ Constitutional architecture must not be optimized away to solve these questions.
   6. **Modal Focus Trap & Trigger Focus Restoration (FF-D-08 / WCAG 2.2):** In `FooterLog.tsx` and `MobileBottomNav.tsx`, implement Tab focus trapping, Escape key dismissal, outside click dismissal, and explicit focus restoration to the invoking trigger button (`triggerRef.current?.focus()`).
   7. **Automated Test Expansion:** Author 7 behavioral modal focus tests in `modal_focus_behavior.test.ts` and add 8 hostile assertions to `safety_invariants.test.ts`, expanding the automated test suite to 66 passing tests across safety, layout, sorting, and accessibility.
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates silent partition masking, guarantees trading state immutability on command rejection, activates continuous integration quality gates, and ensures full keyboard accessibility compliance.
+
+## D-048 — Stage D.2 Independent Counterexample Remediation, Telemetry Atomicity, and Real DOM Component Verification
+
+* **Context:** Independent hostile review of Stage D.1 revealed four residual risks in telemetry handling: (1) malformed epochs or invalid thresholds could result in `DEGRADED` status while still mutating freshness timestamps or other snapshot fields; (2) caller-controlled `allowSourceMigration: true` boolean was a permission bypass rather than proof of authorization; (3) initial state creation synthesized `Date.now()` when a valid observation timestamp was absent; (4) reconnect and source migration could be forged by epoch advancement alone. Furthermore, prior modal accessibility tests relied on mock element simulations rather than rendered React components, and responsive tests relied on static source-string searches rather than viewport-dependent behavioral layout checks. Authoritative durable idempotency was also prematurely labeled closed despite an unresolved backend store dependency.
+
+* **Decision:**
+  1. **Telemetry All-or-Nothing Atomicity & Fail-Closed Migration (D2-A):**
+     - In `control_surface/src/utils/telemetry.ts`, enforce strict pre-validation of all incoming update fields. Any malformed epoch (non-integer, non-positive, or non-finite), invalid threshold (non-finite or non-positive), missing/invalid timestamp, unauthorized source migration, or unverified reconnect rejects the entire update atomically, returning `current` untouched without partial field mutation.
+     - Eliminate the caller-controlled `allowSourceMigration: true` flag. Cross-source telemetry migration is fail-closed rejected and scoped to `MIGRATION_AUTHORITY_BOUNDARY = 'UNRESOLVED_CONTROL_SERVICE_AUTHORITY'`.
+     - In `createInitialTelemetry()`, set `freshnessTimestamp: 0` and status `UNKNOWN` when an observation timestamp is absent; never synthesize `Date.now()`.
+     - Reconnection requires explicit `reconnectAuthorized: true`, strictly advancing epoch (`incoming.epoch > current.epoch`), valid positive finite timestamp, and active bridge status (`SIM_VIRTUAL_OK` or `CONNECTED`). Dual timestamp tracking preserves distinct `sourceEventTime` and `localReceiveTime`.
+     - Author 13 adversarial assertions in `safety_invariants.test.ts` (SC-01.1 through SC-01.13) verifying all-or-nothing atomicity and fail-closed migrations.
+
+  2. **Real Component Modal Accessibility Verification (D2-B):**
+     - Completely rewrite `modal_focus_behavior.test.ts` to mount genuine React production components (`<FooterLog />`, `<MobileBottomNav />`) in a JSDOM environment under React 19 synthetic and native event loops.
+     - Eliminate all mock-function focus traps. Exercise real DOM events: initial focus entry into close buttons, Tab key wrap-around from last to first element, Shift+Tab reverse wrap-around from first to last element, Escape keydown dismissal, Close button click, backdrop click, tab selection focus return, and defensive trigger unmount handling (D2-B.01 through D2-B.09).
+
+  3. **Behavioral Viewport Layout & Interactive Table Sorting (D2-C):**
+     - Upgrade `positions_table_sort.test.ts` to mount real React `<PositionsTable />` in JSDOM: verify default descending PnL sort, ascending PnL toggle, alphabetical Symbol (A-Z / Z-A) sort, numerical Size lot sort, active row `data-selected="true"` preservation during re-sorting, and Closed Trades Realized R and Realized P&L ($) multi-directional sorting (SORT-01 through SORT-06).
+     - Upgrade `responsive_structural.test.ts` to mount real React `<App />` in JSDOM across all 7 target viewports: 320px, 360px, 390px, 430px, 768px, 1024px, and 1280px CSS pixels.
+     - Verify document-level overflow prevention (`w-full max-w-full overflow-hidden`), dual-deck mobile vs single-deck desktop header, mobile bottom nav docking (<768px), nav rail docking (>=768px), safe-area bottom clearance (`pb-14`/`pb-16`), critical status visibility (`SIM: OFF-BROKER`, `HEALTHY`), touch target height invariants (>=44px), and full reachability of all 8 navigation destinations (`POS`, `DEC`, `RISK`, `MODE`, `NEWS`, `CALIB`, `HEALTH`, `STATS`) on both mobile and desktop (20 passing tests).
+
+  4. **HPL Evidence Distinction & Truthfulness Audit (D2-D):**
+     - Reconcile `docs/reports/GUI_HPL.md` to strictly distinguish evidence tiers: `REAL COMPONENT BEHAVIOR VERIFIED (JSDOM)`, `BEHAVIORAL VIEWPORT VERIFIED (JSDOM)`, `UNIT TEST EXECUTED`, `CI PASSED`, and `UNRESOLVED BACKEND DEPENDENCY`.
+     - Correct disposition of `GUI-HPL-006` and `GUI-HPL-023` to `CLIENT-SIDE VERIFIED (AUTHORITATIVE BACKEND STORE UNRESOLVED)`, formally documenting that durable cluster idempotency requires the unresolved Control Service store.
+     - Update `GUI-HPL-014` to document the full 70-test automated verification suite.
+
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates partial state corruption risks in telemetry ingestion, guarantees fail-closed source authority, validates genuine React component accessibility and responsive behavior without mock simulations or string-search heuristics, and maintains strict epistemic truthfulness regarding unresolved backend infrastructure.
