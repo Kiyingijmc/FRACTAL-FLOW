@@ -29,25 +29,61 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   onToggleMore,
 }) => {
   const drawerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // Close drawer on Escape key
+  // Focus trap & focus restoration (UX-07)
   useEffect(() => {
-    if (!isMoreOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onToggleMore(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    if (isMoreOpen) {
+      // Focus close button on open
+      setTimeout(() => {
+        closeButtonRef.current?.focus();
+      }, 50);
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onToggleMore(false);
+          triggerRef.current?.focus();
+          return;
+        }
+
+        // Focus trap
+        if (e.key === 'Tab' && drawerRef.current) {
+          const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          if (focusable.length === 0) return;
+
+          const firstEl = focusable[0];
+          const lastEl = focusable[focusable.length - 1];
+
+          if (e.shiftKey) {
+            if (document.activeElement === firstEl) {
+              e.preventDefault();
+              lastEl.focus();
+            }
+          } else {
+            if (document.activeElement === lastEl) {
+              e.preventDefault();
+              firstEl.focus();
+            }
+          }
+        }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
   }, [isMoreOpen, onToggleMore]);
 
-  // Focus trap / outside click
+  // Outside click closes drawer
   useEffect(() => {
     if (!isMoreOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
         onToggleMore(false);
+        triggerRef.current?.focus();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -73,9 +109,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 Additional Control Surfaces
               </div>
               <button
+                ref={closeButtonRef}
                 type="button"
-                onClick={() => onToggleMore(false)}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-sm text-[#6E7A8A] hover:text-[#E7EAEE] rounded-sm transition-colors cursor-pointer"
+                onClick={() => {
+                  onToggleMore(false);
+                  triggerRef.current?.focus();
+                }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-sm text-[#6E7A8A] hover:text-[#E7EAEE] rounded-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B8FBF] outline-none"
                 aria-label="Close menu"
               >
                 ✕ Close
@@ -93,7 +133,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                       onTabChange(item.id);
                       onToggleMore(false);
                     }}
-                    className={`min-h-[48px] w-full text-left px-3.5 py-2.5 rounded-[3px] border transition-all flex flex-col justify-center cursor-pointer ${
+                    className={`min-h-[48px] w-full text-left px-3.5 py-2.5 rounded-[3px] border transition-all flex flex-col justify-center cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B8FBF] outline-none ${
                       isCurrent
                         ? 'border-[#5B8FBF] bg-[#161C26] text-[#E7EAEE]'
                         : 'border-[#232A35] bg-[#10151D] hover:bg-[#161C26]/60 text-[#6E7A8A] hover:text-[#E7EAEE]'
@@ -121,7 +161,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       {/* Docked bottom navigation bar */}
       <nav
         aria-label="Mobile Navigation"
-        className="fixed bottom-0 inset-x-0 z-30 md:hidden bg-[#10151D] border-t border-[#232A35] flex items-stretch justify-around h-14 select-none"
+        className="fixed bottom-0 inset-x-0 z-30 md:hidden bg-[#10151D] border-t border-[#232A35] flex items-stretch justify-around h-14 select-none pb-safe"
       >
         {PRIMARY_TABS.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -133,7 +173,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 onTabChange(tab.id);
                 if (isMoreOpen) onToggleMore(false);
               }}
-              className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer ${
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer focus-visible:ring-1 focus-visible:ring-[#5B8FBF] outline-none ${
                 isActive
                   ? 'text-[#5B8FBF] bg-[#161C26]'
                   : 'text-[#6E7A8A] hover:text-[#E7EAEE] hover:bg-[#161C26]/40'
@@ -150,10 +191,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
         {/* More Tab */}
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => onToggleMore(!isMoreOpen)}
           aria-expanded={isMoreOpen}
-          className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer ${
+          aria-haspopup="dialog"
+          aria-label="More control surfaces and diagnostics"
+          className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer focus-visible:ring-1 focus-visible:ring-[#5B8FBF] outline-none ${
             isSecondaryActive || isMoreOpen
               ? 'text-[#5B8FBF] bg-[#161C26]'
               : 'text-[#6E7A8A] hover:text-[#E7EAEE] hover:bg-[#161C26]/40'

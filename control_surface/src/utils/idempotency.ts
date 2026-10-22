@@ -7,12 +7,18 @@ export class CanonicalizationError extends Error {
   }
 }
 
+export class IntentReplayMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IntentReplayMismatchError';
+  }
+}
+
 /**
  * Standard FIPS 180-4 SHA-256 implementation in pure TypeScript.
  * Produces identical output to standard crypto implementations without external dependencies.
  */
 export function sha256Hex(message: string): string {
-  // Convert UTF-8 string to byte array
   const bytes: number[] = [];
   for (let i = 0; i < message.length; i++) {
     let charCode = message.charCodeAt(i);
@@ -39,13 +45,11 @@ export function sha256Hex(message: string): string {
     }
   }
 
-  // Initial hash values (FIPS 180-4 section 5.3.3)
   const H = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
   ];
 
-  // Round constants (FIPS 180-4 section 4.2.2)
   const K = [
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -63,8 +67,7 @@ export function sha256Hex(message: string): string {
     bytes.push(0);
   }
 
-  // 64-bit length big-endian
-  bytes.push(0, 0, 0, 0); // High 32 bits
+  bytes.push(0, 0, 0, 0);
   bytes.push(
     (bitLength >>> 24) & 0xff,
     (bitLength >>> 16) & 0xff,
@@ -120,15 +123,7 @@ export function sha256Hex(message: string): string {
 }
 
 /**
- * Deterministic Canonical JSON Serialization.
- * 
- * Rules:
- * 1. Object keys are recursively sorted at all nesting levels.
- * 2. Explicit null is preserved.
- * 3. Arrays preserve exact element order; sparse arrays are rejected.
- * 4. Strings are strictly JSON-encoded.
- * 5. Numbers must be finite. NaN and Infinity throw CanonicalizationError.
- * 6. BigInt, undefined, functions, symbols, non-plain object instances, and cyclic structures throw CanonicalizationError.
+ * Deterministic Canonical JSON Serialization (SC-03).
  */
 export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): string {
   if (val === null) return 'null';
@@ -141,6 +136,10 @@ export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): s
   if (typeof val === 'number') {
     if (!Number.isFinite(val)) {
       throw new CanonicalizationError(`Non-finite number '${val}' cannot be canonicalized`);
+    }
+    // Normalize -0 to 0
+    if (Object.is(val, -0)) {
+      return '0';
     }
     return JSON.stringify(val);
   }
@@ -156,10 +155,21 @@ export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): s
     }
     seen.add(val);
 
+    // Reject TypedArrays and ArrayBuffer
+    if (typeof ArrayBuffer !== 'undefined') {
+      if (val instanceof ArrayBuffer || ArrayBuffer.isView(val)) {
+        throw new CanonicalizationError('TypedArray and ArrayBuffer instances are not permitted in canonical payloads');
+      }
+    }
+
     if (Array.isArray(val)) {
-      // Deterministically reject sparse arrays (SC-02)
+      // Deterministically reject sparse arrays (SC-02/SC-03)
       if (Object.keys(val).length !== val.length) {
         throw new CanonicalizationError('Sparse arrays are not permitted in canonical payloads');
+      }
+      // Reject arrays with non-index own properties
+      if (Object.keys(val).some(k => !/^\d+$/.test(k))) {
+        throw new CanonicalizationError('Arrays with custom own properties are not permitted in canonical payloads');
       }
       const items = val.map(item => canonicalizeValue(item, seen));
       seen.delete(val);
@@ -187,17 +197,52 @@ export function canonicalizeValue(val: unknown, seen = new WeakSet<object>()): s
   throw new CanonicalizationError(`Unsupported value type: ${typeof val}`);
 }
 
-let intentCounter = 0;
+/**
+ * Cryptographically Secure Random String Generator.
+ * Replaces Math.random() per SC-02. Fails closed if secure randomness is absent.
+ */
+export function getSecureRandomString(): string {
+  const cryptoObj = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (!cryptoObj) {
+    throw new Error('Secure randomness is unavailable in the execution environment (fail-closed)');
+  }
+  if (typeof cryptoObj.randomUUID === 'function') {
+    return cryptoObj.randomUUID();
+  }
+  if (typeof cryptoObj.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    cryptoObj.getRandomValues(bytes);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  throw new Error('Secure randomness is unavailable in the execution environment (fail-closed)');
+}
+
+/**
+ * In-memory registry tracking recorded intent fingerprints to enforce SC-02:
+ * Reusing an existing intent identity with a different semantic payload MUST be rejected!
+ */
+const activeIntentRegistry = new Map<string, { payloadFingerprint: string; actionType: string }>();
+
+/**
+ * Clears intent registry (for test isolation).
+ */
+export function clearIntentRegistry(): void {
+  activeIntentRegistry.clear();
+}
 
 /**
  * Generates a globally unique Logical Intent ID for a newly initiated operator command.
- * Distinct commands MUST receive distinct intentIds, even if payload/action are identical.
+ * Distinct commands MUST receive distinct intentIds via cryptographically secure randomness.
  */
 export function createLogicalIntentId(operatorId: string, actionType: string): string {
-  intentCounter = (intentCounter + 1) % 1000000;
-  const rand = Math.floor(Math.random() * 1000000).toString(36);
-  const time = Date.now().toString(36);
-  return `intent_${actionType.toLowerCase()}_${operatorId}_${time}_${rand}_${intentCounter}`;
+  if (!operatorId || !operatorId.trim()) {
+    throw new Error('Invalid operatorId for intent generation');
+  }
+  if (!actionType || !actionType.trim()) {
+    throw new Error('Invalid actionType for intent generation');
+  }
+  const secureRandom = getSecureRandomString();
+  return `intent_${actionType.toLowerCase()}_${operatorId.trim()}_${secureRandom}`;
 }
 
 /**
@@ -225,11 +270,12 @@ export function computePayloadFingerprint(
  * Creates an IntentFingerprint adhering to FRACTAL-FLOW safety invariants.
  * 
  * Invariants:
- * 1. A new operator action MUST generate a new logical intentId.
+ * 1. A new operator action MUST generate a new logical intentId using cryptographically secure randomness.
  * 2. Retries of an existing intent MUST supply the existing intentId to preserve idempotency identity.
  * 3. Payload fingerprinting is deterministic SHA-256 over recursively sorted canonical parameters.
  * 4. Idempotency key explicitly binds intentId (SC-01) so distinct actions with identical payloads never collide.
- * 5. NOTICE: Client-side fingerprinting is NOT authoritative server deduplication.
+ * 5. Reusing an existing intentId with a different semantic payload is strictly rejected (SC-02).
+ * 6. NOTICE: Client-side fingerprinting is NOT authoritative server deduplication.
  *    Authoritative deduplication requires backend Control Service persistence.
  */
 export function createIntentFingerprint(
@@ -241,6 +287,12 @@ export function createIntentFingerprint(
   existingIntentId?: string,
   transportAttempt = 1
 ): IntentFingerprint {
+  if (existingIntentId !== undefined) {
+    if (typeof existingIntentId !== 'string' || !existingIntentId.trim() || !existingIntentId.startsWith('intent_')) {
+      throw new Error(`Malformed existingIntentId: '${existingIntentId}'`);
+    }
+  }
+
   const payloadFingerprint = computePayloadFingerprint(
     operatorId,
     targetPositionId,
@@ -249,9 +301,21 @@ export function createIntentFingerprint(
     parameters
   );
 
+  // SC-02: If reusing an existingIntentId, verify that the payload matches what was previously registered!
+  if (existingIntentId) {
+    const existing = activeIntentRegistry.get(existingIntentId);
+    if (existing && (existing.payloadFingerprint !== payloadFingerprint || existing.actionType !== actionType)) {
+      throw new IntentReplayMismatchError(
+        `Cannot reuse intent ID '${existingIntentId}' with modified semantic payload or action type`
+      );
+    }
+  }
+
   const intentId = existingIntentId || createLogicalIntentId(operatorId, actionType);
-  // SC-01: Idempotency key binds intentId to guarantee uniqueness across distinct actions
   const idempotencyKey = `idemp_${actionType.toLowerCase()}_${intentId}_${payloadFingerprint.slice(0, 24)}`;
+
+  // Register in memory to guard against future payload alteration on retry
+  activeIntentRegistry.set(intentId, { payloadFingerprint, actionType });
 
   return {
     intentId,
@@ -267,6 +331,5 @@ export function createIntentFingerprint(
   };
 }
 
-// Backward-compatible alias for existing imports
 export const generateIntentFingerprint = createIntentFingerprint;
 export const createDeterministicHash = sha256Hex;

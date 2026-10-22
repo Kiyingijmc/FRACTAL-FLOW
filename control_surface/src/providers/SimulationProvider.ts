@@ -269,10 +269,23 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
   }
 
   /**
-   * SC-07: Validates reconciliation against recorded intents.
-   * Unknown intent IDs are strictly rejected.
+   * SC-04 / SC-07: Validates reconciliation against recorded intents.
+   * Unknown or malformed intent IDs are strictly rejected; outcomes remain non-authoritative.
    */
   async reconcileCommand(intentId: string): Promise<CommandResult> {
+    // Malformed ID guard
+    if (typeof intentId !== 'string' || !intentId.trim() || !intentId.startsWith('intent_')) {
+      return {
+        intentId: String(intentId),
+        idempotencyKey: `malformed_${intentId}`,
+        status: 'REJECTED',
+        authoritative: false,
+        message: `Malformed intentId '${intentId}' cannot be reconciled`,
+        timestamp: Date.now(),
+        rejectionReason: 'MALFORMED_INTENT_ID'
+      };
+    }
+
     const recorded = this.simulatedIntents.get(intentId);
     if (!recorded) {
       return {
@@ -285,8 +298,10 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
         rejectionReason: 'INTENT_NOT_RECORDED'
       };
     }
+
     return {
       ...recorded,
+      authoritative: false,
       message: `Reconciled simulated intent '${intentId}' against local sandbox memory`
     };
   }

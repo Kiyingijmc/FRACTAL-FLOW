@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SystemEvent } from '../types';
 
 interface FooterLogProps {
@@ -10,12 +10,67 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
   const latestEvent = events[0];
   const displayedEvents = events.slice(0, 3);
 
+  const modalRef = useRef<HTMLDivElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap & restoration on mobile journal sheet (UX-07)
+  useEffect(() => {
+    if (isMobileJournalOpen) {
+      setTimeout(() => {
+        closeBtnRef.current?.focus();
+      }, 50);
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setIsMobileJournalOpen(false);
+          return;
+        }
+
+        if (e.key === 'Tab' && modalRef.current) {
+          const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          );
+          if (focusable.length === 0) return;
+          const firstEl = focusable[0];
+          const lastEl = focusable[focusable.length - 1];
+
+          if (e.shiftKey) {
+            if (document.activeElement === firstEl) {
+              e.preventDefault();
+              lastEl.focus();
+            }
+          } else {
+            if (document.activeElement === lastEl) {
+              e.preventDefault();
+              firstEl.focus();
+            }
+          }
+        }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [isMobileJournalOpen]);
+
   return (
     <>
       {/* Mobile Compact Journal Strip (< 768px) */}
       <div
+        ref={triggerRef}
+        role="button"
+        tabIndex={0}
+        aria-label="Open Event Journal Stream"
         onClick={() => setIsMobileJournalOpen(true)}
-        className="md:hidden h-8 border-t border-[#232A35] bg-[#0A0E14] px-3 text-[10px] text-[#6E7A8A] flex items-center justify-between shrink-0 select-none cursor-pointer hover:bg-[#161C26]/50"
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsMobileJournalOpen(true);
+          }
+        }}
+        className="md:hidden h-8 border-t border-[#232A35] bg-[#0A0E14] px-3 text-[10px] text-[#6E7A8A] flex items-center justify-between shrink-0 select-none cursor-pointer hover:bg-[#161C26]/50 focus-visible:ring-1 focus-visible:ring-[#5B8FBF] outline-none"
       >
         <div className="flex items-center gap-1.5 truncate mr-2">
           <span className="w-1.5 h-1.5 rounded-full bg-[#4FAE86] shrink-0" />
@@ -35,6 +90,7 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
       {isMobileJournalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col justify-end md:hidden animate-in fade-in duration-150">
           <div
+            ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-label="Event Journal Stream"
@@ -48,9 +104,10 @@ export const FooterLog: React.FC<FooterLogProps> = ({ events }) => {
                 <span className="w-1.5 h-1.5 rounded-full bg-[#4FAE86]" />
               </div>
               <button
+                ref={closeBtnRef}
                 type="button"
                 onClick={() => setIsMobileJournalOpen(false)}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-sm text-[#6E7A8A] hover:text-[#E7EAEE] rounded-sm transition-colors cursor-pointer"
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center text-sm text-[#6E7A8A] hover:text-[#E7EAEE] rounded-sm transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#5B8FBF] outline-none"
               >
                 ✕ Close
               </button>

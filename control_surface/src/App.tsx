@@ -21,6 +21,7 @@ import { SimulationProvider } from './providers/SimulationProvider';
 import { LiveCommandAdapter } from './providers/LiveCommandAdapter';
 import { createIntentFingerprint } from './utils/idempotency';
 import { isKeyboardShortcutAllowed } from './utils/keyboard';
+import { updateTelemetryState } from './utils/telemetry';
 import { Header } from './components/Header';
 import { NavRail } from './components/NavRail';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -145,12 +146,14 @@ export const App: React.FC = () => {
         })
       );
 
-      // Periodically update heartbeat telemetry
-      setTelemetry((prev) => ({
-        ...prev,
-        freshnessTimestamp: tick.timestamp,
-        status: 'HEALTHY'
-      }));
+      // Periodically update heartbeat telemetry using source-provenance updater (SC-01)
+      setTelemetry((prev) =>
+        updateTelemetryState(prev, {
+          source: 'SIM_ENGINE',
+          freshnessTimestamp: tick.timestamp,
+          status: 'HEALTHY'
+        })
+      );
     });
 
     return () => unsubscribe();
