@@ -18,7 +18,15 @@ import {
 } from '../utils/keyboard';
 import {
   evaluateTelemetryFreshness,
-  updateTelemetryState
+  updateTelemetryState,
+  createInitialTelemetry,
+  VALID_SOURCES,
+  VALID_STATUSES,
+  VALID_ACTIVE_BRIDGE_STATUSES,
+  MIGRATION_AUTHORITY_BOUNDARY,
+  RECONNECT_AUTHORITY_BOUNDARY,
+  DOCUMENTED_UNKNOWN_TELEMETRY,
+  ReconnectAuthorizationProof
 } from '../utils/telemetry';
 import { LiveExecutionBlockedError, TelemetryProvenance } from '../types/contracts';
 
@@ -239,7 +247,7 @@ async function runStageDAdversarialTests() {
     }
   });
 
-  await test('SC-01.8: Strict authorized handshake requirement for reconnection (FF-D-01 / D2-A)', () => {
+  await test('SC-01.8: Strict authorized handshake requirement for reconnection (FF-D-01 / D2-A / D2.1)', () => {
     const disconnectedFeed: TelemetryProvenance = {
       source: 'BROKER_FEED',
       status: 'DISCONNECTED',
@@ -251,7 +259,7 @@ async function runStageDAdversarialTests() {
       fenceStatus: 'ENFORCED'
     };
 
-    // Reconnection attempt without reconnectAuthorized flag is REJECTED
+    // 1. Reconnection attempt without independent auth proof is REJECTED
     const rejectedNoAuth = updateTelemetryState(disconnectedFeed, {
       source: 'BROKER_FEED',
       status: 'HEALTHY',
@@ -260,11 +268,11 @@ async function runStageDAdversarialTests() {
       bridgeStatus: 'CONNECTED'
     });
     if (rejectedNoAuth.status !== 'DISCONNECTED' || rejectedNoAuth.freshnessTimestamp !== 5000) {
-      throw new Error('Reconnection was accepted without explicit reconnectAuthorized handshake');
+      throw new Error('Reconnection was accepted without independent auth proof');
     }
 
-    // Reconnection attempt with reconnectAuthorized: true, advancing epoch, and active bridge succeeds
-    const reconnected = updateTelemetryState(disconnectedFeed, {
+    // 2. Forged caller-controlled boolean (reconnectAuthorized: true) MUST BE REJECTED fail-closed
+    const rejectedForgedFlag = updateTelemetryState(disconnectedFeed, {
       source: 'BROKER_FEED',
       status: 'HEALTHY',
       freshnessTimestamp: 9000,
@@ -272,6 +280,46 @@ async function runStageDAdversarialTests() {
       bridgeStatus: 'CONNECTED',
       reconnectAuthorized: true
     });
+    if (rejectedForgedFlag.status !== 'DISCONNECTED' || rejectedForgedFlag.freshnessTimestamp !== 5000) {
+      throw new Error('Caller-controlled reconnectAuthorized boolean was improperly accepted');
+    }
+
+    // 3. Reconnection attempt with auth proof but bridgeStatus UNKNOWN MUST BE REJECTED
+    const trustedProof: ReconnectAuthorizationProof = {
+      authority: 'CONTROL_SERVICE_HANDSHAKE',
+      token: 'cs_proof_token_99182',
+      issuedAt: 9000,
+      nonce: 'nonce_8817a',
+      verify: (src, ep) => src === 'BROKER_FEED' && ep === 11
+    };
+
+    const rejectedUnknownBridge = updateTelemetryState(
+      disconnectedFeed,
+      {
+        source: 'BROKER_FEED',
+        status: 'HEALTHY',
+        freshnessTimestamp: 9000,
+        epoch: 11,
+        bridgeStatus: 'UNKNOWN'
+      },
+      trustedProof
+    );
+    if (rejectedUnknownBridge.status !== 'DISCONNECTED' || rejectedUnknownBridge.freshnessTimestamp !== 5000) {
+      throw new Error('Reconnection was accepted with UNKNOWN bridge status');
+    }
+
+    // 4. Reconnection attempt with trusted proof, advancing epoch, and active allowlisted bridge SUCCEEDS
+    const reconnected = updateTelemetryState(
+      disconnectedFeed,
+      {
+        source: 'BROKER_FEED',
+        status: 'HEALTHY',
+        freshnessTimestamp: 9000,
+        epoch: 11,
+        bridgeStatus: 'CONNECTED'
+      },
+      trustedProof
+    );
 
     if (reconnected.status !== 'HEALTHY') {
       throw new Error(`Valid authorized reconnection failed! Got: ${reconnected.status}`);
@@ -281,6 +329,29 @@ async function runStageDAdversarialTests() {
     }
     if (reconnected.freshnessTimestamp !== 9000) {
       throw new Error(`Freshness timestamp failed to update on valid reconnection! Got: ${reconnected.freshnessTimestamp}`);
+    }
+
+    // 5. Reconnection attempt with invalid proof verification MUST BE REJECTED
+    const invalidProof: ReconnectAuthorizationProof = {
+      authority: 'CONTROL_SERVICE_HANDSHAKE',
+      token: 'cs_bad_proof',
+      issuedAt: 9000,
+      nonce: 'nonce_bad',
+      verify: () => false // verification fails
+    };
+    const rejectedBadVerify = updateTelemetryState(
+      disconnectedFeed,
+      {
+        source: 'BROKER_FEED',
+        status: 'HEALTHY',
+        freshnessTimestamp: 9000,
+        epoch: 11,
+        bridgeStatus: 'CONNECTED'
+      },
+      invalidProof
+    );
+    if (rejectedBadVerify.status !== 'DISCONNECTED' || rejectedBadVerify.freshnessTimestamp !== 5000) {
+      throw new Error('Reconnection was accepted with failed proof verification');
     }
   });
 
@@ -436,6 +507,329 @@ async function runStageDAdversarialTests() {
     }
     if (typeof updated.localReceiveTimeMs !== 'number' || updated.localReceiveTimeMs <= 0) {
       throw new Error(`localReceiveTimeMs was not populated: ${updated.localReceiveTimeMs}`);
+    }
+  });
+
+  await test('SC-01.14: Forged caller-controlled boolean reconnectAuthorized: true is strictly rejected fail-closed', () => {
+    const disconnectedFeed: TelemetryProvenance = {
+      source: 'CONTROL_SERVICE',
+      status: 'DISCONNECTED',
+      freshnessTimestamp: 4000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 20,
+      bridgeStatus: 'DISCONNECTED',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Caller attempts to forge authorization with reconnectAuthorized: true
+    const forgedAttempt = updateTelemetryState(disconnectedFeed, {
+      source: 'CONTROL_SERVICE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 6000,
+      epoch: 21,
+      bridgeStatus: 'CONNECTED',
+      reconnectAuthorized: true
+    });
+
+    if (forgedAttempt.status !== 'DISCONNECTED' || forgedAttempt.epoch !== 20 || forgedAttempt.freshnessTimestamp !== 4000) {
+      throw new Error('Caller-controlled reconnectAuthorized: true forged a reconnection!');
+    }
+    if (forgedAttempt !== disconnectedFeed) {
+      throw new Error('Rejected forged reconnection did not preserve snapshot identity');
+    }
+  });
+
+  await test('SC-01.15: Reconnection attempt with UNKNOWN or unallowlisted bridge status is strictly rejected fail-closed', () => {
+    const disconnectedFeed: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'DISCONNECTED',
+      freshnessTimestamp: 5000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'DISCONNECTED',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const validProof: ReconnectAuthorizationProof = {
+      authority: 'CONTROL_SERVICE_HANDSHAKE',
+      token: 'valid_tok_1',
+      issuedAt: 9000,
+      nonce: 'n_1',
+      verify: (src, ep) => src === 'BROKER_FEED' && ep === 11
+    };
+
+    const unallowlistedBridges = ['UNKNOWN', 'DISCONNECTED', 'DEGRADED', 'SOME_RANDOM_STATUS', ''];
+    for (const badBridge of unallowlistedBridges) {
+      const result = updateTelemetryState(
+        disconnectedFeed,
+        {
+          source: 'BROKER_FEED',
+          status: 'HEALTHY',
+          freshnessTimestamp: 9000,
+          epoch: 11,
+          bridgeStatus: badBridge
+        },
+        validProof
+      );
+
+      if (result.status !== 'DISCONNECTED' || result.freshnessTimestamp !== 5000) {
+        throw new Error(`Reconnection improperly accepted unallowlisted bridgeStatus: '${badBridge}'`);
+      }
+      if (result !== disconnectedFeed) {
+        throw new Error('Rejected unallowlisted bridge reconnection did not preserve snapshot identity');
+      }
+    }
+  });
+
+  await test('SC-01.16: Malformed initial source and epoch produce DOCUMENTED_UNKNOWN_TELEMETRY without synthetic defaults', () => {
+    // 1. Malformed source strings must NOT silently become 'SIM_ENGINE'
+    const badSources = ['MALFORMED_SRC', 'ROGUE_FEED', 'UNKNOWN_SERVICE', ''];
+    for (const badSrc of badSources) {
+      const res = createInitialTelemetry({ source: badSrc as any, epoch: 5 });
+      if (res.source !== 'FALLBACK_FIXTURE' || res.status !== 'UNKNOWN' || res.epoch !== 0) {
+        throw new Error(`Malformed source '${badSrc}' was silently converted or given fabricated epoch! Got: ${res.source}, ep: ${res.epoch}`);
+      }
+    }
+
+    // 2. Malformed epochs must NOT silently become epoch 1
+    const badEpochs = [-1, 0, 1.5, NaN, Infinity, -Infinity];
+    for (const badEp of badEpochs) {
+      const res = createInitialTelemetry({ source: 'BROKER_FEED', epoch: badEp });
+      if (res.status !== 'UNKNOWN' || res.epoch !== 0) {
+        throw new Error(`Malformed epoch ${badEp} was silently converted to valid epoch! Got: ep ${res.epoch}`);
+      }
+    }
+  });
+
+  await test('SC-01.17: Negative, zero, NaN, and infinite thresholds reject update atomically on existing snapshot and produce DOCUMENTED_UNKNOWN_TELEMETRY initially', () => {
+    const nominal: TelemetryProvenance = {
+      source: 'SIM_ENGINE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: false,
+      staleThresholdMs: 5000,
+      epoch: 1,
+      bridgeStatus: 'SIM_VIRTUAL_OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const badThresholds = [-500, 0, NaN, Infinity, -Infinity];
+    for (const badTh of badThresholds) {
+      // Existing snapshot update rejection:
+      const updated = updateTelemetryState(nominal, {
+        source: 'SIM_ENGINE',
+        staleThresholdMs: badTh,
+        freshnessTimestamp: 12000
+      });
+      if (updated !== nominal || updated.staleThresholdMs !== 5000 || updated.freshnessTimestamp !== 10000) {
+        throw new Error(`Update with invalid threshold ${badTh} partially mutated snapshot!`);
+      }
+
+      // Initial creation rejection:
+      const initial = createInitialTelemetry({
+        source: 'SIM_ENGINE',
+        staleThresholdMs: badTh,
+        freshnessTimestamp: 12000
+      });
+      if (initial.status !== 'UNKNOWN' || initial.epoch !== 0) {
+        throw new Error(`Initial creation with invalid threshold ${badTh} did not produce DOCUMENTED_UNKNOWN_TELEMETRY!`);
+      }
+    }
+
+    // Explicit absence handling: genuine undefined threshold defaults to 5000
+    const absInitial = createInitialTelemetry({
+      source: 'SIM_ENGINE',
+      freshnessTimestamp: 12000,
+      status: 'HEALTHY'
+    });
+    if (absInitial.staleThresholdMs !== 5000) {
+      throw new Error(`Genuine absent threshold did not default to 5000: ${absInitial.staleThresholdMs}`);
+    }
+  });
+
+  await test('SC-01.18: Invalid source-event timestamps reject update atomically and fail safely on initial state', () => {
+    const nominal: TelemetryProvenance = {
+      source: 'CONTROL_SERVICE',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 2,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const badEventTimes = [-1, NaN, Infinity, -Infinity];
+    for (const badTime of badEventTimes) {
+      const updated = updateTelemetryState(nominal, {
+        source: 'CONTROL_SERVICE',
+        sourceEventTimeMs: badTime,
+        freshnessTimestamp: 11000
+      });
+      if (updated !== nominal || updated.freshnessTimestamp !== 10000) {
+        throw new Error(`Invalid sourceEventTimeMs ${badTime} was accepted on update!`);
+      }
+
+      const initial = createInitialTelemetry({
+        source: 'CONTROL_SERVICE',
+        sourceEventTimeMs: badTime,
+        freshnessTimestamp: 11000
+      });
+      if (initial.status !== 'UNKNOWN' || initial.epoch !== 0) {
+        throw new Error(`Invalid sourceEventTimeMs ${badTime} was accepted on initial creation!`);
+      }
+    }
+  });
+
+  await test('SC-01.19: Invalid status values reject update atomically and fail safely on initial state', () => {
+    const nominal: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 3,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const badStatuses = ['SUPER_HEALTHY', 'ONLINE', 'ACTIVE', ''];
+    for (const badStat of badStatuses) {
+      const updated = updateTelemetryState(nominal, {
+        source: 'BROKER_FEED',
+        status: badStat as any,
+        freshnessTimestamp: 11000
+      });
+      if (updated !== nominal || updated.freshnessTimestamp !== 10000) {
+        throw new Error(`Invalid status '${badStat}' was accepted on update!`);
+      }
+
+      const initial = createInitialTelemetry({
+        source: 'BROKER_FEED',
+        status: badStat as any,
+        freshnessTimestamp: 11000
+      });
+      if (initial.status !== 'UNKNOWN' || initial.epoch !== 0) {
+        throw new Error(`Invalid status '${badStat}' was accepted on initial creation!`);
+      }
+    }
+  });
+
+  await test('SC-01.20: Complete snapshot preservation on rejected updates across all invalid fields', () => {
+    const original: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 4,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED',
+      sourceEventTimeMs: 9990,
+      localReceiveTimeMs: 10001
+    };
+
+    // A bundle of invalid fields targeting various invariants
+    const rejections = [
+      { source: 'SIM_ENGINE' as const }, // cross-source simulation tick
+      { source: 'CONTROL_SERVICE' as const }, // cross-source migration
+      { source: 'BOGUS_SOURCE' as any }, // unrecognized source
+      { epoch: -1 }, // negative epoch
+      { epoch: 3 }, // regressed epoch
+      { freshnessTimestamp: 8000 }, // out-of-order stale timestamp
+      { freshnessTimestamp: -50 }, // negative timestamp
+      { freshnessTimestamp: NaN }, // NaN timestamp
+      { staleThresholdMs: -100 }, // negative threshold
+      { staleThresholdMs: NaN }, // NaN threshold
+      { status: 'BOGUS_STATUS' as any }, // unrecognized status
+      { sourceEventTimeMs: -500 } // negative event time
+    ];
+
+    for (const badUpdate of rejections) {
+      const result = updateTelemetryState(original, badUpdate);
+      if (result !== original) {
+        throw new Error(`Update ${JSON.stringify(badUpdate)} did not return exact original reference!`);
+      }
+      // Bit-for-bit check
+      if (
+        result.source !== 'BROKER_FEED' ||
+        result.status !== 'HEALTHY' ||
+        result.freshnessTimestamp !== 10000 ||
+        result.epoch !== 4 ||
+        result.staleThresholdMs !== 5000 ||
+        result.bridgeStatus !== 'OK' ||
+        result.fenceStatus !== 'ENFORCED' ||
+        result.sourceEventTimeMs !== 9990 ||
+        result.localReceiveTimeMs !== 10001
+      ) {
+        throw new Error(`Update ${JSON.stringify(badUpdate)} corrupted protected snapshot fields!`);
+      }
+    }
+  });
+
+  await test('SC-01.21: Valid same-source reconnection succeeds only when independent authorization proof is established', () => {
+    const disconnectedFeed: TelemetryProvenance = {
+      source: 'CONTROL_SERVICE',
+      status: 'DISCONNECTED',
+      freshnessTimestamp: 7000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 50,
+      bridgeStatus: 'DISCONNECTED',
+      fenceStatus: 'ENFORCED'
+    };
+
+    const validProof: ReconnectAuthorizationProof = {
+      authority: 'CONTROL_SERVICE_HANDSHAKE',
+      token: 'valid_lease_cs_51',
+      issuedAt: 12000,
+      nonce: 'nonce_cs_91',
+      verify: (src, ep) => src === 'CONTROL_SERVICE' && ep === 51
+    };
+
+    // Valid reconnection with advancing epoch (51 > 50), valid timestamp (12000), allowlisted bridge ('CONNECTED'), and proof
+    const reconnected = updateTelemetryState(
+      disconnectedFeed,
+      {
+        source: 'CONTROL_SERVICE',
+        status: 'HEALTHY',
+        freshnessTimestamp: 12000,
+        epoch: 51,
+        bridgeStatus: 'CONNECTED'
+      },
+      validProof
+    );
+
+    if (reconnected.status !== 'HEALTHY') {
+      throw new Error(`Expected HEALTHY status upon verified reconnection, got: ${reconnected.status}`);
+    }
+    if (reconnected.epoch !== 51) {
+      throw new Error(`Expected advanced epoch 51, got: ${reconnected.epoch}`);
+    }
+    if (reconnected.freshnessTimestamp !== 12000) {
+      throw new Error(`Expected updated freshness 12000, got: ${reconnected.freshnessTimestamp}`);
+    }
+
+    // Attempting same-source reconnect with advancing epoch but invalid proof (verify returning false)
+    const badProof: ReconnectAuthorizationProof = {
+      ...validProof,
+      verify: () => false
+    };
+    const rejectedBadProof = updateTelemetryState(
+      disconnectedFeed,
+      {
+        source: 'CONTROL_SERVICE',
+        status: 'HEALTHY',
+        freshnessTimestamp: 13000,
+        epoch: 52,
+        bridgeStatus: 'CONNECTED'
+      },
+      badProof
+    );
+    if (rejectedBadProof.status !== 'DISCONNECTED' || rejectedBadProof !== disconnectedFeed) {
+      throw new Error('Reconnection was accepted with failed authorization proof verification');
     }
   });
 

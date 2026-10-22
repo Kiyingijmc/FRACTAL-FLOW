@@ -257,3 +257,44 @@ Constitutional architecture must not be optimized away to solve these questions.
      - Update `GUI-HPL-014` to document the full 70-test automated verification suite.
 
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates partial state corruption risks in telemetry ingestion, guarantees fail-closed source authority, validates genuine React component accessibility and responsive behavior without mock simulations or string-search heuristics, and maintains strict epistemic truthfulness regarding unresolved backend infrastructure.
+
+
+## D-049 — Stage D.2.1 Telemetry Counterexample Closure, Reconnection Authority Hardening, and Initial-State Validation
+
+* **Context:** Independent hostile review of Stage D.2 identified residual counterexamples in telemetry handling:
+  1. Caller-controlled boolean flags (e.g. `reconnectAuthorized: true` on an incoming update) allowed arbitrary callers to assert reconnection authority without cryptographic or backend-attested proof.
+  2. Bridge-status checks on reconnection admitted `'UNKNOWN'` as active because only `'DISCONNECTED'` was rejected.
+  3. `createInitialTelemetry()` silently defaulted malformed input (bad sources, non-positive or non-finite epochs, invalid timestamps, malformed statuses) into healthy-looking defaults (`source: 'SIM_ENGINE'`, `epoch: 1`), fabricating provenance and freshness.
+  4. Stale threshold defaulting relied on JavaScript truthiness (`incoming.staleThresholdMs || 5000`), which silently coerced `0`, `NaN`, and negative numbers rather than validating numeric properties.
+  5. Missing hostile regression tests for forged booleans, `UNKNOWN` bridge status on reconnect, malformed initial telemetry inputs, invalid timestamps, and bit-for-bit snapshot preservation on rejections.
+
+* **Decision:**
+  1. **Elimination of Caller-Controlled Reconnection Authority:**
+     - Reject caller-asserted booleans (`incoming.reconnectAuthorized: true`) as untrusted authority bypasses.
+     - Mandate that reconnection from `DISCONNECTED` requires an independent `ReconnectAuthorizationProof` parameter (`authority: 'CONTROL_SERVICE_HANDSHAKE'` with verified handshake credentials).
+     - Because external Control Service handshake infrastructure is unresolved, all reconnection attempts without independent authenticated proof fail closed, strictly preserving the existing disconnected snapshot bit-for-bit.
+     - Formally declare `RECONNECT_AUTHORITY_BOUNDARY = 'UNRESOLVED_CONTROL_SERVICE_HANDSHAKE'`.
+  2. **Explicit Active Bridge-Status Allowlist:**
+     - Define `VALID_ACTIVE_BRIDGE_STATUSES = ['SIM_VIRTUAL_OK', 'CONNECTED', 'OK', 'SIM_SANDBOX_VIRTUAL']` based on actual system contracts.
+     - Strictly reject `'UNKNOWN'` and `'DISCONNECTED'` during reconnection; an incoming payload reporting bridgeStatus `'UNKNOWN'` is rejected fail-closed.
+  3. **Initial Telemetry Validation & Documented Unknown State:**
+     - In `createInitialTelemetry()`, strictly validate source name (non-empty string), epoch (finite positive integer), timestamp (positive finite number), stale threshold (positive finite number), status, and source-event timestamp.
+     - When initial input is malformed, never synthesize `SIM_ENGINE` or epoch 1. Fail safely by returning `DOCUMENTED_UNKNOWN_TELEMETRY` (`status: 'UNKNOWN'`, `epoch: 0`, `source: 'FALLBACK_FIXTURE'`, `freshnessTimestamp: 0`), preventing false provenance or unearned healthy display.
+  4. **Absence-Only Threshold Defaulting:**
+     - Stale threshold defaults to 5000ms strictly when `incoming.staleThresholdMs === undefined`.
+     - Zero (`0`), negative values, `NaN`, non-numeric types, and `Infinity` are rejected as invalid threshold counterexamples.
+  5. **Adversarial Regression Tests (SC-01.14 – SC-01.21):**
+     - Author 8 hostile test cases in `control_surface/src/tests/safety_invariants.test.ts`:
+       - `SC-01.14`: Forged `reconnectAuthorized: true` caller boolean rejected; snapshot preserved.
+       - `SC-01.15`: Bridge status `'UNKNOWN'` rejected during reconnection.
+       - `SC-01.16`: Malformed initial source and epoch produce `DOCUMENTED_UNKNOWN_TELEMETRY`.
+       - `SC-01.17`: Negative, zero, NaN, and infinite thresholds rejected; update preserved; initial creation fails safely.
+       - `SC-01.18`: Invalid source-event timestamps rejected atomically.
+       - `SC-01.19`: Invalid status values rejected atomically.
+       - `SC-01.20`: Complete bit-for-bit snapshot preservation on all rejected updates.
+       - `SC-01.21`: Valid same-source reconnection succeeds only when independent `ReconnectAuthorizationProof` is established.
+     - Expands test suite to 78 passing tests (43 safety invariants, 20 responsive viewport behavioral, 6 positions sort, 9 modal accessibility).
+  6. **Retain Unresolved Backend Authority as BLOCKED / FAIL-CLOSED:**
+     - Do not simulate or fabricate backend authorization. Mark authoritative reconnection and durable cross-session idempotency explicitly as unresolved Control Service dependencies.
+
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates forged client authority, guarantees bit-for-bit snapshot preservation on all rejected updates, establishes strict epistemic truthfulness on initial state, and prevents silent state corruption across broker disconnect cycles.

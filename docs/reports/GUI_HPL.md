@@ -12,7 +12,7 @@
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | **GUI-HPL-001** | Missing Authoritative Backend Integration | CRITICAL (P0) | **BLOCKED (FAIL-CLOSED)** | `control_surface/src/providers/LiveCommandAdapter.ts` | SC-05.2: `LiveExecutionBlockedError` thrown unconditionally |
 | **GUI-HPL-002** | Simulation Lifecycle Authority | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/providers/SimulationProvider.ts` | SC-04.3 & SC-05.1: Provider owns progression; zero mutations on rejection |
-| **GUI-HPL-003** | Telemetry Provenance, Atomicity & Freshness | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.1–SC-01.13: All-or-nothing atomicity, zero field mutation on invalid input, no synthetic Date.now() |
+| **GUI-HPL-003** | Telemetry Provenance, Atomicity & Freshness | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.1–SC-01.21: All-or-nothing atomicity, zero field mutation on invalid input, initial state validation, absence-based threshold defaulting |
 | **GUI-HPL-004** | Missing Active GUI CI Workflow | HIGH (P1) | **CI PASSED (ACTIVATED)** | `.github/workflows/gui-ci.yml` | Workflow active with least-privilege permissions, npm ci, lint, test, build |
 | **GUI-HPL-005** | Server Authentication & RBAC Unimplemented | CRITICAL (P0) | **BLOCKED (UNRESOLVED BACKEND DEPENDENCY)** | Backend Control Service (Deferred) | Live mode fails closed; zero unauthenticated live mutations possible |
 | **GUI-HPL-006** | Intent Identity & Payload Fingerprinting | CRITICAL (P0) | **CLIENT-SIDE VERIFIED (BACKEND UNRESOLVED)** | `control_surface/src/utils/idempotency.ts` | SC-02.1–SC-02.5: WebCrypto `getRandomValues`, fingerprint separation; distributed store unresolved |
@@ -23,15 +23,15 @@
 | **GUI-HPL-011** | Dependency Installation Reproducibility | HIGH (P1) | **CI PASSED (REPRODUCIBLE LOCKFILE)** | `control_surface/package-lock.json` | Tracked lockfile verified with `npm ci` on Node 20/22 |
 | **GUI-HPL-012** | Client-Derived Statistics Provenance | MEDIUM (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/components/SecondaryViews.tsx` | Visual disclaimers flag client statistics as non-authoritative simulation math |
 | **GUI-HPL-013** | Keyboard Safety & Operator Interaction | HIGH (P1) | **UNIT TEST EXECUTED** | `control_surface/src/utils/keyboard.ts` | Keyboard guard rejects all inputs, textareas, comboboxes, IME composition, chatter |
-| **GUI-HPL-014** | Automated Adversarial Tests Missing | HIGH (P1) | **AUTOMATED TEST SUITE PASSING (70 TESTS)** | `control_surface/src/tests/` | 35 safety invariant + 20 responsive viewport behavioral + 6 positions sort + 9 modal accessibility |
+| **GUI-HPL-014** | Automated Adversarial Tests Missing | HIGH (P1) | **AUTOMATED TEST SUITE PASSING (78 TESTS)** | `control_surface/src/tests/` | 43 safety invariant + 20 responsive viewport behavioral + 6 positions sort + 9 modal accessibility |
 | **GUI-HPL-015** | Browser Persistence Stale State Risk | MEDIUM (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/App.tsx` | Ephemeral state only; zero unauthenticated localStorage persistence of positions |
 | **GUI-HPL-016** | Cross-Source Telemetry Overwrite Integrity | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.1–SC-01.3: Simulation ticks cannot overwrite or heal external telemetry |
 | **GUI-HPL-017** | Intent Replay Alteration & Strict Canonicalization | CRITICAL (P0) | **UNIT TEST EXECUTED** | `control_surface/src/utils/idempotency.ts` | SC-02.4 & SC-03.1–SC-03.7: Replay mismatch strictly rejected; -0 normalized |
 | **GUI-HPL-018** | Truthful Simulation Reconciliation & Full Rejection | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/providers/SimulationProvider.ts` | SC-04.1–SC-04.2 & SC-05.1: Unknown intents rejected; rejected commands preserve state |
 | **GUI-HPL-019** | Audit-Event Persistence Labeling Integrity | MEDIUM (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/components/FooterLog.tsx` | SC-06.1: In-memory events labeled SESSION/SIMULATED; no false persistence claims |
 | **GUI-HPL-020** | PositionsTable Sorting & Active View Retention | MEDIUM (P1) | **REAL COMPONENT BEHAVIOR VERIFIED (JSDOM)** | `control_surface/src/components/PositionsTable.tsx` | SORT-01–SORT-06: Interactive sort by PnL, Symbol, Size with scrollIntoView tracking |
-| **GUI-HPL-021** | Disconnected Telemetry Timestamp Refresh (FF-D-01) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.7 & SC-01.8: Disconnected state freezes timestamp; reconnect requires authorized advancing epoch |
-| **GUI-HPL-022** | Unauthorized Source Migration Fail-Closed (FF-D-02 / D2-A) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.11: Caller-controlled migration boolean removed; migrations fail closed under explicit authority boundary |
+| **GUI-HPL-021** | Disconnected Telemetry Timestamp Refresh & Reconnect Authority (FF-D-01 / D.2.1) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED (FAIL-CLOSED)** | `control_surface/src/utils/telemetry.ts` | SC-01.7, SC-01.8, SC-01.14, SC-01.15, SC-01.21: Disconnected freeze; caller boolean rejected; reconnect requires independent Control Service proof, advancing epoch, allowlisted bridge status |
+| **GUI-HPL-022** | Unauthorized Source Migration Fail-Closed (FF-D-02 / D2-A / D.2.1) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/utils/telemetry.ts` | SC-01.11, SC-01.14: Caller-controlled migration/reconnect flags rejected fail-closed; RECONNECT_AUTHORITY_BOUNDARY and MIGRATION_AUTHORITY_BOUNDARY declared |
 | **GUI-HPL-023** | Non-Authoritative Client Idempotency Scoping (FF-D-03) | HIGH (P1) | **CLIENT-SIDE VERIFIED (BACKEND UNRESOLVED)** | `control_surface/src/utils/idempotency.ts` | SC-02.6: `IDEMPOTENCY_AUTHORITY_BOUNDARY` explicitly documents ephemeral scope; durable store unresolved |
 | **GUI-HPL-024** | Protected Trading State Rejection Immutability (FF-D-04) | CRITICAL (P0) | **REAL COMPONENT BEHAVIOR VERIFIED** | `control_surface/src/providers/SimulationProvider.ts` | SC-05.3: Bit-for-bit snapshot equality of positions, orders, candidates on rejection |
 | **GUI-HPL-025** | Reproducible GUI CI with Least Privilege (FF-D-05) | HIGH (P1) | **CI PASSED (ACTIVATED)** | `.github/workflows/gui-ci.yml` | permissions: contents: read; npm ci; npm run lint; npm test; npm run build |
@@ -60,11 +60,11 @@
 - **Test Evidence:** `safety_invariants.test.ts` SC-04.3 & SC-05.1.
 - **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
 
-### GUI-HPL-003: Telemetry Provenance, Atomicity & Freshness
-- **Threat Scenario:** Partial state mutations on malformed epochs or invalid thresholds leave telemetry corrupted in `DEGRADED` status while updating freshness timestamps.
-- **Required Invariant:** All telemetry state transitions must execute under all-or-nothing atomicity. If an update is invalid, the existing accepted snapshot must be preserved without field pollution. No synthetic timestamps are generated when observation times are absent.
-- **Mitigation:** Refactored `updateTelemetryState` in `control_surface/src/utils/telemetry.ts` with strict all-or-nothing validation, dual timestamp tracking (`sourceEventTime` vs `localReceiveTime`), and zero synthetic `Date.now()` on unobserved initial state.
-- **Test Evidence:** `safety_invariants.test.ts` SC-01.1 through SC-01.13.
+### GUI-HPL-003: Telemetry Provenance, Atomicity, Initial Validation & Freshness
+- **Threat Scenario:** Partial state mutations on malformed epochs, invalid thresholds, or malformed initial inputs leave telemetry corrupted in `DEGRADED` status while updating freshness timestamps, or initial state creation fabricates synthetic `SIM_ENGINE` provenance, epoch 1, or accepts non-positive/NaN thresholds.
+- **Required Invariant:** All telemetry state transitions must execute under all-or-nothing atomicity. If an update is invalid, the existing accepted snapshot must be preserved 100% bit-for-bit without field pollution. Initial telemetry creation (`createInitialTelemetry`) must validate source, epoch, timestamp, threshold, and status; invalid inputs fail safely to `DOCUMENTED_UNKNOWN_TELEMETRY` rather than fabricating healthy state. Stale threshold defaults to 5000ms strictly when undefined; non-positive, zero, NaN, and infinite thresholds are strictly rejected.
+- **Mitigation:** Refactored `updateTelemetryState` and `createInitialTelemetry` in `control_surface/src/utils/telemetry.ts` with strict all-or-nothing validation, typed rejections, `DOCUMENTED_UNKNOWN_TELEMETRY`, absence-only threshold defaulting, and complete snapshot preservation.
+- **Test Evidence:** `safety_invariants.test.ts` SC-01.1 through SC-01.21.
 - **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
 
 ### GUI-HPL-004: Missing Active GUI CI Workflow
@@ -87,12 +87,12 @@
 - **Test Evidence:** `safety_invariants.test.ts` SC-02.1 through SC-02.6.
 - **Disposition:** CLIENT-SIDE VERIFIED (AUTHORITATIVE BACKEND STORE UNRESOLVED).
 
-### GUI-HPL-021: Disconnected-State Telemetry Timestamp Refresh Prevention (FF-D-01)
-- **Threat Scenario:** When external broker feed is in DISCONNECTED state, incoming messages artificially refresh timestamps without an authorized reconnect epoch advance.
-- **Required Invariant:** In DISCONNECTED state, `freshnessTimestamp` must remain strictly frozen. Reconnection is permitted ONLY if an incoming message explicitly requests reconnect, advances the epoch (`incoming.epoch > current.epoch`), has a valid positive finite timestamp, and has an active bridge status.
-- **Mitigation:** Refactored `updateTelemetryState` in `control_surface/src/utils/telemetry.ts` with explicit disconnected state freeze gate and strict reconnect handshake gating.
-- **Test Evidence:** `safety_invariants.test.ts` SC-01.7 and SC-01.8.
-- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+### GUI-HPL-021: Disconnected-State Telemetry Timestamp Refresh & Reconnect Authority (FF-D-01 / D.2.1)
+- **Threat Scenario:** When external broker feed is in DISCONNECTED state, incoming messages artificially refresh timestamps or forge reconnection using caller-controlled boolean flags (`reconnectAuthorized: true`) or inactive bridge statuses (e.g., `UNKNOWN`).
+- **Required Invariant:** In DISCONNECTED state, `freshnessTimestamp` must remain strictly frozen. Caller-controlled reconnection booleans must be strictly rejected as forgeries. Reconnection requires an independent `ReconnectAuthorizationProof` from an authenticated Control Service handshake (`CONTROL_SERVICE_HANDSHAKE`), strictly advancing epoch (`incoming.epoch > current.epoch`), valid positive finite observation timestamp, and active bridge status from `VALID_ACTIVE_BRIDGE_STATUSES` (`SIM_VIRTUAL_OK`, `CONNECTED`, `OK`, `SIM_SANDBOX_VIRTUAL`). `'UNKNOWN'` and `'DISCONNECTED'` are strictly forbidden as active bridge states. Without an authentic handshake proof, reconnection fails closed and preserves the current snapshot.
+- **Mitigation:** Refactored `updateTelemetryState` in `control_surface/src/utils/telemetry.ts`: removed caller-controlled boolean authority, enforced `RECONNECT_AUTHORITY_BOUNDARY`, validated `ReconnectAuthorizationProof`, and enforced `VALID_ACTIVE_BRIDGE_STATUSES` allowlist.
+- **Test Evidence:** `safety_invariants.test.ts` SC-01.7, SC-01.8, SC-01.14, SC-01.15, SC-01.20, SC-01.21.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED (FAIL-CLOSED ON UNRESOLVED BACKEND AUTHORITY).
 
 ### GUI-HPL-022: Unauthorized Source Migration Fail-Closed Protection (FF-D-02 / D2-A)
 - **Threat Scenario:** Callers or telemetry payloads bypass source identity checks via a boolean flag (`allowSourceMigration: true`), migrating the active source identifier without proof of authorization.
