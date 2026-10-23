@@ -1,0 +1,62 @@
+# spec/control_surface_v1.yaml — one backend ("Control Service"), two front ends (GUI, Telegram bot).
+# Built on remediation/ ExecutionGateway, docs/26 effective_config_id + rollout stages,
+# exit_intelligence/ and mode_profiles/ calibration and regime-confidence concepts.
+version: 1
+status: design_not_yet_implemented
+
+principle:
+  one_backend: control_service
+  rule: "every capability is defined once on control_service; GUI and Telegram bot only present it"
+
+authority:
+  reads: no_gate_beyond_auth
+  effectful_commands: routed_unchanged_to_execution_gateway   # never decided by the control surface itself
+  confirmation: mandatory_for_every_effectful_command_both_frontends
+  roles: [VIEWER, OPERATOR, ADMIN]
+  non_mutable_notification_class: safety_critical
+
+capabilities:                                    # section 2 of the architecture doc
+  - {id: lane_overview, gui: overview_strip, telegram: /status}
+  - {id: open_positions, gui: positions_table, telegram: /positions}
+  - {id: risk_state, gui: risk_panel, telegram: /risk}
+  - {id: mode_status, gui: mode_panel, telegram: /modes, source: mode_profiles_v1.mode_regime_confidence_gate}
+  - {id: decision_log, gui: decision_log_panel, telegram: "/decisions [symbol]", source: ml.DecisionSnapshot}
+  - {id: system_health, gui: health_panel, telegram: /health}
+  - {id: kill_switch_state, gui: health_panel_banner, telegram: /killstate}
+  - {id: calibration_status, gui: calibration_panel, telegram: /calibration, source: ml_readiness.rollout}
+  - {id: performance, gui: charts_panel, telegram: "/performance [period]"}
+  - {id: blockers, gui: ops_panel, telegram: /blockers, role: ADMIN, source: remediation_register.yaml}
+
+commands:                                         # section 4, all gated+confirmed, no new authority
+  - {id: close_full, gui: position_row_button, telegram: "/close <symbol>", routes_to: ExecutionGateway.FULL_CLOSE}
+  - {id: close_partial, gui: position_row_amount, telegram: "/close <symbol> <fraction>", routes_to: ExecutionGateway.PARTIAL_CLOSE}
+  - {id: tighten_stop, gui: position_row_button, telegram: "/tighten <symbol> <level>", routes_to: ExecutionGateway.TIGHTEN_STOP, ratchet_only: true}
+  - {id: breakeven, gui: position_row_button, telegram: "/breakeven <symbol>", routes_to: ExecutionGateway.MOVE_TO_BREAKEVEN}
+  - {id: kill_switch, gui: always_visible_control, telegram: "/killswitch <lane> <level>", role_for_L2_L3: ADMIN, typed_confirm_for_L2_L3: true}
+  - {id: ack_notification, gui: notification_button, telegram: inline_keyboard_button}
+  - {id: cancel_pending, gui: orders_row_button, telegram: "/cancel <order_id>", routes_to: ExecutionGateway.CANCEL_PENDING}
+
+notifications:                                    # section 5, one taxonomy, both frontends render from it
+  classes:
+    safety_critical: {mutable: false, channels: [gui_banner, telegram_push]}
+    trade_lifecycle: {mutable: true, default_channels: [telegram_push], granularity: [opened, closed, partial]}
+    risk_limit: {mutable: true, default_on: true, channels: [telegram_push, gui_panel_highlight]}
+    calibration_rollout: {mutable: true, default_channels: [gui_panel], telegram_opt_in: true}
+    informational_daily: {mutable: true, channels: [telegram_digest]}
+
+configurability_axes:                             # section 6 — deliberately small, not a long settings tail
+  - layout_density_gui_only
+  - notification_class_subscriptions
+  - default_lane_symbol_scope
+  - role_admin_assigned_only
+
+design_system:                                    # pointer, not duplicated here — see 02_DESIGN_SYSTEM.md
+  color_tokens_doc: 02_DESIGN_SYSTEM.md#2-color-tokens
+  typography_doc: 02_DESIGN_SYSTEM.md#3-typography
+  signature_elements: [gate_chain_strip, timeframe_cascade_indicator]
+  telegram_emoji_vocabulary: ["🟢 ok/long", "🔴 critical/short", "🟡 warning", "⚪ offline/na"]
+  mockup: ../mockup/dashboard_mockup.html
+
+validation:
+  config_changes_to_calibrated_parameters: "only via rollout-stage promotion (shadow->paper->canary->active), never a direct arbitrary-value set"
+  effective_config_id: "control-service-driven config changes recorded the same way as docs/26 model identity"

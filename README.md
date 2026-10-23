@@ -27,6 +27,9 @@ This package is the durable engineering memory for the FRACTAL FLOW project.
 - `docs/19_ADVERSARIAL_TESTING.md` — hostile-market/system test matrix.
 - `docs/DECISION_LOG.md` — major decisions, rejected shortcuts and open calibration questions.
 - `CODEX_HANDOFF.md` — direct handoff instructions for Codex.
+- `control_surface/` — Operator instrument panel and high-density control surface GUI.
+- `spec/control_surface_v1.yaml` — Canonical specification for control surface capabilities.
+- `docs/24_CONTROL_SURFACE_DESIGN_SYSTEM.md` — Visual discipline, design tokens, and signature UI elements.
 
 ## Important
 

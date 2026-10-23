@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #0A0E14;
+  --bg-panel: #10151D;
+  --bg-raised: #161C26;
+  --border: #232A35;
+  --text-primary: #E7EAEE;
+  --text-muted: #6E7A8A;
+  --text-faint: #454E5C;
+  --long: #4FAE86;
+  --short: #C25B6B;
+  --warn: #BFA13B;
+  --crit: #B23B3B;
+  --accent: #5B8FBF;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Strictly enforce monospaced tabular numerals for all numeric data columns */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom scrollbars matching the dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
