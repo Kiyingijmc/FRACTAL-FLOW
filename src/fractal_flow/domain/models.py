@@ -195,6 +195,7 @@ class TradeDecision:
     configuration_version: int = 1
     lineage_version: int = 1
     authorized: bool = False
+    account_id: str | None = None
 
     def is_authorized(
         self,
@@ -204,6 +205,8 @@ class TradeDecision:
         risk_ledger: Any = None,
         reservation_id: str = "",
         current_time_ns: int | None = None,
+        *,
+        expected_account_id: str | None = None,
     ) -> bool:
         """Evaluates trade decision authorization in a fail-closed manner requiring all core security dependencies.
 
@@ -299,6 +302,23 @@ class TradeDecision:
         # Verify reserved amount is sufficient for requested decision risk
         reserved_amt = res_info.get("amount", Decimal("0.0"))
         if reserved_amt < req_risk:
+            return False
+
+        # HPL-9-ACCOUNT-02: authorization requires independently supplied,
+        # trusted account context. Never infer the expected account from either
+        # the decision or the ledger.
+        decision_account_id = getattr(self, "account_id", None)
+        ledger_account_id = getattr(risk_ledger, "account_id", None)
+        if (
+            not isinstance(expected_account_id, str)
+            or not expected_account_id.strip()
+            or not isinstance(decision_account_id, str)
+            or not decision_account_id.strip()
+            or not isinstance(ledger_account_id, str)
+            or not ledger_account_id.strip()
+            or decision_account_id != expected_account_id
+            or ledger_account_id != expected_account_id
+        ):
             return False
 
         return True

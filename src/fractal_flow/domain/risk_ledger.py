@@ -66,11 +66,18 @@ class OpportunityRiskLedger:
         opportunity_id: str,
         total_risk: Union[Decimal, float, int, str],
         total_volume: Union[Decimal, float, int, str],
+        account_id: str | None = None,
     ) -> None:
+        if account_id is not None and (
+            not isinstance(account_id, str) or not account_id.strip()
+        ):
+            raise ValueError("account_id must be a non-empty string when provided")
+
         self.budget_id = budget_id
         self.opportunity_id = opportunity_id
         self.total_risk = _to_decimal(total_risk)
         self.total_volume = _to_decimal(total_volume)
+        self.account_id = account_id
 
         self.reserved_risk = Decimal("0.0")
         self.allocated_risk = Decimal("0.0")

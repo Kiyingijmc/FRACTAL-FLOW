@@ -237,6 +237,38 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
     GLOBAL_PARENT_RESOLVER.register_parent("opp_adv_1", 1, parent_obj)
     seal = GLOBAL_PARENT_RESOLVER.resolve_authoritative_parent("opp_adv_1", 1)
 
+    # HPL-9-ACCOUNT-02: an unbound decision and unbound ledger must not
+    # authorize even when the reservation and all other security context are valid.
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent_seal=seal,
+            murg_context=murg_ctx,
+            risk_ledger=ledger,
+            reservation_id="res_valid",
+            current_time_ns=1000,
+            expected_account_id="account-A",
+        )
+        is False
+    )
+
+    # Bind a valid account-A decision and reservation after proving that
+    # the unbound decision/ledger pair cannot authorize.
+    decision.account_id = "account-A"
+    ledger_account_a = OpportunityRiskLedger(
+        "budget_1", "opp_adv_1", Decimal("500.0"), Decimal("2.0"), account_id="account-A"
+    )
+    ledger_account_a.record_operation(
+        "res_tx_account_a",
+        LedgerOperation.RESERVE,
+        Decimal("100.0"),
+        Decimal("0.0"),
+        "res_valid",
+        "cause_1",
+        1000,
+    )
+    ledger = ledger_account_a
+
     # 1. Valid authorization passes
     assert (
         decision.is_authorized(
@@ -246,8 +278,60 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
             risk_ledger=ledger,
             reservation_id="res_valid",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is True
+    )
+
+    # HPL-9-ACCOUNT-02: matching decision and ledger identities are
+    # insufficient when the independent expected account is omitted.
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent_seal=seal,
+            murg_context=murg_ctx,
+            risk_ledger=ledger,
+            reservation_id="res_valid",
+            current_time_ns=1000,
+        )
+        is False
+    )
+
+    # HPL-9-ACCOUNT-02: a blank expected account identity fails closed.
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent_seal=seal,
+            murg_context=murg_ctx,
+            risk_ledger=ledger,
+            reservation_id="res_valid",
+            current_time_ns=1000,
+            expected_account_id="   ",
+        )
+        is False
+    )
+
+    # HPL-9-ACCOUNT-01: an otherwise valid reservation from another account
+    # must not authorize this decision. Dynamic assignment reproduces the
+    # missing identity field without changing the public API in the test phase.
+    decision.account_id = "account-A"
+    ledger_wrong_account = OpportunityRiskLedger(
+        "budget_4", "opp_adv_1", Decimal("500.0"), Decimal("2.0"), account_id="account-B"
+    )
+    ledger_wrong_account.record_operation(
+        "res_tx_account", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_account", "cause_1", 1000
+    )
+    assert (
+        decision.is_authorized(
+            lineage=lineage,
+            authoritative_parent_seal=seal,
+            murg_context=murg_ctx,
+            risk_ledger=ledger_wrong_account,
+            reservation_id="res_account",
+            current_time_ns=1000,
+            expected_account_id="account-A",
+        )
+        is False
     )
 
     # 2. Missing reservation fails closed
@@ -259,12 +343,15 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
             risk_ledger=ledger,
             reservation_id="res_nonexistent",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is False
     )
 
     # 3. Insufficient reservation amount fails closed
-    ledger_small = OpportunityRiskLedger("budget_2", "opp_adv_1", Decimal("500.0"), Decimal("2.0"))
+    ledger_small = OpportunityRiskLedger(
+        "budget_2", "opp_adv_1", Decimal("500.0"), Decimal("2.0"), account_id="account-A"
+    )
     ledger_small.record_operation(
         "res_tx_small", LedgerOperation.RESERVE, Decimal("50.0"), Decimal("0.0"), "res_small", "cause_1", 1000
     )
@@ -276,12 +363,15 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
             risk_ledger=ledger_small,
             reservation_id="res_small",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is False
     )
 
     # 4. Opportunity ID mismatch on risk ledger fails closed
-    ledger_wrong_opp = OpportunityRiskLedger("budget_3", "opp_WRONG", Decimal("500.0"), Decimal("2.0"))
+    ledger_wrong_opp = OpportunityRiskLedger(
+        "budget_3", "opp_WRONG", Decimal("500.0"), Decimal("2.0"), account_id="account-A"
+    )
     ledger_wrong_opp.record_operation(
         "res_tx_wrong", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_wrong", "cause_1", 1000
     )
@@ -293,6 +383,7 @@ def test_mandatory_authorization_context_and_reservation_binding() -> None:
             risk_ledger=ledger_wrong_opp,
             reservation_id="res_wrong",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is False
     )

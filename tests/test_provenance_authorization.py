@@ -47,6 +47,7 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
         quote_timestamp=1000,
         spread_pips=Decimal("1.0"),
         authorized=True,  # Attempted manual authorization during lockdown
+        account_id="account-A",
     )
 
     lineage = Lineage(
@@ -75,7 +76,9 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
     act_dec = MarketActivationDecision("EURUSD", "ACTIVE", [], 90.0, True, True, True)
     murg_ctx = GLOBAL_MURG_ISSUER.issue_context(act_dec, desc, sess, current_time_ns=1000)
 
-    ledger = OpportunityRiskLedger("budget_1", "opp_1", Decimal("500.0"), Decimal("2.0"))
+    ledger = OpportunityRiskLedger(
+        "budget_1", "opp_1", Decimal("500.0"), Decimal("2.0"), account_id="account-A"
+    )
     ledger.record_operation(
         "res_entry_1", LedgerOperation.RESERVE, Decimal("100.0"), Decimal("0.0"), "res_1", "cause_1", 1000
     )
@@ -97,6 +100,7 @@ def test_news_lockdown_blocks_trade_decision_authorization() -> None:
             risk_ledger=ledger,
             reservation_id="res_1",
             current_time_ns=1000,
+            expected_account_id="account-A",
         )
         is False
     )
