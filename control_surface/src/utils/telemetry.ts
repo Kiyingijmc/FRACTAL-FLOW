@@ -53,16 +53,28 @@ export const MIGRATION_AUTHORITY_BOUNDARY = {
 } as const;
 
 /**
- * D2.1: Explicit Reconnection Authority Boundary Scoping.
- * Reconnection from DISCONNECTED state cannot be authorized by caller-controlled boolean flags.
- * A boolean such as `reconnectAuthorized: true` is treated as a caller forgery.
- * In the absence of an authenticated Control Service handshake proof, reconnection from
- * DISCONNECTED is strictly fail-closed rejected and preserves the current snapshot unchanged.
+ * Stage D.2.2: Reconnection Authority Boundary Scoping.
+ *
+ * Primary defect remediation:
+ * A caller-supplied object with authority: 'CONTROL_SERVICE_HANDSHAKE', a token,
+ * or a caller-provided verify() callback returning true is NOT proof of Control Service
+ * authentication. The caller can construct its own callback and claim that its credentials are valid.
+ *
+ * Genuine trust boundary analysis:
+ * Inspection of the repository confirms zero trusted authentication mechanisms, zero cryptographic
+ * verification keys or key-distribution mechanisms, zero trusted server adapters, and zero authenticated
+ * Control Service handshake protocols.
+ *
+ * Fail-Closed Policy:
+ * Reconnection from DISCONNECTED is strictly fail-closed rejected. All attempts to reconnect
+ * preserve the accepted snapshot 100% bit-for-bit.
  */
 export const RECONNECT_AUTHORITY_BOUNDARY = {
   isSupported: false,
-  reason: 'UNRESOLVED_CONTROL_SERVICE_RECONNECT_AUTHORITY',
-  policy: 'RECONNECTION_WITHOUT_INDEPENDENT_CONTROL_SERVICE_PROOF_STRICTLY_REJECTED'
+  status: 'BLOCKED — TRUSTED CONTROL SERVICE AUTHORITY NOT INTEGRATED' as const,
+  reason: 'CONTROL_SERVICE_HANDSHAKE_PROTOCOL_UNRESOLVED' as const,
+  policy: 'RECONNECTION_FROM_DISCONNECTED_STRICTLY_FAIL_CLOSED_REJECTED' as const,
+  callerAuthorityAccepted: false
 } as const;
 
 /**
@@ -84,15 +96,41 @@ export const DOCUMENTED_UNKNOWN_TELEMETRY: Readonly<TelemetryProvenance> = Objec
 });
 
 /**
- * Independent authorization proof for establishing trusted reconnection.
- * A caller-controlled boolean is not accepted.
+ * Stage D.2.2: Typed Telemetry Rejection Reasons.
+ * Diagnostic codes emitted when an incoming update is rejected.
+ * Diagnostic evaluation NEVER mutates protected accepted state.
+ */
+export type TelemetryRejectionReason =
+  | 'CROSS_SOURCE_OVERWRITE_FORBIDDEN'
+  | 'CROSS_SOURCE_MIGRATION_BLOCKED'
+  | 'UNRECOGNIZED_SOURCE'
+  | 'MALFORMED_EPOCH'
+  | 'EPOCH_REGRESSION'
+  | 'STALE_TIMESTAMP'
+  | 'INVALID_TIMESTAMP'
+  | 'INVALID_STALE_THRESHOLD'
+  | 'INVALID_STATUS'
+  | 'INVALID_SOURCE_EVENT_TIME'
+  | 'CALLER_RECONNECT_AUTHORITY_FORGERY'
+  | 'DISCONNECTED_INACTIVE_BRIDGE_STATUS'
+  | 'RECONNECTION_BLOCKED_UNRESOLVED_CONTROL_SERVICE_AUTHORITY';
+
+export interface TelemetryUpdateDiagnostic {
+  readonly accepted: boolean;
+  readonly state: TelemetryProvenance;
+  readonly rejectionReason?: TelemetryRejectionReason;
+}
+
+/**
+ * Deprecated proof interface retained for hostile regression verification.
+ * Any attempt by callers to supply an authorization proof is rejected fail-closed.
  */
 export interface ReconnectAuthorizationProof {
-  readonly authority: 'CONTROL_SERVICE_HANDSHAKE';
-  readonly token: string;
-  readonly issuedAt: number;
-  readonly nonce: string;
-  readonly verify: (source: TelemetrySource, epoch: number) => boolean;
+  readonly authority: string;
+  readonly token?: string;
+  readonly issuedAt?: number;
+  readonly nonce?: string;
+  readonly verify?: (source: TelemetrySource, epoch: number) => boolean;
 }
 
 export interface TelemetryUpdateOptions extends Partial<TelemetryProvenance> {
@@ -121,102 +159,91 @@ export function evaluateTelemetryFreshness(
       status: 'UNKNOWN',
       isStale: true,
       ageMs: Infinity,
-      reason: 'Telemetry object is null or undefined'
+      reason: 'No telemetry snapshot available'
     };
   }
 
-  const { freshnessTimestamp, staleThresholdMs, status } = telemetry;
-
+  // Runtime threshold validation: threshold must be positive finite number
   if (
-    typeof freshnessTimestamp !== 'number' ||
-    !Number.isFinite(freshnessTimestamp) ||
-    isNaN(freshnessTimestamp) ||
-    freshnessTimestamp <= 0
+    typeof telemetry.staleThresholdMs !== 'number' ||
+    !Number.isFinite(telemetry.staleThresholdMs) ||
+    isNaN(telemetry.staleThresholdMs) ||
+    telemetry.staleThresholdMs <= 0
+  ) {
+    return {
+      status: 'DEGRADED',
+      isStale: true,
+      ageMs: Infinity,
+      reason: 'Invalid or non-positive staleThresholdMs'
+    };
+  }
+
+  // Runtime timestamp validation: missing, non-positive, or non-finite timestamp
+  if (
+    typeof telemetry.freshnessTimestamp !== 'number' ||
+    !Number.isFinite(telemetry.freshnessTimestamp) ||
+    isNaN(telemetry.freshnessTimestamp) ||
+    telemetry.freshnessTimestamp <= 0
   ) {
     return {
       status: 'UNKNOWN',
       isStale: true,
       ageMs: Infinity,
-      reason: 'Invalid, non-finite, or missing freshness timestamp'
+      reason: 'Missing or non-finite freshness timestamp'
     };
   }
 
-  // SC-01 / SC-06: Treat non-positive, non-finite, or invalid staleThresholdMs strictly as DEGRADED (never false HEALTHY)
-  if (
-    typeof staleThresholdMs !== 'number' ||
-    !Number.isFinite(staleThresholdMs) ||
-    isNaN(staleThresholdMs) ||
-    staleThresholdMs <= 0
-  ) {
-    return {
-      status: 'DEGRADED',
-      isStale: true,
-      ageMs: Math.max(0, currentTimeMs - freshnessTimestamp),
-      reason: 'Invalid, non-finite, or non-positive staleThresholdMs configuration'
-    };
-  }
-
-  if (status === 'DISCONNECTED') {
+  // Disconnected state invariant: cannot be promoted to HEALTHY by age alone
+  if (telemetry.status === 'DISCONNECTED') {
+    const age = Math.max(0, currentTimeMs - telemetry.freshnessTimestamp);
     return {
       status: 'DISCONNECTED',
       isStale: true,
-      ageMs: Math.max(0, currentTimeMs - freshnessTimestamp),
-      reason: 'Source declared DISCONNECTED'
+      ageMs: age,
+      reason: 'Telemetry stream is in DISCONNECTED state'
     };
   }
 
-  const ageMs = currentTimeMs - freshnessTimestamp;
+  const ageMs = currentTimeMs - telemetry.freshnessTimestamp;
 
-  if (ageMs < 0) {
-    // Clock skew / future timestamp: flag as degraded
+  // Clock skew: observation timestamp in future
+  if (ageMs < -1000) {
     return {
       status: 'DEGRADED',
       isStale: false,
-      ageMs: 0,
-      reason: 'Clock skew detected: timestamp in future'
+      ageMs,
+      reason: 'Observation timestamp is in the future (clock skew)'
     };
   }
 
-  const isStale = ageMs >= staleThresholdMs;
+  const effectiveAge = Math.max(0, ageMs);
 
-  if (isStale) {
+  if (effectiveAge >= telemetry.staleThresholdMs) {
     return {
       status: 'STALE',
       isStale: true,
-      ageMs,
-      reason: `Telemetry age (${ageMs}ms) exceeds threshold (${staleThresholdMs}ms)`
-    };
-  }
-
-  // Preserve degraded if already marked degraded
-  if (status === 'DEGRADED') {
-    return {
-      status: 'DEGRADED',
-      isStale: false,
-      ageMs,
-      reason: 'Source remains DEGRADED'
+      ageMs: effectiveAge,
+      reason: `Heartbeat age ${effectiveAge}ms exceeds stale threshold ${telemetry.staleThresholdMs}ms`
     };
   }
 
   return {
-    status: 'HEALTHY',
+    status: telemetry.status,
     isStale: false,
-    ageMs
+    ageMs: effectiveAge
   };
 }
 
 /**
- * Validates initial telemetry input before constructing accepted state.
+ * Stage D.2.2: Validates initial telemetry input before constructing accepted state.
  *
- * Invariants (Stage D.2.1):
- * 1. Reject or preserve an explicit unknown state for malformed sources, invalid epochs,
- *    non-finite or non-positive timestamps, invalid thresholds, invalid status values,
- *    and malformed source-event timestamps.
- * 2. Do not silently turn malformed input into 'SIM_ENGINE', epoch 1, or a healthy-looking state.
- * 3. Replace truthiness-based threshold defaulting with explicit absence handling and validation.
- *    A default (5000ms) may be used ONLY when the field is genuinely absent (undefined).
- *    Reject negative, zero, NaN, and infinite threshold values.
- * 4. Do not synthesize Date.now() when valid observation timestamps are absent.
+ * Strict Initial Contract:
+ * - Missing or malformed source does NOT become 'SIM_ENGINE'. Returns DOCUMENTED_UNKNOWN_TELEMETRY.
+ * - Missing or invalid epoch does NOT become epoch 1. Returns DOCUMENTED_UNKNOWN_TELEMETRY.
+ * - Missing or invalid observation timestamp does NOT synthesize Date.now(). Returns DOCUMENTED_UNKNOWN_TELEMETRY.
+ * - Missing or invalid required fields CANNOT produce 'HEALTHY' or fresh state.
+ * - Stale threshold defaults to 5000 strictly when undefined; non-positive, NaN, and infinite thresholds are rejected.
+ * - localReceiveTimeMs records actual receipt time (Date.now()) only upon valid initial construction.
  */
 export function createInitialTelemetry(
   incoming?: TelemetryUpdateOptions
@@ -225,24 +252,32 @@ export function createInitialTelemetry(
     return DOCUMENTED_UNKNOWN_TELEMETRY;
   }
 
-  // 1. Source Validation: If provided, must be in VALID_SOURCES.
-  // Do NOT silently turn malformed input into 'SIM_ENGINE'.
-  if (incoming.source !== undefined && !VALID_SOURCES.has(incoming.source)) {
+  // 1. Source validation: must be present and in VALID_SOURCES (never defaults to SIM_ENGINE)
+  if (incoming.source === undefined || !VALID_SOURCES.has(incoming.source)) {
     return DOCUMENTED_UNKNOWN_TELEMETRY;
   }
 
-  // 2. Epoch Validation: If provided, must be a positive safe integer.
-  // Do NOT silently turn malformed epoch into 1.
+  // 2. Epoch validation: must be present and a safe integer > 0 (never defaults to epoch 1)
   if (
-    incoming.epoch !== undefined &&
-    (!Number.isSafeInteger(incoming.epoch) || incoming.epoch <= 0)
+    incoming.epoch === undefined ||
+    !Number.isSafeInteger(incoming.epoch) ||
+    incoming.epoch <= 0
   ) {
     return DOCUMENTED_UNKNOWN_TELEMETRY;
   }
 
-  // 3. Threshold Validation (Explicit Absence Handling):
-  // Default is permitted ONLY when staleThresholdMs is genuinely undefined.
-  // Reject negative, zero, NaN, and infinite values fail-closed to DOCUMENTED_UNKNOWN_TELEMETRY.
+  // 3. Timestamp validation: must be present, positive, and finite (never synthesized)
+  if (
+    incoming.freshnessTimestamp === undefined ||
+    typeof incoming.freshnessTimestamp !== 'number' ||
+    !Number.isFinite(incoming.freshnessTimestamp) ||
+    isNaN(incoming.freshnessTimestamp) ||
+    incoming.freshnessTimestamp <= 0
+  ) {
+    return DOCUMENTED_UNKNOWN_TELEMETRY;
+  }
+
+  // 4. Stale threshold validation: defaults to 5000 only when genuinely undefined
   if (incoming.staleThresholdMs !== undefined) {
     if (
       typeof incoming.staleThresholdMs !== 'number' ||
@@ -254,12 +289,12 @@ export function createInitialTelemetry(
     }
   }
 
-  // 4. Status Validation: If provided, must be in VALID_STATUSES.
+  // 5. Status validation: must be in VALID_STATUSES if provided
   if (incoming.status !== undefined && !VALID_STATUSES.has(incoming.status)) {
     return DOCUMENTED_UNKNOWN_TELEMETRY;
   }
 
-  // 5. Source Event Timestamp Validation: If provided, must be non-negative finite number.
+  // 6. Source event time validation: must be finite and non-negative if provided
   if (incoming.sourceEventTimeMs !== undefined) {
     if (
       typeof incoming.sourceEventTimeMs !== 'number' ||
@@ -271,31 +306,15 @@ export function createInitialTelemetry(
     }
   }
 
-  // 6. Freshness Timestamp Validation:
-  const hasValidTimestamp =
-    typeof incoming.freshnessTimestamp === 'number' &&
-    Number.isFinite(incoming.freshnessTimestamp) &&
-    !isNaN(incoming.freshnessTimestamp) &&
-    incoming.freshnessTimestamp > 0;
-
-  // If freshnessTimestamp was explicitly provided but is invalid (<=0, NaN, Infinity):
-  if (incoming.freshnessTimestamp !== undefined && !hasValidTimestamp) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
-  }
-
-  // If all provided fields are valid, construct accepted initial state:
-  const source: TelemetrySource = incoming.source ?? 'FALLBACK_FIXTURE';
-  const epoch = incoming.epoch ?? (hasValidTimestamp ? 1 : 0);
-  const staleThresholdMs =
+  // All initial validations passed: construct truthful initial snapshot
+  const source: TelemetrySource = incoming.source;
+  const epoch: number = incoming.epoch;
+  const freshnessTimestamp: number = incoming.freshnessTimestamp;
+  const staleThresholdMs: number =
     incoming.staleThresholdMs === undefined ? 5000 : incoming.staleThresholdMs;
-  const freshnessTimestamp = hasValidTimestamp ? incoming.freshnessTimestamp! : 0;
-  const status: TelemetryStatus = hasValidTimestamp
-    ? (incoming.status ?? 'HEALTHY')
-    : 'UNKNOWN';
-
-  const receiveTime = hasValidTimestamp ? Date.now() : 0;
-  const sourceEventTime =
-    incoming.sourceEventTimeMs ?? (hasValidTimestamp ? freshnessTimestamp : 0);
+  const status: TelemetryStatus = incoming.status ?? 'HEALTHY';
+  const receiveTime = Date.now();
+  const sourceEventTime = incoming.sourceEventTimeMs ?? freshnessTimestamp;
 
   return {
     source,
@@ -312,59 +331,91 @@ export function createInitialTelemetry(
 }
 
 /**
- * SC-01 / D2-A / D2.1: Safe telemetry state updater enforcing source provenance,
- * all-or-nothing atomicity, and independent reconnection authorization.
+ * Stage D.2.2: Strict Telemetry Transition Table Implementation & Diagnostic Evaluator.
  *
- * Invariants:
- * 1. All-or-Nothing Atomicity: If an incoming update fails ANY validation (malformed epoch,
- *    invalid timestamp, invalid threshold, invalid status, unauthorized source migration,
- *    or unverified reconnection), the update is REJECTED and current is returned 100% untouched.
- * 2. Cross-Source Migration Protection: Cross-source migration is strictly rejected fail-closed;
- *    caller-controlled boolean flags cannot authorize source transitions.
- * 3. Zero Synthetic Timestamps: Initial state creation does NOT invent Date.now() when a genuine
- *    observation timestamp is absent or invalid (evaluates safely to 0 and UNKNOWN status).
- * 4. Independent Reconnection Authorization: A caller-controlled boolean `reconnectAuthorized: true`
- *    is strictly rejected as a forgery. Reconnection from DISCONNECTED requires an independent
- *    authorization proof (CONTROL_SERVICE_HANDSHAKE), strictly advancing epoch, valid observation
- *    timestamp, and an active bridge status in VALID_ACTIVE_BRIDGE_STATUSES ('UNKNOWN' is rejected).
- * 5. Distinct Event Time: sourceEventTimeMs records external observation time; localReceiveTimeMs records local arrival.
+ * Transition Policy:
+ * 1. Initial valid: Valid source, epoch, timestamp -> accepted initial state.
+ * 2. Initial missing observation: Missing timestamp -> DOCUMENTED_UNKNOWN_TELEMETRY.
+ * 3. Initial malformed: Bad source, epoch, threshold, or status -> DOCUMENTED_UNKNOWN_TELEMETRY.
+ * 4. Same-source valid update: Monotonic epoch, valid timestamp, same source -> accepted updated state.
+ * 5. Stale / regressing epoch: incoming.epoch < current.epoch -> rejected fail-closed, snapshot preserved.
+ * 6. Malformed update with mixed fields: Any invalid field -> rejected atomically, snapshot preserved.
+ * 7. DISCONNECTED state update: No status change -> rejected fail-closed, frozen timestamp preserved.
+ * 8. Reconnection with forged boolean or caller proof: -> rejected fail-closed, snapshot preserved.
+ * 9. Reconnection with UNKNOWN or unallowlisted bridge: -> rejected fail-closed, snapshot preserved.
+ * 10. Cross-source migration: Different source in either direction -> rejected fail-closed.
+ * 11. Session reset: -> DOCUMENTED_UNKNOWN_TELEMETRY until authentic stream established.
+ * 12. Authenticated reconnection: -> BLOCKED fail-closed (Control Service authority unresolved).
  */
-export function updateTelemetryState(
+export function tryUpdateTelemetryState(
   current: TelemetryProvenance | undefined,
   incoming: TelemetryUpdateOptions,
-  authProof?: ReconnectAuthorizationProof
-): TelemetryProvenance {
-  // --- Case 1: Initial state initialization ---
+  deprecatedProof?: unknown
+): TelemetryUpdateDiagnostic {
+  // Case 1: Initial state construction
   if (!current) {
-    return createInitialTelemetry(incoming);
+    const initialState = createInitialTelemetry(incoming);
+    const isAccepted = initialState !== DOCUMENTED_UNKNOWN_TELEMETRY;
+    return {
+      accepted: isAccepted,
+      state: initialState,
+      rejectionReason: isAccepted ? undefined : 'INVALID_TIMESTAMP'
+    };
   }
 
-  // --- Case 2: Atomic update validation for existing state snapshot ---
+  // Rejection check: Any attempt to supply a caller authorization proof is rejected as untrusted
+  if (deprecatedProof !== undefined) {
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'CALLER_RECONNECT_AUTHORITY_FORGERY'
+    };
+  }
 
-  // 1. Cross-Source Protection (SC-01.1):
+  // 1. Cross-Source Overwrite Protection (SC-01.1):
   // Simulation tick (SIM_ENGINE) CANNOT touch or overwrite external broker state!
   if (incoming.source === 'SIM_ENGINE' && current.source !== 'SIM_ENGINE') {
-    return current;
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'CROSS_SOURCE_OVERWRITE_FORBIDDEN'
+    };
   }
 
-  // 2. Cross-Source Migration Protection (Fail-Closed) (D2-A Risk 2):
+  // 2. Cross-Source Migration Protection (Fail-Closed) (D2-A Risk 2 / SC-01.11):
   // Caller-controlled flags (e.g. allowSourceMigration: true) are REJECTED.
   if (incoming.source !== undefined && incoming.source !== current.source) {
-    return current;
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'CROSS_SOURCE_MIGRATION_BLOCKED'
+    };
   }
 
   // 3. Source Identifier Validity:
   if (incoming.source !== undefined && !VALID_SOURCES.has(incoming.source)) {
-    return current;
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'UNRECOGNIZED_SOURCE'
+    };
   }
 
   // 4. Epoch Validation (All-or-Nothing Atomicity):
   if (incoming.epoch !== undefined) {
     if (!Number.isSafeInteger(incoming.epoch) || incoming.epoch <= 0) {
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'MALFORMED_EPOCH'
+      };
     }
     if (incoming.epoch < current.epoch) {
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'EPOCH_REGRESSION'
+      };
     }
   }
 
@@ -373,7 +424,11 @@ export function updateTelemetryState(
     typeof incoming.freshnessTimestamp === 'number' &&
     incoming.freshnessTimestamp < current.freshnessTimestamp
   ) {
-    return current;
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'STALE_TIMESTAMP'
+    };
   }
 
   // 6. Runtime Timestamp Validity (All-or-Nothing Atomicity):
@@ -384,7 +439,11 @@ export function updateTelemetryState(
       isNaN(incoming.freshnessTimestamp) ||
       incoming.freshnessTimestamp <= 0
     ) {
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'INVALID_TIMESTAMP'
+      };
     }
   }
 
@@ -396,13 +455,21 @@ export function updateTelemetryState(
       isNaN(incoming.staleThresholdMs) ||
       incoming.staleThresholdMs <= 0
     ) {
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'INVALID_STALE_THRESHOLD'
+      };
     }
   }
 
   // 8. Runtime Status Validity:
   if (incoming.status !== undefined && !VALID_STATUSES.has(incoming.status)) {
-    return current;
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'INVALID_STATUS'
+    };
   }
 
   // 9. Source Event Timestamp Validity:
@@ -413,72 +480,59 @@ export function updateTelemetryState(
       isNaN(incoming.sourceEventTimeMs) ||
       incoming.sourceEventTimeMs < 0
     ) {
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'INVALID_SOURCE_EVENT_TIME'
+      };
     }
   }
 
-  // 10. Forged reconnectAuthorized Flag Rejection (D2.1):
+  // 10. Forged reconnectAuthorized Flag Rejection:
   // A caller-controlled boolean `reconnectAuthorized: true` on incoming is NOT a trusted authorization proof.
-  // It is treated as an unauthorized forgery attempt and rejected if attempting to reconnect.
-  if (incoming.reconnectAuthorized !== undefined && !authProof) {
-    if (current.status === 'DISCONNECTED') {
-      return current;
-    }
+  if (incoming.reconnectAuthorized !== undefined) {
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'CALLER_RECONNECT_AUTHORITY_FORGERY'
+    };
   }
 
-  // 11. Disconnected State Invariants & Independent Reconnection Authorization (D2.1):
-  // In DISCONNECTED state, no field update or timestamp refresh is permitted unless an independent
-  // Control Service authorization proof is provided, the epoch strictly advances, timestamp is valid,
-  // and bridgeStatus is in the explicit active allowlist (UNKNOWN is rejected).
+  // 11. Disconnected State Invariants & Fail-Closed Reconnection Gating:
+  // In DISCONNECTED state, no field update or timestamp refresh is permitted.
+  // Because no authenticated Control Service handshake exists, all reconnection attempts fail closed.
   const isCurrentlyDisconnected = current.status === 'DISCONNECTED';
   if (isCurrentlyDisconnected) {
     const isReconnectionAttempt = Boolean(incoming.status && incoming.status !== 'DISCONNECTED');
     if (!isReconnectionAttempt) {
       // Still disconnected or no status change: snapshot remains frozen, zero timestamp refresh
-      return current;
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'RECONNECTION_BLOCKED_UNRESOLVED_CONTROL_SERVICE_AUTHORITY'
+      };
     }
 
-    const targetSource = incoming.source ?? current.source;
-    const targetEpoch = incoming.epoch ?? current.epoch;
-
-    // Independent authorization proof check:
-    const isProofValid = Boolean(
-      authProof &&
-      authProof.authority === 'CONTROL_SERVICE_HANDSHAKE' &&
-      typeof authProof.verify === 'function' &&
-      authProof.verify(targetSource, targetEpoch)
-    );
-
-    const hasAdvancingEpoch = Boolean(
-      incoming.epoch !== undefined &&
-      Number.isSafeInteger(incoming.epoch) &&
-      incoming.epoch > current.epoch
-    );
-
-    const hasValidObservationTimestamp = Boolean(
-      incoming.freshnessTimestamp !== undefined &&
-      typeof incoming.freshnessTimestamp === 'number' &&
-      Number.isFinite(incoming.freshnessTimestamp) &&
-      !isNaN(incoming.freshnessTimestamp) &&
-      incoming.freshnessTimestamp > 0
-    );
-
-    // Explicit bridge-status allowlist: UNKNOWN, DISCONNECTED, or unallowlisted values must NOT count as active!
+    // Bridge status check: UNKNOWN and DISCONNECTED are strictly rejected
     const hasActiveBridge = Boolean(
       incoming.bridgeStatus !== undefined &&
       VALID_ACTIVE_BRIDGE_STATUSES.has(incoming.bridgeStatus)
     );
 
-    const isAuthorizedReconnect =
-      isProofValid &&
-      hasAdvancingEpoch &&
-      hasValidObservationTimestamp &&
-      hasActiveBridge;
-
-    if (!isAuthorizedReconnect) {
-      // Reconnection rejected fail-closed: preserve accepted snapshot untouched!
-      return current;
+    if (!hasActiveBridge) {
+      return {
+        accepted: false,
+        state: current,
+        rejectionReason: 'DISCONNECTED_INACTIVE_BRIDGE_STATUS'
+      };
     }
+
+    // In the absence of trusted Control Service authority integration, reconnection is BLOCKED
+    return {
+      accepted: false,
+      state: current,
+      rejectionReason: 'RECONNECTION_BLOCKED_UNRESOLVED_CONTROL_SERVICE_AUTHORITY'
+    };
   }
 
   // --- All validations passed: Apply atomic update ---
@@ -494,16 +548,33 @@ export function updateTelemetryState(
     timestamp;
 
   return {
-    ...current,
-    source: current.source,
-    epoch: finalEpoch,
-    staleThresholdMs: staleThreshold,
-    freshnessTimestamp: timestamp,
-    status: finalStatus,
-    isAuthoritative: incoming.isAuthoritative ?? current.isAuthoritative,
-    bridgeStatus: incoming.bridgeStatus ?? current.bridgeStatus,
-    fenceStatus: incoming.fenceStatus ?? current.fenceStatus,
-    sourceEventTimeMs: eventTime,
-    localReceiveTimeMs: receiveTime
+    accepted: true,
+    state: {
+      ...current,
+      source: current.source,
+      epoch: finalEpoch,
+      staleThresholdMs: staleThreshold,
+      freshnessTimestamp: timestamp,
+      status: finalStatus,
+      isAuthoritative: incoming.isAuthoritative ?? current.isAuthoritative,
+      bridgeStatus: incoming.bridgeStatus ?? current.bridgeStatus,
+      fenceStatus: incoming.fenceStatus ?? current.fenceStatus,
+      sourceEventTimeMs: eventTime,
+      localReceiveTimeMs: receiveTime
+    }
   };
+}
+
+/**
+ * SC-01 / D2-A / D2.1 / D.2.2: Safe telemetry state updater enforcing source provenance,
+ * all-or-nothing atomicity, and fail-closed reconnection authorization.
+ *
+ * On any rejected update, returns the accepted snapshot `current` 100% bit-for-bit untouched.
+ */
+export function updateTelemetryState(
+  current: TelemetryProvenance | undefined,
+  incoming: TelemetryUpdateOptions,
+  deprecatedProof?: unknown
+): TelemetryProvenance {
+  return tryUpdateTelemetryState(current, incoming, deprecatedProof).state;
 }

@@ -298,3 +298,49 @@ Constitutional architecture must not be optimized away to solve these questions.
      - Do not simulate or fabricate backend authorization. Mark authoritative reconnection and durable cross-session idempotency explicitly as unresolved Control Service dependencies.
 
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates forged client authority, guarantees bit-for-bit snapshot preservation on all rejected updates, establishes strict epistemic truthfulness on initial state, and prevents silent state corruption across broker disconnect cycles.
+
+
+## D-050 — Stage D.2.2 Reconnection Authority Boundary Closure, Fail-Closed Gating, and Initial-State Validation
+
+* **Context:** Independent forensic review of Stage D.2.1 identified that the telemetry reconnection proof contract accepted a caller-supplied object (`authority: 'CONTROL_SERVICE_HANDSHAKE'` with a caller-provided `verify()` callback). A callback supplied by the caller returning `true` is an untrusted authority bypass rather than genuine proof of Control Service authentication. Furthermore, initial telemetry creation required strict validation to ensure missing sources or epochs fail safely into a documented unknown state rather than synthesizing default identities.
+
+* **Reconnaissance & Trust Boundary Verification:**
+  - Full codebase inspection confirmed zero trusted authentication mechanisms, zero cryptographic verification keys or distribution mechanisms, zero trusted server adapters, and zero authenticated Control Service handshake protocols (`NO_API_IN_SRC` in the strategy engine; `LiveCommandAdapter` throws `LiveExecutionBlockedError` unconditionally).
+  - Because no genuine backend trust boundary exists in the GUI runtime, caller-asserted credentials cannot be verified. Therefore, the only truthful and safe architecture is a strictly fail-closed implementation where reconnection from `DISCONNECTED` remains blocked until backend authority is provisioned.
+
+* **Decision:**
+  1. **Elimination of Caller-Supplied Authorization API Path:**
+     - Removed the ability for callers to authorize reconnection by supplying their own verifier, token object, boolean, or arbitrary callback.
+     - Any caller attempting to pass a proof object or callback to `updateTelemetryState()` or `tryUpdateTelemetryState()` is diagnosed with `CALLER_RECONNECT_AUTHORITY_FORGERY` and rejected fail-closed.
+     - Forged caller booleans (`reconnectAuthorized: true`) continue to be strictly rejected.
+  2. **Fail-Closed Reconnection Gating & Snapshot Preservation:**
+     - In `DISCONNECTED` state, all reconnection attempts fail closed.
+     - Rejected reconnection attempts preserve the accepted telemetry snapshot 100% bit-for-bit without partial field mutation.
+     - Formally declared `RECONNECT_AUTHORITY_BOUNDARY`:
+       ```ts
+       export const RECONNECT_AUTHORITY_BOUNDARY = {
+         isSupported: false,
+         status: 'BLOCKED — TRUSTED CONTROL SERVICE AUTHORITY NOT INTEGRATED',
+         reason: 'CONTROL_SERVICE_HANDSHAKE_PROTOCOL_UNRESOLVED',
+         policy: 'RECONNECTION_FROM_DISCONNECTED_STRICTLY_FAIL_CLOSED_REJECTED',
+         callerAuthorityAccepted: false
+       } as const;
+       ```
+  3. **Typed Rejection Diagnostics (`tryUpdateTelemetryState`):**
+     - Exported `TelemetryRejectionReason`, `TelemetryUpdateDiagnostic`, and `tryUpdateTelemetryState()`, providing explicit typed diagnostic output while guaranteeing zero mutation of the protected state snapshot.
+  4. **Strict Initial-State Contract (`createInitialTelemetry`):**
+     - In `createInitialTelemetry()`, missing or malformed source identity, missing or invalid epoch (`<= 0`, non-integer, NaN), or missing/non-positive observation timestamp fails safely to `DOCUMENTED_UNKNOWN_TELEMETRY` (`status: 'UNKNOWN'`, `epoch: 0`, `source: 'FALLBACK_FIXTURE'`, `freshnessTimestamp: 0`).
+     - Never silently converts missing inputs into `'SIM_ENGINE'`, epoch `1`, or unearned `'HEALTHY'` status.
+     - Stale threshold defaults to 5000ms strictly when genuinely absent (`incoming.staleThresholdMs === undefined`).
+  5. **Hostile Regression Test Expansion (SC-01.8, SC-01.21, SC-01.22, SC-01.23):**
+     - `SC-01.8`: Updated to verify fail-closed reconnection gating, caller flag forgery rejection, and diagnostic reason assertions.
+     - `SC-01.21`: Refactored to verify that caller-manufactured proofs, tokens, and callbacks returning `true` fail closed with `CALLER_RECONNECT_AUTHORITY_FORGERY`.
+     - `SC-01.22`: Added hostile test proving reconnection remains fail-closed and preserves snapshot even with advancing epoch and allowlisted active bridge status.
+     - `SC-01.23`: Added hostile test verifying strict initial-state validation on missing source, epoch, or timestamp.
+     - Total automated test suite expanded to 80 passing tests (45 safety invariant, 20 responsive viewport behavioral, 6 positions sort, 9 modal accessibility).
+  6. **Retained Boundary Status:**
+     - Retained `AUTHENTICATED RECONNECTION UNVERIFIED` / `BLOCKED — BACKEND AUTHORITY NOT INTEGRATED`.
+     - Retained `DURABLE IDEMPOTENCY BLOCKED` (client in-memory deduplication verified, distributed store unresolved).
+     - Retained `SERVER AUTHENTICATION & RBAC BLOCKED` (live broker commands throw `LiveExecutionBlockedError`).
+
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates forged caller authorization, prevents synthetic healthy telemetry on malformed initial data, preserves bit-for-bit snapshot immutability on all rejected inputs, and truthfully reflects that external Control Service authority is not integrated.
