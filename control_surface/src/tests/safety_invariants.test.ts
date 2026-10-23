@@ -1399,6 +1399,140 @@ async function runStageDAdversarialTests() {
     }
   });
 
+  await test('SC-01.27: Comprehensive threat matrix verification: boundary staleness, clock skew degradation, object immutability, and anti-poisoning (Stage D.2.3.2 / C1–C6)', () => {
+    // -------------------------------------------------------------------------
+    // C1: Case Sensitivity & Exact Allowlist Identity (No Silent Lowercasing)
+    // -------------------------------------------------------------------------
+    const caseViolations = ['broker_feed', 'Broker_Feed', 'sim_engine', 'control_service', 'fallback_fixture'];
+    for (const cv of caseViolations) {
+      const diag = tryUpdateTelemetryState(undefined, {
+        source: cv as any,
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (diag.accepted) {
+        throw new Error(`Case-variant source ${cv} was improperly accepted!`);
+      }
+      if (diag.rejectionReason !== 'UNRECOGNIZED_SOURCE') {
+        throw new Error(`Expected UNRECOGNIZED_SOURCE for ${cv}, got ${diag.rejectionReason}`);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // C2: Exact Staleness Boundary & Clock Skew Degradation
+    // -------------------------------------------------------------------------
+    const boundaryTelemetry: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 10000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 1,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED'
+    };
+
+    // Sub-threshold: age 4999ms (< 5000ms threshold) -> HEALTHY
+    const evalSub = evaluateTelemetryFreshness(boundaryTelemetry, 14999);
+    if (evalSub.status !== 'HEALTHY' || evalSub.isStale) {
+      throw new Error(`Expected HEALTHY at age 4999ms, got status=${evalSub.status}, isStale=${evalSub.isStale}`);
+    }
+
+    // Exact threshold boundary: age 5000ms (>= 5000ms threshold) -> STALE
+    const evalExact = evaluateTelemetryFreshness(boundaryTelemetry, 15000);
+    if (evalExact.status !== 'STALE' || !evalExact.isStale) {
+      throw new Error(`Expected STALE at exact 5000ms threshold, got status=${evalExact.status}, isStale=${evalExact.isStale}`);
+    }
+
+    // Super-threshold: age 5001ms (> 5000ms threshold) -> STALE
+    const evalSuper = evaluateTelemetryFreshness(boundaryTelemetry, 15001);
+    if (evalSuper.status !== 'STALE' || !evalSuper.isStale) {
+      throw new Error(`Expected STALE at age 5001ms, got status=${evalSuper.status}, isStale=${evalSuper.isStale}`);
+    }
+
+    // Clock skew: observation timestamp in the future by > 1000ms -> DEGRADED
+    const evalSkew = evaluateTelemetryFreshness(boundaryTelemetry, 8990); // ageMs = -1010ms
+    if (evalSkew.status !== 'DEGRADED' || !evalSkew.reason?.includes('clock skew')) {
+      throw new Error(`Expected DEGRADED on future clock skew, got status=${evalSkew.status}, reason=${evalSkew.reason}`);
+    }
+
+    // -------------------------------------------------------------------------
+    // C3: Object Immutability & Anti-Poisoning Protection
+    // -------------------------------------------------------------------------
+    // 1. Caller mutating input payload after acceptance does NOT mutate accepted state
+    const mutableInput = {
+      source: 'BROKER_FEED' as const,
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY' as const
+    };
+    const acceptDiag = tryUpdateTelemetryState(undefined, mutableInput);
+    if (!acceptDiag.accepted) {
+      throw new Error('Initial state creation failed unexpectedly');
+    }
+    // Caller mutates the input payload
+    (mutableInput as any).source = 'SIM_ENGINE';
+    (mutableInput as any).epoch = 999;
+    (mutableInput as any).freshnessTimestamp = 999999;
+    (mutableInput as any).status = 'DISCONNECTED';
+
+    if (
+      acceptDiag.state.source !== 'BROKER_FEED' ||
+      acceptDiag.state.epoch !== 1 ||
+      acceptDiag.state.freshnessTimestamp !== 10000 ||
+      acceptDiag.state.status !== 'HEALTHY'
+    ) {
+      throw new Error('Caller mutation of input payload mutated accepted telemetry snapshot!');
+    }
+
+    // 2. DOCUMENTED_UNKNOWN_TELEMETRY cannot be mutated by hostile callers
+    try {
+      (DOCUMENTED_UNKNOWN_TELEMETRY as any).status = 'HEALTHY';
+      (DOCUMENTED_UNKNOWN_TELEMETRY as any).epoch = 42;
+      (DOCUMENTED_UNKNOWN_TELEMETRY as any).source = 'MALICIOUS_PROVENANCE';
+    } catch (_) {
+      // In strict mode, mutating a frozen object throws TypeError
+    }
+    if (
+      DOCUMENTED_UNKNOWN_TELEMETRY.status !== 'UNKNOWN' ||
+      DOCUMENTED_UNKNOWN_TELEMETRY.epoch !== 0 ||
+      DOCUMENTED_UNKNOWN_TELEMETRY.source !== 'FALLBACK_FIXTURE'
+    ) {
+      throw new Error('DOCUMENTED_UNKNOWN_TELEMETRY was successfully poisoned by caller mutation!');
+    }
+
+    // -------------------------------------------------------------------------
+    // C4: Fail-Safe Status Preservation Across Freshness Evaluation
+    // -------------------------------------------------------------------------
+    const unstatedStatusState = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000
+    });
+    // Freshness evaluation of UNKNOWN state must NEVER promote it to HEALTHY
+    const evalUnknown = evaluateTelemetryFreshness(unstatedStatusState, 10050);
+    if (evalUnknown.status !== 'UNKNOWN') {
+      throw new Error(`Freshness evaluator promoted UNKNOWN initial state to: ${evalUnknown.status}`);
+    }
+
+    // -------------------------------------------------------------------------
+    // C5: Boundary Scoping Verification
+    // -------------------------------------------------------------------------
+    if (RECONNECT_AUTHORITY_BOUNDARY.isSupported !== false) {
+      throw new Error('RECONNECT_AUTHORITY_BOUNDARY.isSupported must remain false');
+    }
+    if (MIGRATION_AUTHORITY_BOUNDARY.isSupported !== false) {
+      throw new Error('MIGRATION_AUTHORITY_BOUNDARY.isSupported must remain false');
+    }
+    if (IDEMPOTENCY_AUTHORITY_BOUNDARY.isAuthoritative !== false) {
+      throw new Error('IDEMPOTENCY_AUTHORITY_BOUNDARY must remain non-authoritative');
+    }
+    if (IDEMPOTENCY_AUTHORITY_BOUNDARY.durability !== 'EPHEMERAL_IN_MEMORY') {
+      throw new Error('IDEMPOTENCY_AUTHORITY_BOUNDARY durability must be EPHEMERAL_IN_MEMORY');
+    }
+  });
+
   // =========================================================================
   // SC-02: Secure Intent Identity & Idempotency
   // =========================================================================
