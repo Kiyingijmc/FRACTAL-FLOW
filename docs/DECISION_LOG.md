@@ -389,3 +389,36 @@ Constitutional architecture must not be optimized away to solve these questions.
      - Retained `DURABLE IDEMPOTENCY BLOCKED` (client in-memory deduplication verified, distributed store unresolved).
      - Retained `SERVER AUTHENTICATION & RBAC BLOCKED` (live broker commands throw `LiveExecutionBlockedError`).
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates fabricated observation provenance, guarantees zero diagnostic divergence on initial telemetry ingestion, ensures unstated health is never presumed, and preserves complete snapshot immutability on rejected inputs.
+
+
+## D-052 — Stage D.2.3.1 Empty/Whitespace Source Diagnostic Accuracy, Hostile Matrix Validation, and Diagnostic Precedence (D2.3-F01)
+* **Context:** Independent challenge of Stage D.2.3 initial-state telemetry validation identified defect `D2.3-F01`: when `incoming.source` was an empty string (`""`), whitespace-only (`" "`, `"   \t\n"`), or runtime `null`, the validation logic checked `incoming.source === undefined` and then immediately evaluated `!VALID_SOURCES.has(incoming.source)`. Because empty/whitespace strings are not `undefined`, they were misclassified as `UNRECOGNIZED_SOURCE` rather than `MISSING_SOURCE`.
+* **Normative Source Classification Contract:**
+  - `undefined`, runtime `null`, `""`, and whitespace-only strings evaluate strictly to `MISSING_SOURCE`.
+  - Non-empty but non-allowlisted strings (e.g. `'UNKNOWN_FEED'`, or strings with leading/trailing whitespace such as `' BROKER_FEED '`) evaluate to `UNRECOGNIZED_SOURCE`.
+  - Malformed runtime non-string values (numbers, booleans, objects, arrays) fail closed to `UNRECOGNIZED_SOURCE` without throwing, coercing, or synthesizing default state.
+  - Silent normalization (e.g. auto-trimming `' BROKER_FEED '` into `'BROKER_FEED'`) is strictly forbidden; exact allowlisted source identity is mandatory.
+  - The allowlist `VALID_SOURCES = new Set(['SIM_ENGINE', 'BROKER_FEED', 'CONTROL_SERVICE', 'FALLBACK_FIXTURE'])` remains authoritative and unchanged.
+* **Diagnostic Precedence Invariant:**
+  - `evaluateInitialTelemetry` enforces canonical first-failure evaluation order:
+    1. `MISSING_SOURCE` (undefined, null, empty, whitespace-only)
+    2. `UNRECOGNIZED_SOURCE` (non-empty unrecognized string, malformed non-string)
+    3. `MISSING_EPOCH` (epoch is undefined)
+    4. `MALFORMED_EPOCH` (epoch <= 0, non-integer, NaN, non-finite)
+    5. `MISSING_TIMESTAMP` (freshnessTimestamp is undefined)
+    6. `INVALID_TIMESTAMP` (freshnessTimestamp <= 0, NaN, non-finite)
+    7. `INVALID_STALE_THRESHOLD` (staleThresholdMs <= 0, NaN, non-finite)
+    8. `INVALID_STATUS` (status not in VALID_STATUSES)
+    9. `INVALID_SOURCE_EVENT_TIME` (sourceEventTimeMs < 0, NaN, non-finite)
+* **Hostile Test Evidence (SC-01.26):**
+  - Added hostile test `SC-01.26` in `control_surface/src/tests/safety_invariants.test.ts` covering:
+    1. Complete source classification matrix across missing (undefined, null, `""`, `" "`, `"   \t\t   "`, `"\n\r\t \v\f"`), unrecognized (`"UNKNOWN_FEED"`, `" BROKER_FEED"`, `"BROKER_FEED "`, `"  BROKER_FEED  "`), malformed runtime types (number, boolean, object, array), and every allowlisted valid source (`SIM_ENGINE`, `BROKER_FEED`, `CONTROL_SERVICE`, `FALLBACK_FIXTURE`).
+    2. Explicit diagnostic precedence across 8 multi-defect permutations.
+    3. All-or-nothing atomicity and snapshot preservation on rejected updates.
+    4. Constructor/validator consistency between `createInitialTelemetry` and `evaluateInitialTelemetry`.
+  - Automated test suite expanded to **83 passing tests** (48 safety invariants, 20 responsive viewport behavioral, 6 positions sort, 9 modal accessibility).
+* **Retained Boundaries:**
+  - `RECONNECT_AUTHORITY_BOUNDARY`: Reconnection from `DISCONNECTED` remains strictly fail-closed (`BLOCKED — TRUSTED CONTROL SERVICE AUTHORITY NOT INTEGRATED`).
+  - `IDEMPOTENCY_AUTHORITY_BOUNDARY`: Client-side ephemeral deduplication verified; durable distributed store unresolved.
+  - `LiveCommandAdapter`: Throws `LiveExecutionBlockedError` unconditionally; zero unauthenticated live mutations possible.
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates diagnostic misclassification of empty/whitespace sources, strictly enforces exact allowlist matching without silent whitespace coercion, maintains unambiguous diagnostic precedence, and guarantees total snapshot immutability on rejected inputs.

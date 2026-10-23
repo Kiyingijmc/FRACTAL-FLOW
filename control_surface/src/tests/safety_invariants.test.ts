@@ -20,6 +20,7 @@ import {
   evaluateTelemetryFreshness,
   updateTelemetryState,
   tryUpdateTelemetryState,
+  evaluateInitialTelemetry,
   createInitialTelemetry,
   VALID_SOURCES,
   VALID_STATUSES,
@@ -29,7 +30,7 @@ import {
   DOCUMENTED_UNKNOWN_TELEMETRY,
   ReconnectAuthorizationProof
 } from '../utils/telemetry';
-import { LiveExecutionBlockedError, TelemetryProvenance } from '../types/contracts';
+import { LiveExecutionBlockedError, TelemetryProvenance, TelemetrySource } from '../types/contracts';
 
 async function runStageDAdversarialTests() {
   console.log('========================================================');
@@ -1115,6 +1116,286 @@ async function runStageDAdversarialTests() {
     });
     if (explicitHealthy.status !== 'HEALTHY') {
       throw new Error(`Explicit status was not preserved: ${explicitHealthy.status}`);
+    }
+  });
+
+  await test('SC-01.26: Source classification matrix, empty/whitespace classification, and strict diagnostic precedence (Stage D.2.3.1 / D2.3-F01)', () => {
+    // -------------------------------------------------------------------------
+    // 1. Source Classification Matrix (Section 4.1)
+    // -------------------------------------------------------------------------
+    const missingSourceInputs: Array<{ label: string; value: any }> = [
+      { label: 'undefined', value: undefined },
+      { label: 'runtime null', value: null },
+      { label: 'empty string', value: '' },
+      { label: 'single space', value: ' ' },
+      { label: 'multiple spaces and tabs', value: '   \t\t   ' },
+      { label: 'newline and carriage return whitespace', value: '\n\r\t \v\f' }
+    ];
+
+    for (const item of missingSourceInputs) {
+      const diag = tryUpdateTelemetryState(undefined, {
+        source: item.value,
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (diag.accepted) {
+        throw new Error(`Expected rejected for missing source (${item.label}), but was accepted`);
+      }
+      if (diag.rejectionReason !== 'MISSING_SOURCE') {
+        throw new Error(`Expected MISSING_SOURCE for (${item.label}), got: ${diag.rejectionReason}`);
+      }
+      if (diag.state !== DOCUMENTED_UNKNOWN_TELEMETRY) {
+        throw new Error(`Expected DOCUMENTED_UNKNOWN_TELEMETRY for (${item.label}), got altered state`);
+      }
+      if (diag.state.status === 'HEALTHY') {
+        throw new Error(`State was improperly promoted to HEALTHY for (${item.label})`);
+      }
+      if (diag.state.source !== 'FALLBACK_FIXTURE') {
+        throw new Error(`Invalid source value leaked into state for (${item.label}): ${diag.state.source}`);
+      }
+    }
+
+    // Unrecognized non-empty string sources
+    const unrecognizedSources: Array<{ label: string; value: any }> = [
+      { label: 'arbitrary unknown feed', value: 'UNKNOWN_FEED' },
+      { label: 'leading whitespace around valid identifier', value: ' BROKER_FEED' },
+      { label: 'trailing whitespace around valid identifier', value: 'BROKER_FEED ' },
+      { label: 'surrounding whitespace around valid identifier', value: '  BROKER_FEED  ' },
+      { label: 'whitespace around SIM_ENGINE', value: '\tSIM_ENGINE\t' }
+    ];
+
+    for (const item of unrecognizedSources) {
+      const diag = tryUpdateTelemetryState(undefined, {
+        source: item.value,
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (diag.accepted) {
+        throw new Error(`Expected rejected for unrecognized source (${item.label}), but was accepted`);
+      }
+      if (diag.rejectionReason !== 'UNRECOGNIZED_SOURCE') {
+        throw new Error(`Expected UNRECOGNIZED_SOURCE for (${item.label}), got: ${diag.rejectionReason}`);
+      }
+      if (diag.state !== DOCUMENTED_UNKNOWN_TELEMETRY) {
+        throw new Error(`Expected DOCUMENTED_UNKNOWN_TELEMETRY for (${item.label})`);
+      }
+    }
+
+    // Malformed non-string runtime types: fail closed without throwing or coercing
+    const malformedRuntimeValues: Array<{ label: string; value: any }> = [
+      { label: 'number 12345', value: 12345 },
+      { label: 'boolean true', value: true },
+      { label: 'boolean false', value: false },
+      { label: 'plain object', value: { name: 'BROKER_FEED' } },
+      { label: 'array', value: ['BROKER_FEED'] }
+    ];
+
+    for (const item of malformedRuntimeValues) {
+      const diag = tryUpdateTelemetryState(undefined, {
+        source: item.value,
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (diag.accepted) {
+        throw new Error(`Malformed source (${item.label}) was unexpectedly accepted`);
+      }
+      if (diag.rejectionReason !== 'UNRECOGNIZED_SOURCE') {
+        throw new Error(`Expected UNRECOGNIZED_SOURCE for (${item.label}), got: ${diag.rejectionReason}`);
+      }
+      if (diag.state !== DOCUMENTED_UNKNOWN_TELEMETRY) {
+        throw new Error(`Expected DOCUMENTED_UNKNOWN_TELEMETRY for malformed source (${item.label})`);
+      }
+    }
+
+    // Every allowlisted valid source must continue to be accepted
+    const allowlistedSources: TelemetrySource[] = Array.from(VALID_SOURCES);
+    for (const validSrc of allowlistedSources) {
+      const diag = tryUpdateTelemetryState(undefined, {
+        source: validSrc,
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (!diag.accepted) {
+        throw new Error(`Valid allowlisted source ${validSrc} was rejected: ${diag.rejectionReason}`);
+      }
+      if (diag.state.source !== validSrc) {
+        throw new Error(`Valid source ${validSrc} was not recorded: ${diag.state.source}`);
+      }
+      if (diag.state.epoch !== 1 || diag.state.freshnessTimestamp !== 10000 || diag.state.status !== 'HEALTHY') {
+        throw new Error(`Valid initial state fields corrupted for ${validSrc}`);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Diagnostic Precedence Invariants (Section 4.2)
+    // -------------------------------------------------------------------------
+    // Precedence: MISSING_SOURCE > UNRECOGNIZED_SOURCE > MISSING_EPOCH > MALFORMED_EPOCH >
+    //             MISSING_TIMESTAMP > INVALID_TIMESTAMP > INVALID_STALE_THRESHOLD >
+    //             INVALID_STATUS > INVALID_SOURCE_EVENT_TIME
+
+    // Case 2.1: Missing source + invalid epoch -> MISSING_SOURCE
+    const prec1 = tryUpdateTelemetryState(undefined, {
+      source: undefined,
+      epoch: -5,
+      freshnessTimestamp: 10000
+    });
+    if (prec1.rejectionReason !== 'MISSING_SOURCE') {
+      throw new Error(`Precedence 1 failed: expected MISSING_SOURCE, got ${prec1.rejectionReason}`);
+    }
+
+    // Case 2.2: Empty source + invalid timestamp -> MISSING_SOURCE
+    const prec2 = tryUpdateTelemetryState(undefined, {
+      source: '' as any,
+      epoch: 1,
+      freshnessTimestamp: -100
+    });
+    if (prec2.rejectionReason !== 'MISSING_SOURCE') {
+      throw new Error(`Precedence 2 failed: expected MISSING_SOURCE, got ${prec2.rejectionReason}`);
+    }
+
+    // Case 2.3: Whitespace source + malformed epoch + invalid timestamp -> MISSING_SOURCE
+    const prec3 = tryUpdateTelemetryState(undefined, {
+      source: '   \t' as any,
+      epoch: 0,
+      freshnessTimestamp: NaN
+    });
+    if (prec3.rejectionReason !== 'MISSING_SOURCE') {
+      throw new Error(`Precedence 3 failed: expected MISSING_SOURCE, got ${prec3.rejectionReason}`);
+    }
+
+    // Case 2.4: Unrecognized source + missing epoch -> UNRECOGNIZED_SOURCE
+    const prec4 = tryUpdateTelemetryState(undefined, {
+      source: 'UNKNOWN_ROUTER' as any,
+      freshnessTimestamp: 10000
+    });
+    if (prec4.rejectionReason !== 'UNRECOGNIZED_SOURCE') {
+      throw new Error(`Precedence 4 failed: expected UNRECOGNIZED_SOURCE, got ${prec4.rejectionReason}`);
+    }
+
+    // Case 2.5: Valid source + malformed epoch + invalid timestamp -> MALFORMED_EPOCH
+    const prec5 = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 0,
+      freshnessTimestamp: -50
+    });
+    if (prec5.rejectionReason !== 'MALFORMED_EPOCH') {
+      throw new Error(`Precedence 5 failed: expected MALFORMED_EPOCH, got ${prec5.rejectionReason}`);
+    }
+
+    // Case 2.6: Valid source + valid epoch + missing timestamp + invalid threshold -> MISSING_TIMESTAMP
+    const prec6 = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 1,
+      staleThresholdMs: -500
+    });
+    if (prec6.rejectionReason !== 'MISSING_TIMESTAMP') {
+      throw new Error(`Precedence 6 failed: expected MISSING_TIMESTAMP, got ${prec6.rejectionReason}`);
+    }
+
+    // Case 2.7: Valid source/epoch/timestamp + invalid threshold + invalid status -> INVALID_STALE_THRESHOLD
+    const prec7 = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      staleThresholdMs: 0,
+      status: 'NOT_A_STATUS' as any
+    });
+    if (prec7.rejectionReason !== 'INVALID_STALE_THRESHOLD') {
+      throw new Error(`Precedence 7 failed: expected INVALID_STALE_THRESHOLD, got ${prec7.rejectionReason}`);
+    }
+
+    // Case 2.8: Valid source/epoch/timestamp/threshold + invalid status + negative event time -> INVALID_STATUS
+    const prec8 = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      staleThresholdMs: 5000,
+      status: 'INVALID_STATUS_STRING' as any,
+      sourceEventTimeMs: -1
+    });
+    if (prec8.rejectionReason !== 'INVALID_STATUS') {
+      throw new Error(`Precedence 8 failed: expected INVALID_STATUS, got ${prec8.rejectionReason}`);
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Atomicity & Snapshot Immutability on Rejected Updates (Section 4.3)
+    // -------------------------------------------------------------------------
+    const preUpdateSnapshot: TelemetryProvenance = {
+      source: 'BROKER_FEED',
+      status: 'HEALTHY',
+      freshnessTimestamp: 50000,
+      isAuthoritative: true,
+      staleThresholdMs: 5000,
+      epoch: 10,
+      bridgeStatus: 'OK',
+      fenceStatus: 'ENFORCED',
+      sourceEventTimeMs: 49990,
+      localReceiveTimeMs: 50001
+    };
+
+    const invalidUpdateSources: any[] = ['', '   ', '\t\n', null, 'ANOTHER_SOURCE', ' BROKER_FEED '];
+    for (const badSrc of invalidUpdateSources) {
+      const updateResult = tryUpdateTelemetryState(preUpdateSnapshot, {
+        source: badSrc,
+        freshnessTimestamp: 51000,
+        epoch: 11
+      });
+      if (updateResult.accepted) {
+        throw new Error(`Update with invalid source ${JSON.stringify(badSrc)} was accepted!`);
+      }
+      if (updateResult.state !== preUpdateSnapshot) {
+        throw new Error(`Rejected update did not preserve exact original snapshot reference!`);
+      }
+      // Deep content equality
+      if (
+        updateResult.state.source !== 'BROKER_FEED' ||
+        updateResult.state.epoch !== 10 ||
+        updateResult.state.freshnessTimestamp !== 50000 ||
+        updateResult.state.sourceEventTimeMs !== 49990 ||
+        updateResult.state.status !== 'HEALTHY'
+      ) {
+        throw new Error(`Rejected update corrupted pre-update snapshot content!`);
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Validator / Constructor Consistency (Section 4.4)
+    // -------------------------------------------------------------------------
+    const consistencyFixtures: Array<Partial<TelemetryProvenance> | undefined> = [
+      undefined,
+      {},
+      { source: '' as any, epoch: 1, freshnessTimestamp: 10000 },
+      { source: '   ' as any, epoch: 1, freshnessTimestamp: 10000 },
+      { source: null as any, epoch: 1, freshnessTimestamp: 10000 },
+      { source: 'UNKNOWN_FEED' as any, epoch: 1, freshnessTimestamp: 10000 },
+      { source: 999 as any, epoch: 1, freshnessTimestamp: 10000 },
+      { source: 'BROKER_FEED', epoch: 1, freshnessTimestamp: 10000 },
+      { source: 'SIM_ENGINE', epoch: 2, freshnessTimestamp: 20000, status: 'HEALTHY' },
+      { source: 'CONTROL_SERVICE', epoch: 3, freshnessTimestamp: 30000, sourceEventTimeMs: 29990 },
+      { source: 'FALLBACK_FIXTURE', epoch: 4, freshnessTimestamp: 40000, staleThresholdMs: 3000 }
+    ];
+
+    for (const fixture of consistencyFixtures) {
+      const constructed = createInitialTelemetry(fixture as any);
+      const evaluated = evaluateInitialTelemetry(fixture as any);
+      // Exclude non-deterministic localReceiveTimeMs if set, but compare all canonical fields
+      if (
+        constructed.source !== evaluated.state.source ||
+        constructed.status !== evaluated.state.status ||
+        constructed.epoch !== evaluated.state.epoch ||
+        constructed.freshnessTimestamp !== evaluated.state.freshnessTimestamp ||
+        constructed.staleThresholdMs !== evaluated.state.staleThresholdMs ||
+        constructed.isAuthoritative !== evaluated.state.isAuthoritative ||
+        constructed.bridgeStatus !== evaluated.state.bridgeStatus ||
+        constructed.fenceStatus !== evaluated.state.fenceStatus ||
+        constructed.sourceEventTimeMs !== evaluated.state.sourceEventTimeMs
+      ) {
+        throw new Error(`Divergence detected between createInitialTelemetry and evaluateInitialTelemetry for fixture ${JSON.stringify(fixture)}`);
+      }
     }
   });
 

@@ -262,15 +262,24 @@ export function evaluateInitialTelemetry(
     };
   }
 
-  // 1. Source validation: required; must be in VALID_SOURCES
-  if (incoming.source === undefined) {
+  // 1. Source validation (D2.3-F01 / Stage D.2.3.1):
+  // Required: undefined, null, empty string, or whitespace-only evaluates strictly to MISSING_SOURCE.
+  const rawSource = incoming.source;
+  if (
+    rawSource === undefined ||
+    rawSource === null ||
+    (typeof rawSource === 'string' && rawSource.trim() === '')
+  ) {
     return {
       accepted: false,
       state: DOCUMENTED_UNKNOWN_TELEMETRY,
       rejectionReason: 'MISSING_SOURCE'
     };
   }
-  if (!VALID_SOURCES.has(incoming.source)) {
+
+  // Non-empty unrecognized source, or malformed non-string runtime value:
+  // Evaluates to UNRECOGNIZED_SOURCE fail-closed without throwing, coercing, or trimming.
+  if (typeof rawSource !== 'string' || !VALID_SOURCES.has(rawSource as TelemetrySource)) {
     return {
       accepted: false,
       state: DOCUMENTED_UNKNOWN_TELEMETRY,
@@ -357,7 +366,7 @@ export function evaluateInitialTelemetry(
   }
 
   // All initial validations passed: construct truthful initial snapshot
-  const source: TelemetrySource = incoming.source;
+  const source: TelemetrySource = rawSource as TelemetrySource;
   const epoch: number = incoming.epoch;
   const freshnessTimestamp: number = incoming.freshnessTimestamp;
   const staleThresholdMs: number =
