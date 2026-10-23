@@ -903,8 +903,218 @@ async function runStageDAdversarialTests() {
     if (validInitial.source !== 'BROKER_FEED' || validInitial.epoch !== 1 || validInitial.freshnessTimestamp !== 10000 || validInitial.status !== 'HEALTHY') {
       throw new Error('Valid initial state with explicit parameters was rejected');
     }
-    if (validInitial.staleThresholdMs !== 5000) {
-      throw new Error(`Absent threshold failed to default to 5000: ${validInitial.staleThresholdMs}`);
+  });
+
+  await test('SC-01.24: Source-event timestamp provenance and absence preservation (Stage D.2.3 / D2.3-A)', () => {
+    // 1. Absent sourceEventTimeMs on initial creation remains strictly undefined (never defaults to freshnessTimestamp)
+    const initNoEventTime = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY'
+    });
+    if (initNoEventTime.sourceEventTimeMs !== undefined) {
+      throw new Error(`Absent sourceEventTimeMs was improperly defaulted to: ${initNoEventTime.sourceEventTimeMs}`);
+    }
+
+    // 2. Updating without sourceEventTimeMs preserves previous state (remains undefined, not defaulted to freshnessTimestamp)
+    const updatedNoEventTime = updateTelemetryState(initNoEventTime, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 11000,
+      epoch: 2
+    });
+    if (updatedNoEventTime.sourceEventTimeMs !== undefined) {
+      throw new Error(`Update improperly fabricated sourceEventTimeMs from freshnessTimestamp: ${updatedNoEventTime.sourceEventTimeMs}`);
+    }
+
+    // 3. Valid positive and zero sourceEventTimeMs are accepted
+    const initZeroEventTime = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY',
+      sourceEventTimeMs: 0
+    });
+    if (initZeroEventTime.sourceEventTimeMs !== 0) {
+      throw new Error(`Zero sourceEventTimeMs was rejected or altered: ${initZeroEventTime.sourceEventTimeMs}`);
+    }
+
+    const initPosEventTime = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY',
+      sourceEventTimeMs: 9985
+    });
+    if (initPosEventTime.sourceEventTimeMs !== 9985) {
+      throw new Error(`Valid sourceEventTimeMs was not recorded: ${initPosEventTime.sourceEventTimeMs}`);
+    }
+
+    // 4. Updating with explicit sourceEventTimeMs updates the field cleanly
+    const updatedWithEventTime = updateTelemetryState(initPosEventTime, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 12000,
+      epoch: 2,
+      sourceEventTimeMs: 11980
+    });
+    if (updatedWithEventTime.sourceEventTimeMs !== 11980) {
+      throw new Error(`Explicit sourceEventTimeMs was not updated: ${updatedWithEventTime.sourceEventTimeMs}`);
+    }
+
+    // 5. Distinctness: localReceiveTimeMs is non-zero and distinct from sourceEventTimeMs
+    if (typeof updatedWithEventTime.localReceiveTimeMs !== 'number' || updatedWithEventTime.localReceiveTimeMs <= 0) {
+      throw new Error('localReceiveTimeMs was not populated with receipt timestamp');
+    }
+
+    // 6. Invalid sourceEventTimeMs values (negative, NaN, Infinity) are rejected with INVALID_SOURCE_EVENT_TIME
+    const badTimes = [-1, -1000, NaN, Infinity, -Infinity];
+    for (const bt of badTimes) {
+      // Rejection on existing snapshot
+      const diagUpdate = tryUpdateTelemetryState(initPosEventTime, {
+        source: 'BROKER_FEED',
+        freshnessTimestamp: 13000,
+        epoch: 3,
+        sourceEventTimeMs: bt
+      });
+      if (diagUpdate.accepted || diagUpdate.state !== initPosEventTime || diagUpdate.rejectionReason !== 'INVALID_SOURCE_EVENT_TIME') {
+        throw new Error(`Invalid sourceEventTimeMs ${bt} on update was not rejected with INVALID_SOURCE_EVENT_TIME!`);
+      }
+
+      // Safe failure on initial creation
+      const diagInitial = tryUpdateTelemetryState(undefined, {
+        source: 'BROKER_FEED',
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY',
+        sourceEventTimeMs: bt
+      });
+      if (diagInitial.accepted || diagInitial.rejectionReason !== 'INVALID_SOURCE_EVENT_TIME') {
+        throw new Error(`Invalid sourceEventTimeMs ${bt} on initial state was not rejected with INVALID_SOURCE_EVENT_TIME!`);
+      }
+    }
+  });
+
+  await test('SC-01.25: Precise typed initial-state diagnostics and fail-safe unstated status (Stage D.2.3 / D2.3-B & D2.3-C)', () => {
+    // 1. Missing incoming options -> MISSING_INITIAL_TELEMETRY
+    const diagNull = tryUpdateTelemetryState(undefined, undefined as any);
+    if (diagNull.accepted || diagNull.rejectionReason !== 'MISSING_INITIAL_TELEMETRY') {
+      throw new Error(`Expected MISSING_INITIAL_TELEMETRY, got: ${diagNull.rejectionReason}`);
+    }
+
+    // 2. Missing source -> MISSING_SOURCE
+    const diagMissingSource = tryUpdateTelemetryState(undefined, {
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY'
+    });
+    if (diagMissingSource.accepted || diagMissingSource.rejectionReason !== 'MISSING_SOURCE') {
+      throw new Error(`Expected MISSING_SOURCE, got: ${diagMissingSource.rejectionReason}`);
+    }
+
+    // 3. Unrecognized source -> UNRECOGNIZED_SOURCE
+    const diagBadSource = tryUpdateTelemetryState(undefined, {
+      source: 'INVALID_ROUTER' as any,
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY'
+    });
+    if (diagBadSource.accepted || diagBadSource.rejectionReason !== 'UNRECOGNIZED_SOURCE') {
+      throw new Error(`Expected UNRECOGNIZED_SOURCE, got: ${diagBadSource.rejectionReason}`);
+    }
+
+    // 4. Missing epoch -> MISSING_EPOCH
+    const diagMissingEpoch = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY'
+    });
+    if (diagMissingEpoch.accepted || diagMissingEpoch.rejectionReason !== 'MISSING_EPOCH') {
+      throw new Error(`Expected MISSING_EPOCH, got: ${diagMissingEpoch.rejectionReason}`);
+    }
+
+    // 5. Malformed epoch -> MALFORMED_EPOCH
+    const badEpochs = [0, -1, 1.5, NaN, Infinity];
+    for (const be of badEpochs) {
+      const diagBadEpoch = tryUpdateTelemetryState(undefined, {
+        source: 'BROKER_FEED',
+        epoch: be,
+        freshnessTimestamp: 10000,
+        status: 'HEALTHY'
+      });
+      if (diagBadEpoch.accepted || diagBadEpoch.rejectionReason !== 'MALFORMED_EPOCH') {
+        throw new Error(`Expected MALFORMED_EPOCH for epoch ${be}, got: ${diagBadEpoch.rejectionReason}`);
+      }
+    }
+
+    // 6. Missing timestamp -> MISSING_TIMESTAMP
+    const diagMissingTimestamp = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 1,
+      status: 'HEALTHY'
+    });
+    if (diagMissingTimestamp.accepted || diagMissingTimestamp.rejectionReason !== 'MISSING_TIMESTAMP') {
+      throw new Error(`Expected MISSING_TIMESTAMP, got: ${diagMissingTimestamp.rejectionReason}`);
+    }
+
+    // 7. Invalid timestamp -> INVALID_TIMESTAMP
+    const badTimestamps = [0, -50, NaN, Infinity];
+    for (const bt of badTimestamps) {
+      const diagBadTimestamp = tryUpdateTelemetryState(undefined, {
+        source: 'BROKER_FEED',
+        epoch: 1,
+        freshnessTimestamp: bt,
+        status: 'HEALTHY'
+      });
+      if (diagBadTimestamp.accepted || diagBadTimestamp.rejectionReason !== 'INVALID_TIMESTAMP') {
+        throw new Error(`Expected INVALID_TIMESTAMP for timestamp ${bt}, got: ${diagBadTimestamp.rejectionReason}`);
+      }
+    }
+
+    // 8. Invalid threshold -> INVALID_STALE_THRESHOLD
+    const badThresholds = [0, -500, NaN, Infinity];
+    for (const th of badThresholds) {
+      const diagBadThreshold = tryUpdateTelemetryState(undefined, {
+        source: 'BROKER_FEED',
+        epoch: 1,
+        freshnessTimestamp: 10000,
+        staleThresholdMs: th,
+        status: 'HEALTHY'
+      });
+      if (diagBadThreshold.accepted || diagBadThreshold.rejectionReason !== 'INVALID_STALE_THRESHOLD') {
+        throw new Error(`Expected INVALID_STALE_THRESHOLD for threshold ${th}, got: ${diagBadThreshold.rejectionReason}`);
+      }
+    }
+
+    // 9. Invalid status -> INVALID_STATUS
+    const diagBadStatus = tryUpdateTelemetryState(undefined, {
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'NOT_A_REAL_STATUS' as any
+    });
+    if (diagBadStatus.accepted || diagBadStatus.rejectionReason !== 'INVALID_STATUS') {
+      throw new Error(`Expected INVALID_STATUS, got: ${diagBadStatus.rejectionReason}`);
+    }
+
+    // 10. D2.3-C: Unstated initial status safely defaults to 'UNKNOWN', never promoted to 'HEALTHY'
+    const unstatedStatus = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000
+    });
+    if (unstatedStatus.status !== 'UNKNOWN') {
+      throw new Error(`Unstated initial status was silently promoted to '${unstatedStatus.status}' instead of UNKNOWN!`);
+    }
+
+    // 11. Explicit status is respected
+    const explicitHealthy = createInitialTelemetry({
+      source: 'BROKER_FEED',
+      epoch: 1,
+      freshnessTimestamp: 10000,
+      status: 'HEALTHY'
+    });
+    if (explicitHealthy.status !== 'HEALTHY') {
+      throw new Error(`Explicit status was not preserved: ${explicitHealthy.status}`);
     }
   });
 

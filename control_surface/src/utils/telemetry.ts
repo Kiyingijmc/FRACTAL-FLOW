@@ -53,7 +53,7 @@ export const MIGRATION_AUTHORITY_BOUNDARY = {
 } as const;
 
 /**
- * Stage D.2.2: Reconnection Authority Boundary Scoping.
+ * Stage D.2.2 / D.2.3: Reconnection Authority Boundary Scoping.
  *
  * Primary defect remediation:
  * A caller-supplied object with authority: 'CONTROL_SERVICE_HANDSHAKE', a token,
@@ -81,6 +81,7 @@ export const RECONNECT_AUTHORITY_BOUNDARY = {
  * Canonical Documented Unknown Telemetry State.
  * Used when initial input is missing, malformed, or invalid.
  * Invariant: Does NOT silently synthesize 'SIM_ENGINE', epoch 1, or a healthy-looking state.
+ * D2.3-A: sourceEventTimeMs is explicitly undefined (never fabricated).
  */
 export const DOCUMENTED_UNKNOWN_TELEMETRY: Readonly<TelemetryProvenance> = Object.freeze({
   source: 'FALLBACK_FIXTURE',
@@ -91,26 +92,30 @@ export const DOCUMENTED_UNKNOWN_TELEMETRY: Readonly<TelemetryProvenance> = Objec
   epoch: 0,
   bridgeStatus: 'UNKNOWN',
   fenceStatus: 'UNKNOWN',
-  sourceEventTimeMs: 0,
+  sourceEventTimeMs: undefined,
   localReceiveTimeMs: 0
 });
 
 /**
- * Stage D.2.2: Typed Telemetry Rejection Reasons.
- * Diagnostic codes emitted when an incoming update is rejected.
+ * Stage D.2.2 / D.2.3: Typed Telemetry Rejection Reasons.
+ * Diagnostic codes emitted when an incoming update or initial creation is rejected.
  * Diagnostic evaluation NEVER mutates protected accepted state.
  */
 export type TelemetryRejectionReason =
-  | 'CROSS_SOURCE_OVERWRITE_FORBIDDEN'
-  | 'CROSS_SOURCE_MIGRATION_BLOCKED'
+  | 'MISSING_INITIAL_TELEMETRY'
+  | 'MISSING_SOURCE'
   | 'UNRECOGNIZED_SOURCE'
+  | 'MISSING_EPOCH'
   | 'MALFORMED_EPOCH'
   | 'EPOCH_REGRESSION'
-  | 'STALE_TIMESTAMP'
+  | 'MISSING_TIMESTAMP'
   | 'INVALID_TIMESTAMP'
+  | 'STALE_TIMESTAMP'
   | 'INVALID_STALE_THRESHOLD'
   | 'INVALID_STATUS'
   | 'INVALID_SOURCE_EVENT_TIME'
+  | 'CROSS_SOURCE_OVERWRITE_FORBIDDEN'
+  | 'CROSS_SOURCE_MIGRATION_BLOCKED'
   | 'CALLER_RECONNECT_AUTHORITY_FORGERY'
   | 'DISCONNECTED_INACTIVE_BRIDGE_STATUS'
   | 'RECONNECTION_BLOCKED_UNRESOLVED_CONTROL_SERVICE_AUTHORITY';
@@ -144,7 +149,7 @@ export interface TelemetryUpdateOptions extends Partial<TelemetryProvenance> {
  *
  * Invariants:
  * 1. An age >= staleThresholdMs evaluates strictly to STALE.
- * 2. Missing, non-positive, non-finite, or NaN timestamps evaluate to UNKNOWN or DEGRADED.
+ * 2. Missing, non-positive, non-finite, or NaN timestamps evaluate to UNKNOWN.
  * 3. Non-positive, non-finite, or invalid staleThresholdMs evaluates to DEGRADED (never false HEALTHY).
  * 4. Sources in DISCONNECTED state cannot be promoted to HEALTHY by age alone.
  * 5. Clock skew (future timestamps) evaluates to DEGRADED.
@@ -235,46 +240,79 @@ export function evaluateTelemetryFreshness(
 }
 
 /**
- * Stage D.2.2: Validates initial telemetry input before constructing accepted state.
+ * Stage D.2.3: Single unified initial-state validator and constructor.
+ * Ensures createInitialTelemetry() and tryUpdateTelemetryState(undefined, incoming)
+ * share identical logic, preventing divergent diagnostic reporting.
  *
  * Strict Initial Contract:
- * - Missing or malformed source does NOT become 'SIM_ENGINE'. Returns DOCUMENTED_UNKNOWN_TELEMETRY.
- * - Missing or invalid epoch does NOT become epoch 1. Returns DOCUMENTED_UNKNOWN_TELEMETRY.
- * - Missing or invalid observation timestamp does NOT synthesize Date.now(). Returns DOCUMENTED_UNKNOWN_TELEMETRY.
- * - Missing or invalid required fields CANNOT produce 'HEALTHY' or fresh state.
- * - Stale threshold defaults to 5000 strictly when undefined; non-positive, NaN, and infinite thresholds are rejected.
- * - localReceiveTimeMs records actual receipt time (Date.now()) only upon valid initial construction.
+ * - D2.3-A: Absent sourceEventTimeMs remains undefined. Never defaults to freshnessTimestamp.
+ * - D2.3-B: Returns accurate typed rejection reasons (MISSING_SOURCE, UNRECOGNIZED_SOURCE,
+ *   MISSING_EPOCH, MALFORMED_EPOCH, MISSING_TIMESTAMP, INVALID_TIMESTAMP, INVALID_STALE_THRESHOLD,
+ *   INVALID_STATUS, INVALID_SOURCE_EVENT_TIME).
+ * - D2.3-C: Absent initial status fails safely to 'UNKNOWN', never silently promoted to 'HEALTHY'.
  */
-export function createInitialTelemetry(
+export function evaluateInitialTelemetry(
   incoming?: TelemetryUpdateOptions
-): TelemetryProvenance {
+): TelemetryUpdateDiagnostic {
   if (!incoming) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'MISSING_INITIAL_TELEMETRY'
+    };
   }
 
-  // 1. Source validation: must be present and in VALID_SOURCES (never defaults to SIM_ENGINE)
-  if (incoming.source === undefined || !VALID_SOURCES.has(incoming.source)) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
+  // 1. Source validation: required; must be in VALID_SOURCES
+  if (incoming.source === undefined) {
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'MISSING_SOURCE'
+    };
+  }
+  if (!VALID_SOURCES.has(incoming.source)) {
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'UNRECOGNIZED_SOURCE'
+    };
   }
 
-  // 2. Epoch validation: must be present and a safe integer > 0 (never defaults to epoch 1)
+  // 2. Epoch validation: required; must be positive safe integer
+  if (incoming.epoch === undefined) {
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'MISSING_EPOCH'
+    };
+  }
+  if (!Number.isSafeInteger(incoming.epoch) || incoming.epoch <= 0) {
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'MALFORMED_EPOCH'
+    };
+  }
+
+  // 3. Timestamp validation: required; must be positive finite number
+  if (incoming.freshnessTimestamp === undefined) {
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'MISSING_TIMESTAMP'
+    };
+  }
   if (
-    incoming.epoch === undefined ||
-    !Number.isSafeInteger(incoming.epoch) ||
-    incoming.epoch <= 0
-  ) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
-  }
-
-  // 3. Timestamp validation: must be present, positive, and finite (never synthesized)
-  if (
-    incoming.freshnessTimestamp === undefined ||
     typeof incoming.freshnessTimestamp !== 'number' ||
     !Number.isFinite(incoming.freshnessTimestamp) ||
     isNaN(incoming.freshnessTimestamp) ||
     incoming.freshnessTimestamp <= 0
   ) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'INVALID_TIMESTAMP'
+    };
   }
 
   // 4. Stale threshold validation: defaults to 5000 only when genuinely undefined
@@ -285,13 +323,21 @@ export function createInitialTelemetry(
       isNaN(incoming.staleThresholdMs) ||
       incoming.staleThresholdMs <= 0
     ) {
-      return DOCUMENTED_UNKNOWN_TELEMETRY;
+      return {
+        accepted: false,
+        state: DOCUMENTED_UNKNOWN_TELEMETRY,
+        rejectionReason: 'INVALID_STALE_THRESHOLD'
+      };
     }
   }
 
   // 5. Status validation: must be in VALID_STATUSES if provided
   if (incoming.status !== undefined && !VALID_STATUSES.has(incoming.status)) {
-    return DOCUMENTED_UNKNOWN_TELEMETRY;
+    return {
+      accepted: false,
+      state: DOCUMENTED_UNKNOWN_TELEMETRY,
+      rejectionReason: 'INVALID_STATUS'
+    };
   }
 
   // 6. Source event time validation: must be finite and non-negative if provided
@@ -302,7 +348,11 @@ export function createInitialTelemetry(
       isNaN(incoming.sourceEventTimeMs) ||
       incoming.sourceEventTimeMs < 0
     ) {
-      return DOCUMENTED_UNKNOWN_TELEMETRY;
+      return {
+        accepted: false,
+        state: DOCUMENTED_UNKNOWN_TELEMETRY,
+        rejectionReason: 'INVALID_SOURCE_EVENT_TIME'
+      };
     }
   }
 
@@ -312,31 +362,48 @@ export function createInitialTelemetry(
   const freshnessTimestamp: number = incoming.freshnessTimestamp;
   const staleThresholdMs: number =
     incoming.staleThresholdMs === undefined ? 5000 : incoming.staleThresholdMs;
-  const status: TelemetryStatus = incoming.status ?? 'HEALTHY';
+
+  // D2.3-C: Absent initial status fails safely to 'UNKNOWN', never silently promoted to 'HEALTHY'
+  const status: TelemetryStatus = incoming.status ?? 'UNKNOWN';
   const receiveTime = Date.now();
-  const sourceEventTime = incoming.sourceEventTimeMs ?? freshnessTimestamp;
+
+  // D2.3-A: Absent sourceEventTimeMs remains undefined; never fabricated from freshnessTimestamp
+  const sourceEventTime = incoming.sourceEventTimeMs;
 
   return {
-    source,
-    status,
-    freshnessTimestamp,
-    isAuthoritative: Boolean(incoming.isAuthoritative),
-    staleThresholdMs,
-    epoch,
-    bridgeStatus: incoming.bridgeStatus ?? 'UNKNOWN',
-    fenceStatus: incoming.fenceStatus ?? 'UNKNOWN',
-    sourceEventTimeMs: sourceEventTime,
-    localReceiveTimeMs: receiveTime
+    accepted: true,
+    state: {
+      source,
+      status,
+      freshnessTimestamp,
+      isAuthoritative: Boolean(incoming.isAuthoritative),
+      staleThresholdMs,
+      epoch,
+      bridgeStatus: incoming.bridgeStatus ?? 'UNKNOWN',
+      fenceStatus: incoming.fenceStatus ?? 'UNKNOWN',
+      sourceEventTimeMs: sourceEventTime,
+      localReceiveTimeMs: receiveTime
+    }
   };
 }
 
 /**
- * Stage D.2.2: Strict Telemetry Transition Table Implementation & Diagnostic Evaluator.
+ * Stage D.2.3: Safe initial telemetry constructor.
+ * Delegates directly to evaluateInitialTelemetry to guarantee identical contracts.
+ */
+export function createInitialTelemetry(
+  incoming?: TelemetryUpdateOptions
+): TelemetryProvenance {
+  return evaluateInitialTelemetry(incoming).state;
+}
+
+/**
+ * Stage D.2.3: Strict Telemetry Transition Table Implementation & Diagnostic Evaluator.
  *
  * Transition Policy:
  * 1. Initial valid: Valid source, epoch, timestamp -> accepted initial state.
- * 2. Initial missing observation: Missing timestamp -> DOCUMENTED_UNKNOWN_TELEMETRY.
- * 3. Initial malformed: Bad source, epoch, threshold, or status -> DOCUMENTED_UNKNOWN_TELEMETRY.
+ * 2. Initial missing observation: Missing timestamp -> DOCUMENTED_UNKNOWN_TELEMETRY (MISSING_TIMESTAMP).
+ * 3. Initial malformed: Bad source, epoch, threshold, or status -> accurate typed rejection reasons.
  * 4. Same-source valid update: Monotonic epoch, valid timestamp, same source -> accepted updated state.
  * 5. Stale / regressing epoch: incoming.epoch < current.epoch -> rejected fail-closed, snapshot preserved.
  * 6. Malformed update with mixed fields: Any invalid field -> rejected atomically, snapshot preserved.
@@ -354,13 +421,7 @@ export function tryUpdateTelemetryState(
 ): TelemetryUpdateDiagnostic {
   // Case 1: Initial state construction
   if (!current) {
-    const initialState = createInitialTelemetry(incoming);
-    const isAccepted = initialState !== DOCUMENTED_UNKNOWN_TELEMETRY;
-    return {
-      accepted: isAccepted,
-      state: initialState,
-      rejectionReason: isAccepted ? undefined : 'INVALID_TIMESTAMP'
-    };
+    return evaluateInitialTelemetry(incoming);
   }
 
   // Rejection check: Any attempt to supply a caller authorization proof is rejected as untrusted
@@ -472,7 +533,7 @@ export function tryUpdateTelemetryState(
     };
   }
 
-  // 9. Source Event Timestamp Validity:
+  // 9. Source Event Timestamp Validity (D2.3-A):
   if (incoming.sourceEventTimeMs !== undefined) {
     if (
       typeof incoming.sourceEventTimeMs !== 'number' ||
@@ -541,11 +602,13 @@ export function tryUpdateTelemetryState(
   const timestamp = incoming.freshnessTimestamp ?? current.freshnessTimestamp;
   const finalStatus: TelemetryStatus = incoming.status ?? current.status;
   const receiveTime = Date.now();
+
+  // D2.3-A: If incoming.sourceEventTimeMs is provided, update it; otherwise preserve current.sourceEventTimeMs
+  // Never synthesize or default sourceEventTimeMs to freshnessTimestamp or receiveTime
   const eventTime =
-    incoming.sourceEventTimeMs ??
-    incoming.freshnessTimestamp ??
-    current.sourceEventTimeMs ??
-    timestamp;
+    incoming.sourceEventTimeMs !== undefined
+      ? incoming.sourceEventTimeMs
+      : current.sourceEventTimeMs;
 
   return {
     accepted: true,
@@ -566,7 +629,7 @@ export function tryUpdateTelemetryState(
 }
 
 /**
- * SC-01 / D2-A / D2.1 / D.2.2: Safe telemetry state updater enforcing source provenance,
+ * SC-01 / D2-A / D2.1 / D.2.2 / D.2.3: Safe telemetry state updater enforcing source provenance,
  * all-or-nothing atomicity, and fail-closed reconnection authorization.
  *
  * On any rejected update, returns the accepted snapshot `current` 100% bit-for-bit untouched.

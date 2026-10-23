@@ -344,3 +344,48 @@ Constitutional architecture must not be optimized away to solve these questions.
      - Retained `SERVER AUTHENTICATION & RBAC BLOCKED` (live broker commands throw `LiveExecutionBlockedError`).
 
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates forged caller authorization, prevents synthetic healthy telemetry on malformed initial data, preserves bit-for-bit snapshot immutability on all rejected inputs, and truthfully reflects that external Control Service authority is not integrated.
+
+
+## D-051 — Stage D.2.3 Telemetry Provenance, Diagnostic Accuracy, and Unstated Status Fail-Safe
+* **Context:** Forensic review of Stage D.2.2 identified three precision and provenance counterexamples:
+  1. Implicit Fallback in Source-Event Timestamp (`incoming.sourceEventTimeMs ?? freshnessTimestamp`): The contract defines `sourceEventTimeMs` as an optional generation timestamp from the telemetry producer. Fabricating source-event generation time from local receive time / freshness timestamp when absent conflates observation provenance with reception freshness.
+  2. Diagnostic Flattening in Initial State Validation: `tryUpdateTelemetryState(undefined, incoming)` previously mapped every initial-state failure uniformly to `INVALID_TIMESTAMP`, masking distinct root causes such as missing source, malformed epoch, invalid threshold, or invalid status.
+  3. Silent Initial Status Promotion: When initial telemetry omitted `status` (`incoming.status === undefined`), the initial builder defaulted to `'HEALTHY'`. Without an explicit contract authorizing this assumption, unstated health must not be presumed healthy.
+* **Reconnaissance & Contract Verification:**
+  - `control_surface/src/types/contracts.ts` declares `sourceEventTimeMs?: number;` on `TelemetryProvenance`. No contract specifies or authorizes defaulting an unstated source-event timestamp to local freshness.
+  - Inspection of `control_surface/src/utils/telemetry.ts` revealed that `createInitialTelemetry` and `tryUpdateTelemetryState` handled initial-state validation independently, allowing potential diagnostic divergence.
+  - In financial and critical telemetry feeds, unstated health state is epistemic uncertainty (`UNKNOWN`), not proof of health.
+* **Decision:**
+  1. **Source-Event Provenance Integrity (D2.3-A):**
+     - Removed the implicit fallback `incoming.sourceEventTimeMs ?? freshnessTimestamp`.
+     - In initial state creation (`evaluateInitialTelemetry`), when `incoming.sourceEventTimeMs` is absent/undefined, `sourceEventTimeMs` is set to `undefined`.
+     - In `DOCUMENTED_UNKNOWN_TELEMETRY`, `sourceEventTimeMs` is explicitly `undefined`.
+     - In state updates (`tryUpdateTelemetryState`), when `incoming.sourceEventTimeMs` is absent/undefined, the accepted state preserves `current.sourceEventTimeMs` unchanged.
+     - Strict validation rejects negative, NaN, and non-finite timestamps with typed rejection reason `INVALID_SOURCE_EVENT_TIME`. Valid non-negative finite timestamps (including 0) are accepted.
+  2. **Unified Initial-State Diagnostics (D2.3-B):**
+     - Implemented `evaluateInitialTelemetry(incoming: Partial<TelemetryState> | undefined): TelemetryUpdateDiagnostic`.
+     - Unifies validation and initial state construction between `createInitialTelemetry` and `tryUpdateTelemetryState`, eliminating code divergence.
+     - Maps distinct failure conditions to precise typed rejection reasons:
+       - `MISSING_INITIAL_TELEMETRY`: incoming input is null or undefined.
+       - `MISSING_SOURCE`: incoming source is undefined, empty, or whitespace.
+       - `UNRECOGNIZED_SOURCE`: incoming source is an unrecognized string outside `TelemetrySource`.
+       - `MISSING_EPOCH`: incoming epoch is undefined.
+       - `MALFORMED_EPOCH`: incoming epoch is non-positive, non-integer, NaN, or non-finite.
+       - `MISSING_TIMESTAMP`: incoming freshness timestamp is undefined.
+       - `INVALID_TIMESTAMP`: incoming freshness timestamp is non-positive, non-finite, or NaN.
+       - `INVALID_STALE_THRESHOLD`: incoming stale threshold is <= 0, non-finite, or NaN.
+       - `INVALID_STATUS`: incoming status is unrecognized outside `TelemetryStatus`.
+       - `INVALID_SOURCE_EVENT_TIME`: incoming sourceEventTimeMs is negative, non-finite, or NaN.
+     - `createInitialTelemetry()` delegates directly to `evaluateInitialTelemetry(opts).state`.
+  3. **Fail-Safe Initial Status Defaulting to UNKNOWN (D2.3-C):**
+     - When `incoming.status` is omitted/undefined, the state defaults safely to `'UNKNOWN'` rather than synthesizing `'HEALTHY'`.
+     - Only explicit `'HEALTHY'` status yields healthy telemetry upon initial construction.
+  4. **Hostile Regression Test Expansion (SC-01.24 & SC-01.25):**
+     - `SC-01.24`: Hostile verification of source-event timestamp provenance, absence preservation without fabrication from freshnessTimestamp, zero/positive acceptance, and rejection of negative/NaN/Infinity values.
+     - `SC-01.25`: Hostile verification of precise typed initial-state diagnostics across missing/invalid source, epoch, timestamp, threshold, status, and source-event timestamp, plus verification that unstated initial status defaults to `'UNKNOWN'`.
+     - Automated test suite expanded to 82 passing tests (47 safety invariants, 20 responsive viewport behavioral, 6 positions sort, 9 modal accessibility).
+  5. **Retained Boundary Status:**
+     - Retained `AUTHENTICATED RECONNECTION UNVERIFIED` / `BLOCKED — BACKEND AUTHORITY NOT INTEGRATED`.
+     - Retained `DURABLE IDEMPOTENCY BLOCKED` (client in-memory deduplication verified, distributed store unresolved).
+     - Retained `SERVER AUTHENTICATION & RBAC BLOCKED` (live broker commands throw `LiveExecutionBlockedError`).
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Eliminates fabricated observation provenance, guarantees zero diagnostic divergence on initial telemetry ingestion, ensures unstated health is never presumed, and preserves complete snapshot immutability on rejected inputs.
