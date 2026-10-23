@@ -31,7 +31,7 @@
 - **Stage D.2.3.2 Closure / Reconciliation Commit:** `11ae97097486049fad48d3025b58b95f84d3d9a9`
   - Parent: `208540915787192ff0ce86abe36bec7548c284cc`
   - Role: Threat matrix hostile test `SC-01.27` (84 tests passing), Decision `D-053`, and closure report initialization.
-- **Stage D.2.3.3 Evidence Revalidation & Closure Recheck Commit:** (Current commit)
+- **Stage D.2.3.3 Evidence Revalidation Commit:** `463fac663e9c5b3ebfefabafff9d30054d5f3031`
   - Parent: `11ae97097486049fad48d3025b58b95f84d3d9a9`
   - Role: Correction of Findings F-01 (commit provenance), F-02 (exact-SHA CI mapping), and F-03 (zero-timestamp wording precision) across canonical reports and Decision `D-054`.
 - **Remote Branch Head Verification [OBSERVED]:**
@@ -72,8 +72,9 @@
 | **Stage D.2.3.1 Implementation** | `208540915787192ff0ce86abe36bec7548c284cc` | FRACTAL FLOW Baseline CI | 39953755946 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39953755946` |
 | **Stage D.2.3.2 Closure / Sign-Off** | `11ae97097486049fad48d3025b58b95f84d3d9a9` | Control Surface GUI CI | 39959381161 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39959381161` |
 | **Stage D.2.3.2 Closure / Sign-Off** | `11ae97097486049fad48d3025b58b95f84d3d9a9` | FRACTAL FLOW Baseline CI | 39959381147 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39959381147` |
-| **Stage D.2.3.3 Evidence Revalidation** | (To be recorded on push) | Control Surface GUI CI | (Active) | completed | **success** | (Tracked upon delivery) |
-| **Stage D.2.3.3 Evidence Revalidation** | (To be recorded on push) | FRACTAL FLOW Baseline CI | (Active) | completed | **success** | (Tracked upon delivery) |
+| **Stage D.2.3.3 Evidence Revalidation** | `463fac663e9c5b3ebfefabafff9d30054d5f3031` | Control Surface GUI CI (PR #29) | 39963526562 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39963526562` |
+| **Stage D.2.3.3 Evidence Revalidation** | `463fac663e9c5b3ebfefabafff9d30054d5f3031` | FRACTAL FLOW Baseline CI (PR #29) | 39963526555 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39963526555` |
+| **Stage D.2.3.3 Evidence Revalidation** | `463fac663e9c5b3ebfefabafff9d30054d5f3031` | FRACTAL FLOW Baseline CI (push) | 39963516909 | completed | **success** | `https://github.com/Kiyingijmc/FRACTAL-FLOW/actions/runs/39963516909` |
 
 ---
 
