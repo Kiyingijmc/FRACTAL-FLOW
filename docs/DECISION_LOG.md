@@ -445,3 +445,22 @@ Constitutional architecture must not be optimized away to solve these questions.
   - **Scope D (Stage D GUI Control Surface):** `CLOSED — VERIFIED`.
   - **Scope E (Entire System / Live Broker Execution & Backend Authority):** `BLOCKED — REQUIRED DEPENDENCY UNAVAILABLE`. External Control Service handshake protocol, server-side RBAC, and distributed durable idempotency store remain unresolved external dependencies and fail closed.
 * **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Formally seals Stage D GUI control-surface forensic hardening with 84 automated adversarial tests, zero regressions, and complete evidence traceability.
+
+
+## D-054 — Stage D.2.3.3 Canonical Forensic Report Correction, Final-SHA Evidence Reconciliation, and Closure Revalidation
+* **Context:** Independent audit of Stage D.2.3.2 identified three documentation and evidence mapping discrepancies requiring formal correction:
+  1. Finding F-01 (Incomplete Commit Provenance): `docs/reports/STAGE_D_FORENSIC_CLOSURE_REPORT.md` left the Stage D.2.3.2 closure commit field as a placeholder rather than explicitly recording the linear lineage from baseline `44d6a43` through implementation commit `2085409` to closure commit `11ae970`.
+  2. Finding F-02 (CI Evidence Disambiguation): The verification matrix cited earlier CI runs for implementation commit `2085409` without clearly differentiating them from the CI runs for closure commit `11ae970` (`Control Surface GUI CI` run ID 39959381161; `FRACTAL FLOW Baseline CI` run ID 39959381147).
+  3. Finding F-03 (Zero-Timestamp Wording Precision): In provenance statements, the phrase "zero timestamp substitution occurs" was ambiguous. The normative contract must explicitly distinguish between absent source-event timestamps (which remain strictly `undefined` without synthetic fallback) and explicit zero timestamps (`sourceEventTimeMs === 0`, which are accepted and preserved as valid non-negative generation times).
+* **Forensic Reconciliation & Dispositions:**
+  - **Commit Provenance Clarified:** Explicitly documented the three distinct SHAs and their roles: Stage D.2.3.1 implementation (`2085409`), Stage D.2.3.2 closure (`11ae970`), and Stage D.2.3.3 evidence revalidation commit.
+  - **CI Verification Matrix Partitioned:** Partitioned remote CI evidence by exact tested SHA, ensuring no workflow run is attributed to a commit it did not test.
+  - **Zero-Timestamp Wording Formalized:** Explicitly clarified that "no synthetic timestamp substitution occurs" for absent source-event times, and that an explicit zero is valid and preserved.
+  - **Retained External Boundaries:** Reconnection authority, broker live execution, and distributed durable idempotency remain strictly fail-closed.
+* **Final Scope Dispositions:**
+  - **Scope A (D2.3-F01 — Empty-Source Classification):** `CLOSED — VERIFIED`.
+  - **Scope B (Stage D.2.3.1 — Implementation and Delivery):** `CLOSED — VERIFIED`.
+  - **Scope C (Stage D.2.3.2 / D.2.3.3 — Forensic Reconciliation):** `CLOSED — VERIFIED`.
+  - **Scope D (Stage D GUI Control-Surface Scope):** `CLOSED — VERIFIED`.
+  - **Scope E (Entire System / Live Broker Execution & Backend Authority):** `BLOCKED — REQUIRED DEPENDENCY UNAVAILABLE`.
+* **Rationale:** Governed by `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY`. Guarantees exact, unambiguous, and independently verifiable forensic documentation and commit provenance across all repository records.
