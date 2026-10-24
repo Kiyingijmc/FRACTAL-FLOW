@@ -14,6 +14,7 @@ import {
   PresentationPreferences, 
   OperationalRiskConfig 
 } from '../types';
+import { validateOperationalRiskConfig } from '../utils/riskValidator';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -91,31 +92,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setRiskDraft(updated);
     setIsSavedFeedback(false);
 
-    // Cross-field invariant validation
-    if (field === 'maxLaneRiskR' || field === 'maxAccountExposureR') {
-      const laneRisk = field === 'maxLaneRiskR' ? value : updated.maxLaneRiskR;
-      const accountExposure = field === 'maxAccountExposureR' ? value : updated.maxAccountExposureR;
-      if (laneRisk > accountExposure) {
-        setValidationError(`INVARIANT VIOLATION: Max Lane Risk (${laneRisk}R) cannot exceed Max Account Exposure (${accountExposure}R).`);
-        return;
-      }
+    const validation = validateOperationalRiskConfig(updated);
+    if (!validation.isValid) {
+      setValidationError(validation.errors[0] || 'Invalid configuration parameters');
+    } else {
+      setValidationError(null);
     }
-
-    if (value <= 0 || isNaN(value)) {
-      setValidationError(`INVALID PARAMETER: Field '${field}' must be a strictly positive finite number.`);
-      return;
-    }
-
-    setValidationError(null);
   };
 
   const handleSaveRiskConfig = () => {
-    if (riskDraft.maxLaneRiskR > riskDraft.maxAccountExposureR) {
-      setValidationError('INVARIANT VIOLATION: Max Lane Risk cannot exceed Max Account Exposure.');
-      return;
-    }
-    if (riskDraft.dailyLossLimitUsd <= 0 || isNaN(riskDraft.dailyLossLimitUsd)) {
-      setValidationError('INVALID PARAMETER: Daily loss limit must be strictly positive.');
+    const validation = validateOperationalRiskConfig(riskDraft);
+    if (!validation.isValid) {
+      setValidationError(validation.errors.join('; '));
       return;
     }
 

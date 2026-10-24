@@ -60,6 +60,8 @@ import {
   INITIAL_REMEDIATION_BLOCKERS,
   INITIAL_AUDIT_TRAIL
 } from './data/mockData';
+import { validateOperationalRiskConfig } from './utils/riskValidator';
+import { computeCanonicalSha256 } from './utils/crypto';
 
 export const App: React.FC = () => {
   // Provider boundaries
@@ -109,16 +111,18 @@ export const App: React.FC = () => {
   const [blockers] = useState<RemediationBlockerRecord[]>(INITIAL_REMEDIATION_BLOCKERS);
   const [auditTrail, setAuditTrail] = useState<AuditTrailRecord[]>(INITIAL_AUDIT_TRAIL);
   const [latencyMetrics, setLatencyMetrics] = useState<LatencyMetrics>({
-    lastRttMs: 142,
-    avgRttMs: 156,
-    minRttMs: 112,
-    maxRttMs: 228,
-    sampleCount: 14,
+    lastRttMs: null,
+    avgRttMs: null,
+    minRttMs: null,
+    maxRttMs: null,
+    sampleCount: 0,
     warningThresholdMs: 250,
     criticalThresholdMs: 500,
-    status: 'NOMINAL',
-    lastMeasuredAt: Date.now(),
+    status: 'NO_DATA',
+    lastMeasuredAt: null,
     injectedDelayMs: 0,
+    measuredExecutionTimeMs: null,
+    metricName: 'SIMULATED COMMAND-PROCESSING TIME',
   });
 
   // Mobile View Switcher for Positions: 'table' vs 'detail'
@@ -174,16 +178,25 @@ export const App: React.FC = () => {
       )
     );
 
+    const now = Date.now();
+    const auditPayload = {
+      action: 'ACKNOWLEDGE_NOTIFICATION',
+      target: id,
+      timestamp: now,
+      note: 'Ack does not resolve condition'
+    };
+
     const auditEntry: AuditTrailRecord = {
-      id: `aud_${Date.now()}`,
-      timestamp: Date.now(),
-      actor: 'operator:daniel',
+      id: `aud_${now}`,
+      timestamp: now,
+      actor: 'session:local_operator',
       action: 'ACKNOWLEDGE_NOTIFICATION',
       target: id,
       outcome: 'SUCCESS_SIMULATED',
       correlationId: `corr_ack_${id}`,
-      intentDigestSha256: 'e5f67890123456789abcdef0123456789abcdef0123456789abcdef012345678',
-      details: `Operator acknowledged notification [${id}]. Note: Acknowledgement does not resolve condition.`
+      intentDigestSha256: computeCanonicalSha256(auditPayload),
+      details: `[SESSION ONLY] Operator acknowledged notification [${id}]. Note: Acknowledgement does not resolve condition.`,
+      isSessionOnly: true
     };
     setAuditTrail((prev) => [auditEntry, ...prev]);
 
@@ -192,7 +205,7 @@ export const App: React.FC = () => {
         id: `evt_${Date.now()}`,
         eventId: `EVT-${Date.now().toString().slice(-4)}`,
         timestamp: new Date().toLocaleTimeString(),
-        message: `Notification [${id}] acknowledged by operator (Ack ≠ Resolution)`,
+        message: `Notification [${id}] acknowledged by session operator (Ack ≠ Resolution)`,
         source: 'CLIENT_INTAKE',
         level: 'info',
         status: 'SIMULATED',
@@ -202,24 +215,76 @@ export const App: React.FC = () => {
     ]);
   }, []);
 
-  // Update Operational Risk Configuration
+  // Update Operational Risk Configuration with mandatory boundary validation
   const handleUpdateRiskConfig = useCallback((draftConfig: OperationalRiskConfig) => {
+    const validation = validateOperationalRiskConfig(draftConfig);
+    const now = Date.now();
+
+    if (!validation.isValid) {
+      // Fail closed: preserve prior configuration exactly, zero state mutation
+      const rejectPayload = {
+        action: 'UPDATE_RISK_CONFIG_REJECTED',
+        target: draftConfig?.effectiveConfigId || 'UNKNOWN',
+        errors: validation.errors,
+        timestamp: now
+      };
+
+      const rejectEntry: AuditTrailRecord = {
+        id: `aud_reject_${now}`,
+        timestamp: now,
+        actor: 'session:local_operator',
+        action: 'UPDATE_RISK_CONFIG_REJECTED',
+        target: draftConfig?.effectiveConfigId || 'UNKNOWN',
+        outcome: 'MUTATION_BLOCKED',
+        correlationId: `corr_cfg_reject_${now}`,
+        intentDigestSha256: computeCanonicalSha256(rejectPayload),
+        details: `[MUTATION BLOCKED] Configuration draft rejected fail-closed: ${validation.errors.join('; ')}`,
+        isSessionOnly: true
+      };
+      setAuditTrail((prev) => [rejectEntry, ...prev]);
+
+      setSystemEvents((prev) => [
+        {
+          id: `evt_${Date.now()}`,
+          eventId: `EVT-${Date.now().toString().slice(-4)}`,
+          timestamp: new Date().toLocaleTimeString(),
+          message: `OperationalRiskConfig draft rejected fail-closed: ${validation.errors.join('; ')}`,
+          source: 'CLIENT_INTAKE',
+          level: 'warn',
+          status: 'REJECTED',
+          isAuthoritative: false
+        },
+        ...prev
+      ]);
+      return;
+    }
+
     setRiskConfig({
       ...draftConfig,
-      lastUpdated: Date.now(),
+      lastUpdated: now,
       source: 'SIM_ENGINE'
     });
 
+    const auditPayload = {
+      action: 'UPDATE_RISK_CONFIG_DRAFT',
+      effectiveConfigId: draftConfig.effectiveConfigId,
+      maxLaneRiskR: draftConfig.maxLaneRiskR,
+      maxAccountExposureR: draftConfig.maxAccountExposureR,
+      dailyLossLimitUsd: draftConfig.dailyLossLimitUsd,
+      timestamp: now
+    };
+
     const auditEntry: AuditTrailRecord = {
-      id: `aud_${Date.now()}`,
-      timestamp: Date.now(),
-      actor: 'operator:daniel',
+      id: `aud_${now}`,
+      timestamp: now,
+      actor: 'session:local_operator',
       action: 'UPDATE_RISK_CONFIG_DRAFT',
       target: draftConfig.effectiveConfigId,
       outcome: 'SUCCESS_SIMULATED',
       correlationId: `corr_cfg_${draftConfig.effectiveConfigId}`,
-      intentDigestSha256: 'f67890123456789abcdef0123456789abcdef0123456789abcdef0123456789a',
-      details: `MaxLaneRisk=${draftConfig.maxLaneRiskR}R, MaxExposure=${draftConfig.maxAccountExposureR}R, DailyLossLimit=$${draftConfig.dailyLossLimitUsd}`
+      intentDigestSha256: computeCanonicalSha256(auditPayload),
+      details: `[SIMULATION ONLY] MaxLaneRisk=${draftConfig.maxLaneRiskR}R, MaxExposure=${draftConfig.maxAccountExposureR}R, DailyLossLimit=$${draftConfig.dailyLossLimitUsd}`,
+      isSessionOnly: true
     };
     setAuditTrail((prev) => [auditEntry, ...prev]);
 
@@ -488,39 +553,52 @@ export const App: React.FC = () => {
       }
     }
 
-    // Record latency helper
-    const recordLatencyMeasurement = () => {
-      const elapsed = Math.round(performance.now() - commandStartTime);
+    // Record latency helper with honest separation of measured execution and injected delay
+    const recordLatencyMeasurement = (measuredSimMs: number, injectedDelay: number) => {
+      const totalDuration = measuredSimMs + injectedDelay;
+      if (!Number.isFinite(totalDuration) || totalDuration < 0) {
+        setLatencyMetrics((prev) => ({
+          ...prev,
+          status: 'INVALID',
+        }));
+        return;
+      }
+
       setLatencyMetrics((prev) => {
         const count = prev.sampleCount + 1;
-        const avg = Math.round((prev.avgRttMs * prev.sampleCount + elapsed) / count);
-        const min = Math.min(prev.minRttMs, elapsed);
-        const max = Math.max(prev.maxRttMs, elapsed);
+        const avg = prev.avgRttMs !== null
+          ? Math.round((prev.avgRttMs * prev.sampleCount + totalDuration) / count)
+          : totalDuration;
+        const min = prev.minRttMs !== null ? Math.min(prev.minRttMs, totalDuration) : totalDuration;
+        const max = prev.maxRttMs !== null ? Math.max(prev.maxRttMs, totalDuration) : totalDuration;
         const status =
-          elapsed >= prev.criticalThresholdMs
+          totalDuration >= prev.criticalThresholdMs
             ? 'EXCEEDED'
-            : elapsed >= prev.warningThresholdMs
+            : totalDuration >= prev.warningThresholdMs
             ? 'ELEVATED'
             : 'NOMINAL';
         return {
           ...prev,
-          lastRttMs: elapsed,
+          lastRttMs: totalDuration,
           avgRttMs: avg,
           minRttMs: min,
           maxRttMs: max,
           sampleCount: count,
           status,
           lastMeasuredAt: Date.now(),
+          measuredExecutionTimeMs: measuredSimMs,
         };
       });
     };
 
     // Simulation Sandbox Progression owned entirely by SimulationProvider
     try {
-      if (latencyMetrics.injectedDelayMs > 0) {
-        await new Promise((res) => setTimeout(res, latencyMetrics.injectedDelayMs));
+      const delayMs = latencyMetrics.injectedDelayMs || 0;
+      if (delayMs > 0) {
+        await new Promise((res) => setTimeout(res, delayMs));
       }
 
+      const simStartTime = performance.now();
       const res = await simulationProvider.submitCommand(
         intent,
         (progress) => {
@@ -535,8 +613,9 @@ export const App: React.FC = () => {
           );
         }
       );
+      const measuredSimTimeMs = Math.round(performance.now() - simStartTime);
 
-      recordLatencyMeasurement();
+      recordLatencyMeasurement(measuredSimTimeMs, delayMs);
 
       const updatedPositions = await simulationProvider.getPositions();
       setPositions(updatedPositions);
@@ -550,7 +629,7 @@ export const App: React.FC = () => {
 
       setTimeout(() => setActiveCommand(null), 3500);
     } catch (err: unknown) {
-      recordLatencyMeasurement();
+      recordLatencyMeasurement(0, latencyMetrics.injectedDelayMs || 0);
       const msg = err instanceof Error ? err.message : String(err);
       setActiveCommand((prev) =>
         prev ? { ...prev, status: 'REJECTED', details: msg } : null

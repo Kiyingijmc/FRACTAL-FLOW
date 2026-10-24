@@ -223,9 +223,9 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
             {activeTab === 'CALIB' && 'Parameters, Models, Real-Time Advice & Promotion Rollout'}
             {activeTab === 'HEALTH' && 'Bridge Connectivity, Fence Consensus & Security Telemetry'}
             {activeTab === 'STATS' && 'Journal-Verified Historical Performance Analytics'}
-            {activeTab === 'LAB' && 'Read-Only Backtesting & Robustness Analysis'}
+            {activeTab === 'LAB' && 'Read-Only Backtesting & Robustness Analysis (Synthetic Fixtures)'}
             {activeTab === 'OPS' && 'Operational Blocker Register & Governance Matrix'}
-            {activeTab === 'AUDIT' && 'Authoritative System Audit Trail'}
+            {activeTab === 'AUDIT' && 'Session Audit Log (Non-Authoritative / Simulation Only)'}
           </span>
         </div>
         <button
@@ -782,13 +782,17 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
       {/* LAB & BACKTESTING VIEW (READ-ONLY) */}
       {activeTab === 'LAB' && (
         <div className="space-y-4">
-          <div className="p-3 bg-[#161C26] border border-[#232A35] text-xs text-[#6E7A8A] flex items-center justify-between">
+          <div className="p-3 bg-[#161C26] border border-[#BFA13B]/40 text-xs text-[#E7EAEE] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <FlaskConical className="w-4 h-4 text-[#5B8FBF]" />
-              <span className="text-[#E7EAEE] font-medium">Read-Only Analytical Surface:</span>
-              <span>Backtest artifacts, robustness dimensions, and null-world checks.</span>
+              <FlaskConical className="w-4 h-4 text-[#BFA13B] shrink-0" />
+              <div>
+                <span className="font-semibold text-[#BFA13B]">SYNTHETIC LAB FIXTURES (UNVERIFIED):</span>{' '}
+                <span className="text-[#6E7A8A]">
+                  Displayed backtest runs are offline analytical fixtures. No statistical trading edge or live execution capability is asserted or proven.
+                </span>
+              </div>
             </div>
-            <span className="font-mono text-[10px] px-2 py-0.5 bg-[#0A0E14] text-[#C25B6B] border border-[#232A35]">
+            <span className="font-mono text-[10px] px-2 py-0.5 bg-[#0A0E14] text-[#C25B6B] border border-[#232A35] shrink-0">
               EXECUTION DISABLED (READ-ONLY)
             </span>
           </div>
@@ -949,11 +953,11 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
           <div className="p-3 bg-[#161C26] border border-[#232A35] text-xs text-[#6E7A8A] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FileText className="w-4 h-4 text-[#5B8FBF]" />
-              <span className="text-[#E7EAEE] font-medium">Authoritative System Audit Trail:</span>
-              <span>Cryptographically attributed event history and mutation proofs.</span>
+              <span className="text-[#E7EAEE] font-medium">Session Audit Log (Non-Authoritative):</span>
+              <span>In-memory simulation events and local mutation records. Non-persistent · Local Session Only.</span>
             </div>
             <span className="font-mono text-[10px] text-[#6E7A8A]">
-              Immutable · Read-Only
+              Simulation Sandbox · Session Only
             </span>
           </div>
 

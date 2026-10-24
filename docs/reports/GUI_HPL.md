@@ -40,9 +40,20 @@
 | **GUI-HPL-028** | Modal Accessibility, Focus Trap & Trigger Focus Restoration (FF-D-08 / D2-B) | HIGH (P1) | **REAL COMPONENT ACCESSIBILITY BEHAVIOR VERIFIED (JSDOM)** | `control_surface/src/components/FooterLog.tsx`, `MobileBottomNav.tsx` | D2-B.01–D2-B.09: Production components tested with native DOM events; Tab wrap, Shift+Tab wrap, Escape, backdrop click |
 | **GUI-HPL-029** | Operational Risk Configuration Validation & Fail-Closed Boundary (EXP-01) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SettingsModal.tsx` | EXP-01.1 & EXP-01.2: Cross-field validation (Lane Risk <= Account Exposure); non-positive and NaN rejection; simulation-scoped writes |
 | **GUI-HPL-030** | 5-Class Notification Taxonomy & Non-Resolving Acknowledgement (EXP-02) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/CriticalBanner.tsx`, `NotificationDrawer.tsx` | EXP-02.1 & EXP-02.2: Safety-critical locked ON; operator ack records timestamp without resolving system condition |
-| **GUI-HPL-031** | Quant Model Advisory Intent Restriction (Strictly NO CREATE) (EXP-03) | CRITICAL (P0) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (QUANT) | EXP-03.1 & EXP-03.2: Model intents restricted strictly to VETO, REDUCE, NONE; order creation prohibited; risk gates remain sovereign |
-| **GUI-HPL-032** | Lab & Backtesting Read-Only Integrity & Statistical Robustness (EXP-04) | MEDIUM (P2) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (LAB) | EXP-04.1: Read-only execution barrier; null-world shuffle check, planted-edge recovery, OOS degradation <= 20% |
-| **GUI-HPL-033** | Remediation Blockers & Cryptographic Audit Trail Verification (EXP-05) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (OPS & AUDIT) | EXP-05.1 & EXP-05.2: Blocker evidence retention; audit trail entries carry correlation ID and 64-char SHA-256 digest |
+| **GUI-HPL-031** | Quant Model Advisory Intent Restriction (Strictly NO CREATE) (EXP-03 / HPL-QUANT-01) | CRITICAL (P0) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (QUANT) | EXP-03.1, EXP-03.2, HPL-QUANT-01: Model intents restricted strictly to VETO, REDUCE, NONE; order creation prohibited; risk gates sovereign |
+| **GUI-HPL-032** | Lab & Backtesting Read-Only Integrity & Statistical Robustness (EXP-04 / HPL-LAB-01) | MEDIUM (P2) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (LAB) | EXP-04.1, HPL-LAB-01: Read-only barrier; unverified synthetic fixtures disclaimer banner; null-world & planted-edge statistical robustness |
+| **GUI-HPL-033** | Remediation Blockers & Cryptographic Audit Trail Verification (EXP-05 / HPL-AUD-01..02) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (OPS & AUDIT) | EXP-05.1, EXP-05.2, HPL-AUD-01..02: Blocker evidence retention; session actor `session:local_operator`; deterministic canonical JSON SHA-256 |
+| **GUI-HPL-034** | Candidate Risk Validation & Zero Silent Units Fallback (F-01, F-02 / HPL-RISK-01..06) | CRITICAL (P0) | **AUTOMATED INVARIANT PASSING** | `src/utils/riskValidator.ts`, `src/components/AutomatedRiskValidator.tsx` | HPL-RISK-01..06, RISK-01..05: Explicit allocatedRiskR, fail-closed atomic aggregation on invalid units, inclusive cap equality, cents math |
+| **GUI-HPL-035** | Latency Telemetry Truthfulness & Cold-Start Integrity (F-05 / HPL-LAT-01..03) | HIGH (P1) | **AUTOMATED INVARIANT PASSING** | `src/components/Header.tsx`, `src/App.tsx` | HPL-LAT-01..03, LATENCY-01..03: NO_DATA cold-start (`--ms`), honest separation of measured execution vs injected delay, fail-closed INVALID |
+| **GUI-HPL-036** | Honest Command-Path & Simulation Dispatch Disclaimers (F-03) | MEDIUM (P2) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/GateChainStrip.tsx`, `src/components/AutomatedRiskValidator.tsx` | Copy explicitly disclaims authoritative admission: "Pre-flight analysis only — authoritative admission enforcement not implemented" |
+| **GUI-HPL-037** | Operational Risk Configuration Hardening & State Immutability (F-04 / HPL-RISK-05) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SettingsModal.tsx`, `src/App.tsx` | HPL-RISK-05, EXP-01.1..02: Cross-field cap validation, NaN/negative rejection, MUTATION_BLOCKED audit trail, bit-for-bit state preserved |
+| **GUI-HPL-038** | Honest Session Audit Provenance & Anonymous Identifier (F-06 / HPL-AUD-01..02) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx`, `src/components/Header.tsx`, `src/App.tsx` | HPL-AUD-01..02: Actor `session:local_operator`, header `LOCAL SESSION (NON-AUTH)`, non-authoritative session audit view |
+| **GUI-HPL-039** | Notification Delivery Truthfulness & Unconfigured Transport Disclosure (F-07 / HPL-NOT-01..02) | HIGH (P1) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/NotificationDrawer.tsx`, `src/data/mockData.ts` | HPL-NOT-01..02, EXP-02.1..02: Telegram unconfigured disclosure, simulated status, operator acknowledgement records timestamp (Ack ≠ Resolution) |
+| **GUI-HPL-040** | Lab Synthetic Provenance & Unverified Analytical Disclaimers (F-08 / HPL-LAB-01) | MEDIUM (P2) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (LAB) | HPL-LAB-01, EXP-04.1: Prominent warning banner marking all runs as synthetic lab fixtures with unverified production execution equivalence |
+| **GUI-HPL-041** | QUANT Model Authority Isolation & Sovereign Gate Supremacy (F-09 / HPL-QUANT-01) | CRITICAL (P0) | **REAL COMPONENT BEHAVIOR VERIFIED** | `src/components/SecondaryViews.tsx` (QUANT) | HPL-QUANT-01, EXP-03.1..02: Model permitted intents restricted strictly to VETO, REDUCE, NONE (strictly NO CREATE); risk gates sovereign |
+| **GUI-HPL-042** | Live Execution Fail-Closed Barrier & Reconcile Immutability (F-10 / HPL-LIVE-01..02) | CRITICAL (P0) | **AUTOMATED INVARIANT PASSING** | `src/providers/LiveCommandAdapter.ts`, `src/providers/SimulationProvider.ts` | HPL-LIVE-01..02, SC-05.2..03: Live execution throws LiveExecutionBlockedError; simulation provider state remains bit-for-bit unchanged |
+| **GUI-HPL-043** | Automated Forensic Adversarial Invariant Test Suite (F-11 / 118 Invariants) | CRITICAL (P0) | **118 AUTOMATED TESTS PASSING (100%)** | `src/tests/` (7 test suites) | 49 safety + 20 responsive + 6 sort + 9 modal + 9 expansion + 8 risk & latency + 17 stage H adversarial = 118 PASSED, 0 FAILED |
+| **GUI-HPL-044** | Forensic Lineage, Git Bundle, Patch & SHA-256 Verification (F-12 / HPL-EVID-01) | HIGH (P1) | **VERIFIED & EXPORTED** | `docs/reports/STAGE_H_FORENSIC_REMEDIATION_REPORT.md` | Commit sha, diff stat, reproducible git bundle, patch file, and cryptographic sha256 checksums documented |
 
 ---
 
@@ -136,3 +147,115 @@
 - **Mitigation:** Implemented focus trap event handlers, outside click listeners, and trigger focus return refs in `FooterLog.tsx` and `MobileBottomNav.tsx`. Tested actual production components rendered in JSDOM with real DOM KeyboardEvent and MouseEvent dispatching.
 - **Test Evidence:** `modal_focus_behavior.test.ts` D2-B.01 through D2-B.09 (9 real component accessibility tests passing).
 - **Disposition:** REAL COMPONENT ACCESSIBILITY BEHAVIOR VERIFIED (JSDOM).
+
+### GUI-HPL-029: Operational Risk Configuration Guardrails (EXP-01 / HPL-RISK-05)
+- **Threat Scenario:** Operator inputs invalid risk settings (e.g., negative caps, NaN, lane cap exceeding account cap) or simulation updates erroneously claim authoritative backend configuration.
+- **Required Invariant:** `maxLaneRiskR` must not exceed `maxAccountExposureR`. All numeric caps must be strictly positive and finite. Configuration updates in simulation must never manufacture live authoritative credentials.
+- **Mitigation:** Implemented `validateOperationalRiskConfig` in `src/utils/riskValidator.ts`. Embedded validation in `SettingsModal.tsx` and `App.tsx` fail-closed mutation boundary.
+- **Test Evidence:** `expansion_invariants.test.ts` EXP-01.1 & EXP-01.2; `stage_h_adversarial_invariants.test.ts` HPL-RISK-05.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-030: Notification Delivery Truthfulness & Non-Resolving Acknowledgement (EXP-02 / HPL-NOT-01..02)
+- **Threat Scenario:** Acknowledging an alert causes the operator to believe the underlying safety risk has cleared, or the system falsely claims successful off-platform delivery over an unconfigured channel.
+- **Required Invariant:** Operator acknowledgement updates audit trail timestamp (`acknowledgedAt`) but strictly leaves `resolved: false`. Safety-critical alerts are permanently pinned. Unconfigured transports display truthful `UNCONFIGURED (SIMULATION ONLY)`.
+- **Mitigation:** Updated `handleAcknowledgeNotification` in `App.tsx` to preserve `resolved`. Tagged delivery attempt status as `SIMULATED` in `mockData.ts`. Updated `NotificationDrawer.tsx` to disclose transport status.
+- **Test Evidence:** `expansion_invariants.test.ts` EXP-02.1 & EXP-02.2; `stage_h_adversarial_invariants.test.ts` HPL-NOT-01 & HPL-NOT-02.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-031: Quant Advisory Scope & Gate Supremacy (EXP-03 / HPL-QUANT-01)
+- **Threat Scenario:** Quantitative advisory models autonomously issue new trade orders or bypass deterministic upstream risk validation.
+- **Required Invariant:** Permitted model intents are strictly restricted to `VETO`, `REDUCE`, or `NONE`. Order creation (`CREATE`) is prohibited. Upstream deterministic risk gates retain complete supremacy.
+- **Mitigation:** Constrained `ModelPermittedIntent` type union in `types.ts`. Disallowed `CREATE` in `SecondaryViews.tsx` QUANT registry.
+- **Test Evidence:** `expansion_invariants.test.ts` EXP-03.1 & EXP-03.2; `stage_h_adversarial_invariants.test.ts` HPL-QUANT-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-032: Lab Analytical Contracts & Synthetic Disclaimer (EXP-04 / HPL-LAB-01)
+- **Threat Scenario:** Operator mistakes synthetic backtest curves for live execution performance, risking overconfidence in unverified strategies.
+- **Required Invariant:** Lab runs are permanently read-only and marked with prominent visual warnings disclosing synthetic provenance and unverified production execution equivalence. Backtests require null-world and planted-edge statistical robustness checks.
+- **Mitigation:** Added persistent `SYNTHETIC LAB FIXTURES (UNVERIFIED)` banner in `SecondaryViews.tsx` (LAB). Verified statistical robustness checks in `types.ts`.
+- **Test Evidence:** `expansion_invariants.test.ts` EXP-04.1; `stage_h_adversarial_invariants.test.ts` HPL-LAB-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-033: Remediation Blockers & Canonical Digest Audit Trail (EXP-05 / HPL-AUD-01..02)
+- **Threat Scenario:** Audit entries are altered in-memory or lack cryptographic tamper-evidence; audit logs carry fabricated developer credentials.
+- **Required Invariant:** Every audit record requires a correlation ID and deterministic canonical JSON SHA-256 intent digest. Session records must honestly identify actor as `session:local_operator`.
+- **Mitigation:** Created synchronous zero-dependency canonical JSON serializer and SHA-256 digest in `src/utils/crypto.ts`. Applied `session:local_operator` across `App.tsx` and `SecondaryViews.tsx`.
+- **Test Evidence:** `expansion_invariants.test.ts` EXP-05.1 & EXP-05.2; `stage_h_adversarial_invariants.test.ts` HPL-AUD-01 & HPL-AUD-02.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-034: Candidate Risk Validation & Zero Silent Units Fallback (F-01, F-02 / HPL-RISK-01..06)
+- **Threat Scenario:** Position sizing in lots is misinterpreted as risk units in R, or positions without explicit risk allocations fall back to arbitrary constants (e.g. 0.6R or lot-size as R), corrupting portfolio aggregation and allowing rogue risk breaches.
+- **Required Invariant:** Positions require explicit `allocatedRiskR`. If any position in the portfolio has missing, invalid, or non-finite risk, portfolio aggregation fails closed (atomic evaluation, zero partial sums). Exact boundary caps are inclusive ceilings (projected <= cap is allowed, strictly greater breaches). Daily loss is evaluated in integer currency cents to prevent floating-point bleed.
+- **Mitigation:** Implemented `getValidPositionRiskR`, `evaluatePortfolioRisk`, `calculateLaneRiskR`, `calculateAccountExposureR`, and `validateCandidateAgainstRiskConfig` in `src/utils/riskValidator.ts`. Explicit `allocatedRiskR` populated on all positions in `mockData.ts`.
+- **Test Evidence:** `risk_validator_and_latency.test.ts` RISK-01 through RISK-05; `stage_h_adversarial_invariants.test.ts` HPL-RISK-01 through HPL-RISK-06 (11 passing tests).
+- **Disposition:** AUTOMATED INVARIANT PASSING.
+
+### GUI-HPL-035: Latency Telemetry Truthfulness & Cold-Start Integrity (F-05 / HPL-LAT-01..03)
+- **Threat Scenario:** Header latency displays synthetic startup samples (e.g. 142ms) or labels simulated dispatch time as live network RTT, misleading operators regarding execution round-trip times.
+- **Required Invariant:** Latency monitor initializes in `NO_DATA` state displaying `--ms` and `NO DATA` badge until a simulated command is executed. Measured simulated execution duration must be strictly separated from artificially injected test delays. Invalid observations fail closed to `INVALID`.
+- **Mitigation:** Initialized `latencyMetrics` in `App.tsx` with `status: 'NO_DATA'`, null samples, and explicit `metricName: 'SIMULATED COMMAND-PROCESSING TIME'`. Updated `Header.tsx` modal to decompose total delay into measured execution vs injected test delay.
+- **Test Evidence:** `risk_validator_and_latency.test.ts` LATENCY-01 through LATENCY-03; `stage_h_adversarial_invariants.test.ts` HPL-LAT-01 through HPL-LAT-03 (6 passing tests).
+- **Disposition:** AUTOMATED INVARIANT PASSING.
+
+### GUI-HPL-036: Honest Command-Path & Simulation Dispatch Disclaimers (F-03)
+- **Threat Scenario:** UI copy presents candidate gate clearance as an authoritative admission or suggests live order routing is active.
+- **Required Invariant:** UI disclaimers must state clearly that gate clearance is pre-flight simulation analysis only, and that authoritative admission enforcement and live dispatch are not supported on the candidate pipeline.
+- **Mitigation:** Updated `GateChainStrip.tsx` and `AutomatedRiskValidator.tsx` modal copy with explicit non-authoritative disclaimers.
+- **Test Evidence:** Verified in UI rendering and automated component tests.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-037: Operational Risk Configuration Hardening & State Immutability (F-04 / HPL-RISK-05)
+- **Threat Scenario:** Invalid operational risk configurations (e.g. lane cap > account cap) mutate state or corrupt the simulation sandbox.
+- **Required Invariant:** Draft configurations violating cross-field or boundary rules are rejected fail-closed; previous state is preserved bit-for-bit, and a `MUTATION_BLOCKED` audit record is generated.
+- **Mitigation:** Applied `validateOperationalRiskConfig` inside `App.tsx` `handleUpdateRiskConfig`. Rejection produces `MUTATION_BLOCKED` audit event with zero state mutation.
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-RISK-05; `expansion_invariants.test.ts` EXP-01.1 & EXP-01.2.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-038: Honest Session Audit Provenance & Anonymous Identifier (F-06 / HPL-AUD-01..02)
+- **Threat Scenario:** Audit trails and headers display hardcoded developer identities (e.g. "daniel · OPERATOR") or claim authoritative persistence.
+- **Required Invariant:** Operator identity is displayed as `LOCAL SESSION (NON-AUTH)`. Audit events record actor as `session:local_operator`. Audit view is explicitly labeled as non-authoritative session log.
+- **Mitigation:** Removed developer name from `Header.tsx`. Updated `SecondaryViews.tsx` AUDIT view header.
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-AUD-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-039: Notification Delivery Truthfulness & Unconfigured Transport Disclosure (F-07 / HPL-NOT-01..02)
+- **Threat Scenario:** System claims external Telegram bot is "SIM_ONLINE", giving false confidence that mobile alerts are operational.
+- **Required Invariant:** Unconfigured external transports must truthfully display `Telegram Transport: UNCONFIGURED (SIMULATION ONLY)`.
+- **Mitigation:** Updated `NotificationDrawer.tsx` transport status bar and mock data delivery attempt status to `SIMULATED`.
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-NOT-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-040: Lab Synthetic Provenance & Unverified Analytical Disclaimers (F-08 / HPL-LAB-01)
+- **Threat Scenario:** Backtest results in the LAB view are perceived as verified production results.
+- **Required Invariant:** LAB view must feature an unmissable banner explicitly marking all backtest runs as `SYNTHETIC LAB FIXTURES (UNVERIFIED)` with zero production equivalence guarantee.
+- **Mitigation:** Added persistent amber banner in `SecondaryViews.tsx` (LAB).
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-LAB-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-041: QUANT Model Authority Isolation & Sovereign Gate Supremacy (F-09 / HPL-QUANT-01)
+- **Threat Scenario:** Machine learning quant models are granted execution dispatch or order creation authority.
+- **Required Invariant:** Models can only provide advisory vetoes (`VETO`) or size reduction suggestions (`REDUCE`). All models have strictly NO CREATE authority.
+- **Mitigation:** Formalized in `QuantModelRecord` and verified via `HPL-QUANT-01`.
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-QUANT-01.
+- **Disposition:** REAL COMPONENT BEHAVIOR VERIFIED.
+
+### GUI-HPL-042: Live Execution Fail-Closed Barrier & Reconcile Immutability (F-10 / HPL-LIVE-01..02)
+- **Threat Scenario:** Frontend attempts live broker network calls or command rejection leaves simulation state corrupted.
+- **Required Invariant:** `LiveCommandAdapter` throws `LiveExecutionBlockedError` unconditionally on `submitCommand` and `reconcileCommand`. Rejected commands leave protected trading state bit-for-bit unchanged.
+- **Mitigation:** Hardened `LiveCommandAdapter.ts` and `SimulationProvider.ts`.
+- **Test Evidence:** `stage_h_adversarial_invariants.test.ts` HPL-LIVE-01 & HPL-LIVE-02; `safety_invariants.test.ts` SC-05.2 & SC-05.3.
+- **Disposition:** AUTOMATED INVARIANT PASSING.
+
+### GUI-HPL-043: Automated Forensic Adversarial Invariant Test Suite (F-11 / 118 Invariants)
+- **Threat Scenario:** Future regressions break core safety invariants, risk calculations, or accessibility contracts.
+- **Required Invariant:** 100% automated pass rate across all test suites, including adversarial boundary tests.
+- **Mitigation:** Created comprehensive test harness running 7 test suites (118 automated tests).
+- **Test Evidence:** 118 PASSED, 0 FAILED across `safety_invariants.test.ts` (49), `responsive_structural.test.ts` (20), `positions_table_sort.test.ts` (6), `modal_focus_behavior.test.ts` (9), `expansion_invariants.test.ts` (9), `risk_validator_and_latency.test.ts` (8), and `stage_h_adversarial_invariants.test.ts` (17).
+- **Disposition:** 118 AUTOMATED TESTS PASSING (100%).
+
+### GUI-HPL-044: Forensic Lineage, Git Bundle, Patch & SHA-256 Verification (F-12 / HPL-EVID-01)
+- **Threat Scenario:** Remediation changes cannot be independently verified, inspected, or audited off-platform.
+- **Required Invariant:** Canonical branch `work/gui-reconciliation-20261024` with verified commit SHA, standalone git bundle, unified diff patch, and SHA-256 checksums.
+- **Mitigation:** Complete forensic reporting in `STAGE_H_FORENSIC_REMEDIATION_REPORT.md` with verifiable export artifacts.
+- **Disposition:** VERIFIED & EXPORTED.
+

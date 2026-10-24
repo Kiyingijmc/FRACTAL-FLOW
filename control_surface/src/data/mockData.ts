@@ -10,6 +10,7 @@ export const INITIAL_POSITIONS: Position[] = [
     entryPrice: 1.08420,
     currentPrice: 1.08705,
     size: 0.80,
+    allocatedRiskR: 0.80,
     unrealizedR: 1.62,
     mfe: 1.91,
     mae: -0.32,
@@ -34,6 +35,7 @@ export const INITIAL_POSITIONS: Position[] = [
     entryPrice: 1.26810,
     currentPrice: 1.26702,
     size: 0.50,
+    allocatedRiskR: 0.50,
     unrealizedR: 0.44,
     mfe: 0.61,
     mae: -0.15,
@@ -58,6 +60,7 @@ export const INITIAL_POSITIONS: Position[] = [
     entryPrice: 152.410,
     currentPrice: 152.298,
     size: 0.60,
+    allocatedRiskR: 0.60,
     unrealizedR: -0.74,
     mfe: 0.22,
     mae: -0.85,
@@ -82,6 +85,7 @@ export const INITIAL_POSITIONS: Position[] = [
     entryPrice: 1.08910,
     currentPrice: 1.08864,
     size: 0.40,
+    allocatedRiskR: 0.40,
     unrealizedR: 0.29,
     mfe: 0.35,
     mae: -0.08,
@@ -603,7 +607,7 @@ export const INITIAL_NOTIFICATIONS: NotificationEvent[] = [
     resolvedAt: Date.now() - 1000 * 60 * 70,
     deliveryAttempts: [
       { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 82 },
-      { channel: 'telegram', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 82 }
+      { channel: 'telegram', status: 'SIMULATED', timestamp: Date.now() - 1000 * 60 * 82 }
     ],
     isAuthoritative: false
   },
@@ -881,24 +885,28 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailRecord[] = [
   {
     id: 'aud_001',
     timestamp: Date.now() - 1000 * 60 * 14,
-    actor: 'operator:daniel',
+    actor: 'fixture:seed_operator',
     action: 'TIGHTEN_STOP',
     target: 'EURUSD:pos_01',
     outcome: 'SUCCESS_SIMULATED',
     correlationId: 'corr_8f2910ab3',
     intentDigestSha256: '11194880a614c26b40875d4106839cd93b69b6d6e3476f2e714514f6abc8cf6f',
-    details: 'Stop level adjusted from 1.08290 to 1.08420 in local off-broker sandbox.'
+    details: '[FIXTURE] Stop level adjusted from 1.08290 to 1.08420 in local off-broker sandbox.',
+    isFixture: true,
+    isSessionOnly: true
   },
   {
     id: 'aud_002',
     timestamp: Date.now() - 1000 * 60 * 42,
-    actor: 'operator:daniel',
+    actor: 'fixture:seed_operator',
     action: 'MOVE_TO_BREAKEVEN',
     target: 'EURUSD:pos_01',
     outcome: 'SUCCESS_SIMULATED',
     correlationId: 'corr_4c7811de9',
     intentDigestSha256: '0b5131bd897ca045e6ed2bd758ffbd2bb1baa5a4d7383a4b0539e30fbda1c937',
-    details: 'Breakeven flag engaged at entry 1.08420.'
+    details: '[FIXTURE] Breakeven flag engaged at entry 1.08420.',
+    isFixture: true,
+    isSessionOnly: true
   },
   {
     id: 'aud_003',
@@ -909,18 +917,22 @@ export const INITIAL_AUDIT_TRAIL: AuditTrailRecord[] = [
     outcome: 'SUCCESS_SIMULATED',
     correlationId: 'corr_99f0122cd',
     intentDigestSha256: '1b18ee2901fb0ab92074b59d6d93b2c06674ae0aa943fb303261059e274e9ed3',
-    details: 'Open risk 1.80R evaluated against 2.50R cap. Safe margin maintained.'
+    details: '[FIXTURE] Open risk 1.80R evaluated against 2.50R cap. Safe margin maintained.',
+    isFixture: true,
+    isSessionOnly: true
   },
   {
     id: 'aud_004',
     timestamp: Date.now() - 1000 * 60 * 190,
-    actor: 'operator:daniel',
+    actor: 'fixture:seed_operator',
     action: 'LIVE_EXECUTION_ATTEMPT',
     target: 'EURUSD:pos_01',
     outcome: 'REJECTED_FAIL_CLOSED',
     correlationId: 'corr_33a9087eb',
     intentDigestSha256: '185885045e7be5b8c496062f393706dc63127c44edf474120352d723179f585a',
-    details: 'LIVE_EXECUTION_BLOCKED: LiveCommandAdapter rejected execution. Backend Control Service not provisioned.'
+    details: '[FIXTURE] LIVE_EXECUTION_BLOCKED: LiveCommandAdapter rejected execution. Backend Control Service not provisioned.',
+    isFixture: true,
+    isSessionOnly: true
   }
 ];
 

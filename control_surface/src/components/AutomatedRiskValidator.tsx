@@ -16,18 +16,30 @@ export const AutomatedRiskValidatorBadge: React.FC<AutomatedRiskValidatorBadgePr
 }) => {
   const isBreached = validation.status === 'BREACHED';
   const isWarning = validation.status === 'WARNING';
+  const isInvalid = validation.status === 'INVALID';
+  const isUnknown = validation.status === 'UNKNOWN';
 
   let badgeStyle = 'bg-[#4FAE86]/10 text-[#4FAE86] border-[#4FAE86]/30 hover:bg-[#4FAE86]/20';
   let labelText = `RISK CLEAR (${validation.projectedLaneRiskR}R / ${validation.laneRiskCapR}R)`;
   let icon = <CheckCircle2 className="w-3 h-3 text-[#4FAE86]" />;
 
-  if (isBreached) {
+  if (isInvalid) {
+    badgeStyle = 'bg-[#B23B3B]/20 text-[#C25B6B] border-[#B23B3B]/60 hover:bg-[#B23B3B]/30';
+    labelText = '⚠️ INVALID DATA / RISK FAIL-CLOSED';
+    icon = <ShieldAlert className="w-3 h-3 text-[#C25B6B]" />;
+  } else if (isUnknown) {
+    badgeStyle = 'bg-[#BFA13B]/20 text-[#BFA13B] border-[#BFA13B]/50 hover:bg-[#BFA13B]/30';
+    labelText = '⚠️ RISK UNKNOWN';
+    icon = <AlertTriangle className="w-3 h-3 text-[#BFA13B]" />;
+  } else if (isBreached) {
     badgeStyle = 'bg-[#B23B3B]/20 text-[#C25B6B] border-[#B23B3B]/50 hover:bg-[#B23B3B]/30 animate-pulse';
     const violation = validation.violations[0];
     const shortCode = violation?.code === 'MAX_LANE_RISK_EXCEEDED' 
       ? `LANE CAP BREACH (${validation.projectedLaneRiskR}R > ${validation.laneRiskCapR}R)` 
       : violation?.code === 'MAX_ACCOUNT_EXPOSURE_EXCEEDED'
       ? `EXPOSURE CAP BREACH (${validation.projectedAccountExposureR}R > ${validation.accountExposureCapR}R)`
+      : violation?.code === 'DAILY_LOSS_LIMIT_EXCEEDED'
+      ? 'DAILY LOSS CAP BREACH'
       : 'RISK VIOLATION';
     labelText = `⚠️ ${shortCode}`;
     icon = <ShieldAlert className="w-3 h-3 text-[#C25B6B]" />;
@@ -188,7 +200,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
                 ))}
               </ul>
               <div className="text-[10px] text-[#6E7A8A] pt-1 border-t border-[#B23B3B]/20">
-                Guaranteed Fail-Closed: GateChain intake will refuse execution dispatch until lane or account risk is de-risked.
+                Pre-flight analysis only — authoritative admission enforcement not implemented in simulation. Execution dispatch is not supported on candidate pipeline.
               </div>
             </div>
           ) : (

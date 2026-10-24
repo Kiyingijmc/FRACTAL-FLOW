@@ -21,16 +21,18 @@ interface HeaderProps {
 }
 
 const DEFAULT_LATENCY: LatencyMetrics = {
-  lastRttMs: 142,
-  avgRttMs: 156,
-  minRttMs: 112,
-  maxRttMs: 228,
-  sampleCount: 14,
+  lastRttMs: null,
+  avgRttMs: null,
+  minRttMs: null,
+  maxRttMs: null,
+  sampleCount: 0,
   warningThresholdMs: 250,
   criticalThresholdMs: 500,
-  status: 'NOMINAL',
-  lastMeasuredAt: Date.now(),
+  status: 'NO_DATA',
+  lastMeasuredAt: null,
   injectedDelayMs: 0,
+  measuredExecutionTimeMs: null,
+  metricName: 'SIMULATED COMMAND-PROCESSING TIME',
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -81,6 +83,27 @@ export const Header: React.FC<HeaderProps> = ({
           text: 'text-[#BFA13B]',
           label: 'ELEVATED',
         };
+      case 'STALE':
+        return {
+          dot: 'bg-[#BFA13B] animate-pulse',
+          badge: 'border-[#BFA13B]/50 bg-[#BFA13B]/15 text-[#BFA13B]',
+          text: 'text-[#BFA13B]',
+          label: 'STALE',
+        };
+      case 'INVALID':
+        return {
+          dot: 'bg-[#C25B6B]',
+          badge: 'border-[#B23B3B]/60 bg-[#B23B3B]/20 text-[#C25B6B]',
+          text: 'text-[#C25B6B]',
+          label: 'INVALID',
+        };
+      case 'NO_DATA':
+        return {
+          dot: 'bg-[#6E7A8A]',
+          badge: 'border-[#6E7A8A]/30 bg-[#161C26] text-[#6E7A8A]',
+          text: 'text-[#6E7A8A]',
+          label: 'NO DATA',
+        };
       case 'NOMINAL':
       default:
         return {
@@ -94,7 +117,8 @@ export const Header: React.FC<HeaderProps> = ({
 
   const statusColorClass = getStatusColor();
   const latencyStyle = getLatencyStyle(latency.status);
-  const isLatencyDelayed = latency.status !== 'NOMINAL';
+  const isLatencyDelayed = latency.status === 'ELEVATED' || latency.status === 'EXCEEDED';
+  const displayRttText = latency.lastRttMs !== null ? `${latency.lastRttMs}ms` : '--ms';
 
   return (
     <>
@@ -118,11 +142,11 @@ export const Header: React.FC<HeaderProps> = ({
             type="button"
             onClick={() => setIsLatencyOpen((prev) => !prev)}
             data-testid="latency-monitor-mobile"
-            aria-label={`Real-time latency: ${latency.lastRttMs}ms status ${latency.status}`}
+            aria-label={`Simulated command processing time: ${displayRttText} status ${latency.status}`}
             className="min-h-[44px] px-2 flex items-center gap-1 text-[10px] font-mono text-[#6E7A8A] border border-[#232A35] bg-[#161C26] rounded-[2px]"
           >
             <span className={`w-1.5 h-1.5 rounded-full ${latencyStyle.dot}`} />
-            <span className={`font-semibold ${latencyStyle.text}`}>{latency.lastRttMs}ms</span>
+            <span className={`font-semibold ${latencyStyle.text}`}>{displayRttText}</span>
             {isLatencyDelayed && (
               <span data-testid="latency-warning-badge-mobile" className="text-[#C25B6B]">
                 ⚠️
@@ -258,14 +282,14 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setIsLatencyOpen((prev) => !prev)}
             data-testid="latency-monitor"
             data-latency-status={latency.status}
-            title="Inspect command execution round-trip latency & delay thresholds"
+            title="Inspect simulated command-processing latency & delay thresholds"
             className="flex items-center gap-2 px-2 py-1 rounded-[2px] border border-[#232A35] hover:border-[#5B8FBF] bg-[#161C26] text-[11px] font-mono cursor-pointer transition-colors"
           >
             <Activity className={`w-3.5 h-3.5 ${latencyStyle.text}`} />
             <div className="flex items-center gap-1.5">
-              <span className="text-[#6E7A8A] text-[10px]">RTT:</span>
+              <span className="text-[#6E7A8A] text-[10px]">SIM RTT:</span>
               <span className={`font-semibold tabular-nums ${latencyStyle.text}`}>
-                {latency.lastRttMs}ms
+                {displayRttText}
               </span>
               <span className={`px-1 py-0.2 text-[9px] rounded-[2px] border ${latencyStyle.badge}`}>
                 {latencyStyle.label}
@@ -347,7 +371,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         <div className="text-xs text-[#6E7A8A] border-l border-[#232A35] pl-3 whitespace-nowrap shrink-0">
-          daniel · OPERATOR
+          LOCAL SESSION (NON-AUTH)
         </div>
       </header>
 
@@ -364,7 +388,7 @@ export const Header: React.FC<HeaderProps> = ({
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-[#5B8FBF]" />
                 <h3 className="font-semibold text-[#E7EAEE] uppercase tracking-wider text-[11px]">
-                  Execution Latency Monitor (Simulated RTT)
+                  Simulated Command-Processing Telemetry
                 </h3>
               </div>
               <button
@@ -389,7 +413,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>
-                  Visual Warning Active: Round-trip delay ({latency.lastRttMs}ms) exceeds{' '}
+                  Visual Warning Active: Processing delay ({displayRttText}) exceeds{' '}
                   {latency.status === 'EXCEEDED' ? `critical threshold (${latency.criticalThresholdMs}ms)` : `warning threshold (${latency.warningThresholdMs}ms)`}.
                 </span>
               </div>
@@ -398,16 +422,20 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Metrics Grid */}
             <div className="grid grid-cols-2 gap-2 bg-[#161C26] p-3 rounded-[2px] border border-[#232A35]">
               <div>
-                <span className="text-[10px] text-[#6E7A8A] block">LAST COMMAND RTT</span>
-                <span className={`text-base font-bold ${latencyStyle.text}`}>{latency.lastRttMs}ms</span>
+                <span className="text-[10px] text-[#6E7A8A] block">LAST COMMAND DURATION</span>
+                <span className={`text-base font-bold ${latencyStyle.text}`}>{displayRttText}</span>
               </div>
               <div>
-                <span className="text-[10px] text-[#6E7A8A] block">ROLLING AVG RTT</span>
-                <span className="text-base font-bold text-[#E7EAEE]">{latency.avgRttMs}ms</span>
+                <span className="text-[10px] text-[#6E7A8A] block">ROLLING AVG DURATION</span>
+                <span className="text-base font-bold text-[#E7EAEE]">
+                  {latency.avgRttMs !== null ? `${latency.avgRttMs}ms` : '--'}
+                </span>
               </div>
               <div>
                 <span className="text-[10px] text-[#6E7A8A] block">MIN / MAX RECORDED</span>
-                <span className="text-[#6E7A8A]">{latency.minRttMs}ms / {latency.maxRttMs}ms</span>
+                <span className="text-[#6E7A8A]">
+                  {latency.minRttMs !== null ? `${latency.minRttMs}ms / ${latency.maxRttMs}ms` : '--'}
+                </span>
               </div>
               <div>
                 <span className="text-[10px] text-[#6E7A8A] block">TOTAL SAMPLES</span>

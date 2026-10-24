@@ -104,7 +104,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             <Lock className="w-3 h-3 text-[#B23B3B]" />
             <span>Safety-Critical Channel: <strong className="text-[#E7EAEE]">PERMANENTLY ACTIVE (NON-MUTABLE)</strong></span>
           </div>
-          <span className="font-mono text-[10px] text-[#4FAE86]">TG Bot: SIM_ONLINE</span>
+          <span className="font-mono text-[10px] text-[#BFA13B]">Telegram Transport: UNCONFIGURED (SIMULATION ONLY)</span>
         </div>
 
         {/* Filter Pills */}

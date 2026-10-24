@@ -76,11 +76,11 @@ async function runRiskAndLatencyVerification() {
   });
 
   await test('RISK-02: Detects Total Account Exposure Cap breach when aggregate risk exceeds maxAccountExposureR', () => {
-    const candidate = GATE_CANDIDATES[1]; // GBPUSD
+    const candidate = { ...GATE_CANDIDATES[1], lane: 'ACT_SECONDARY' }; // GBPUSD in separate lane to isolate account limit
     const config: OperationalRiskConfig = {
       ...INITIAL_OPERATIONAL_RISK_CONFIG,
-      maxLaneRiskR: 10.0, // High lane limit to isolate account limit
-      maxAccountExposureR: 2.0, // Strict account limit
+      maxLaneRiskR: 2.0,
+      maxAccountExposureR: 2.0, // Strict account limit (projected 1.80 + 0.60 = 2.40R > 2.0R)
     };
 
     const validation = validateCandidateAgainstRiskConfig(
@@ -194,6 +194,7 @@ async function runRiskAndLatencyVerification() {
       status: 'NOMINAL',
       lastMeasuredAt: Date.now(),
       injectedDelayMs: 0,
+      metricName: 'SIMULATED COMMAND-PROCESSING TIME',
     };
 
     const html = renderToString(
@@ -250,6 +251,7 @@ async function runRiskAndLatencyVerification() {
       status: 'EXCEEDED',
       lastMeasuredAt: Date.now(),
       injectedDelayMs: 400,
+      metricName: 'SIMULATED COMMAND-PROCESSING TIME',
     };
 
     const html = renderToString(
@@ -303,6 +305,7 @@ async function runRiskAndLatencyVerification() {
       status: 'NOMINAL',
       lastMeasuredAt: Date.now(),
       injectedDelayMs: 0,
+      metricName: 'SIMULATED COMMAND-PROCESSING TIME',
     };
 
     const html = renderToString(

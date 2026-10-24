@@ -97,7 +97,7 @@ export const GateChainStrip: React.FC<GateChainStripProps> = ({
             </span>
           ) : (
             <span className="text-[#4FAE86]">
-              <strong>all gates cleared</strong>: candidate authorized for ExecutionGateway dispatch
+              <strong>all gates cleared</strong>: pre-flight analysis only (authoritative admission enforcement not implemented in simulation)
             </span>
           )}
         </div>

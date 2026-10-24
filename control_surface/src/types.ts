@@ -23,6 +23,7 @@ export interface Position {
   drivingTimeframe: Timeframe;
   lane: string;
   priceDecimals: number;
+  allocatedRiskR?: number;
   lastTickDir?: 'up' | 'down';
   lastTickTimestamp?: number;
   isSimulated: boolean;
@@ -290,6 +291,8 @@ export interface AuditTrailRecord {
   correlationId: string;
   intentDigestSha256: string;
   details: string;
+  isSessionOnly?: boolean;
+  isFixture?: boolean;
 }
 
 // -----------------------------------------------------------------------------
@@ -301,7 +304,8 @@ export type RiskViolationType =
   | 'MAX_ACCOUNT_EXPOSURE_EXCEEDED'
   | 'DAILY_LOSS_LIMIT_EXCEEDED'
   | 'KILL_SWITCH_THRESHOLD_REACHED'
-  | 'INVALID_POSITION_PARAM';
+  | 'INVALID_POSITION_PARAM'
+  | 'INVALID_CONFIG';
 
 export interface RiskViolation {
   code: RiskViolationType;
@@ -322,22 +326,26 @@ export interface CandidateRiskValidation {
   accountExposureCapR: number;
   dailyLossLimitUsd: number;
   currentDailyPnlUsd: number;
-  status: 'CLEAR' | 'WARNING' | 'BREACHED';
+  status: 'CLEAR' | 'WARNING' | 'BREACHED' | 'INVALID' | 'UNKNOWN';
+  isValid?: boolean;
+  diagnostic?: string;
 }
 
-export type LatencyStatus = 'NOMINAL' | 'ELEVATED' | 'EXCEEDED';
+export type LatencyStatus = 'NO_DATA' | 'NOMINAL' | 'ELEVATED' | 'EXCEEDED' | 'STALE' | 'INVALID';
 
 export interface LatencyMetrics {
-  lastRttMs: number;
-  avgRttMs: number;
-  minRttMs: number;
-  maxRttMs: number;
+  lastRttMs: number | null;
+  avgRttMs: number | null;
+  minRttMs: number | null;
+  maxRttMs: number | null;
   sampleCount: number;
   warningThresholdMs: number;
   criticalThresholdMs: number;
   status: LatencyStatus;
-  lastMeasuredAt: number;
+  lastMeasuredAt: number | null;
   injectedDelayMs: number;
+  measuredExecutionTimeMs?: number | null;
+  metricName: string;
 }
 
 
