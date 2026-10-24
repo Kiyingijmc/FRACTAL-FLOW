@@ -1,4 +1,5 @@
 import React from 'react';
+import { Settings, Bell } from 'lucide-react';
 import { TelemetryProvenance, ApplicationMode } from '../types/contracts';
 
 interface HeaderProps {
@@ -11,6 +12,9 @@ interface HeaderProps {
   onToggleSimPause: () => void;
   telemetry: TelemetryProvenance;
   applicationMode: ApplicationMode;
+  onOpenSettings?: () => void;
+  onOpenNotifications?: () => void;
+  unreadNotificationsCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,6 +27,9 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSimPause,
   telemetry,
   applicationMode,
+  onOpenSettings,
+  onOpenNotifications,
+  unreadNotificationsCount = 1,
 }) => {
   const getStatusColor = () => {
     switch (telemetry.status) {
@@ -63,15 +70,42 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-[9px] text-[#5B8FBF] uppercase">{telemetry.status}</span>
           </div>
 
-          {/* Sim Tick Control with min 44px touch target */}
-          <button
-            type="button"
-            onClick={onToggleSimPause}
-            title={isSimPaused ? 'Resume simulated tick stream' : 'Pause simulated tick stream'}
-            className="min-h-[44px] min-w-[44px] px-2 py-1 text-[10px] font-mono rounded-[2px] border border-[#232A35] bg-[#161C26] text-[#6E7A8A] hover:text-[#E7EAEE] active:bg-[#232A35] transition-colors cursor-pointer shrink-0 flex items-center justify-center"
-          >
-            {isSimPaused ? '▶ RESUME' : '⏸ PAUSE'}
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Notifications Trigger */}
+            <button
+              type="button"
+              onClick={onOpenNotifications}
+              data-testid="notifications-trigger"
+              className="relative min-h-[44px] min-w-[36px] flex items-center justify-center p-1.5 text-[#6E7A8A] hover:text-[#E7EAEE] border border-[#232A35] bg-[#161C26] rounded-[2px]"
+              aria-label="Open notifications center"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute top-1 right-1 w-2 h-2 bg-[#B23B3B] rounded-full" />
+              )}
+            </button>
+
+            {/* Settings Trigger */}
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              data-testid="settings-trigger"
+              className="min-h-[44px] min-w-[36px] flex items-center justify-center p-1.5 text-[#6E7A8A] hover:text-[#E7EAEE] border border-[#232A35] bg-[#161C26] rounded-[2px]"
+              aria-label="Open system settings"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Sim Tick Control with min 44px touch target */}
+            <button
+              type="button"
+              onClick={onToggleSimPause}
+              title={isSimPaused ? 'Resume simulated tick stream' : 'Pause simulated tick stream'}
+              className="min-h-[44px] min-w-[44px] px-2 py-1 text-[10px] font-mono rounded-[2px] border border-[#232A35] bg-[#161C26] text-[#6E7A8A] hover:text-[#E7EAEE] active:bg-[#232A35] transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+            >
+              {isSimPaused ? '▶' : '⏸'}
+            </button>
+          </div>
         </div>
 
         {/* Bottom Deck: Lane Selector & Compact KPIs */}
@@ -163,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex-1" />
 
         {/* Summary KPI Cards with [SIM] indicator */}
-        <div className="flex gap-5 items-center shrink-0">
+        <div className="flex gap-4 items-center shrink-0">
           <div className="text-right">
             <div className="text-[10px] text-[#6E7A8A]">equity (sim)</div>
             <div className="font-mono text-[15px] text-[#E7EAEE] tabular-nums">
@@ -184,7 +218,35 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        <div className="text-xs text-[#6E7A8A] border-l border-[#232A35] pl-3.5 whitespace-nowrap shrink-0">
+        {/* Notification Bell & Settings Triggers */}
+        <div className="flex items-center gap-1.5 border-l border-[#232A35] pl-3 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenNotifications}
+            data-testid="settings-trigger-desktop-notif"
+            className="relative p-1.5 text-[#6E7A8A] hover:text-[#E7EAEE] border border-transparent hover:border-[#232A35] hover:bg-[#161C26] rounded-[2px] transition-colors"
+            title="Notification Center & Alert Log"
+            aria-label="Open notifications center"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-[#B23B3B] rounded-full" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            data-testid="settings-trigger"
+            className="p-1.5 text-[#6E7A8A] hover:text-[#E7EAEE] border border-transparent hover:border-[#232A35] hover:bg-[#161C26] rounded-[2px] transition-colors"
+            title="System Settings & Operational Risk Configuration"
+            aria-label="Open system settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="text-xs text-[#6E7A8A] border-l border-[#232A35] pl-3 whitespace-nowrap shrink-0">
           daniel · OPERATOR
         </div>
       </header>

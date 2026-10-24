@@ -147,3 +147,148 @@ export interface CommandExecutionRecord {
   source: 'SIMULATION_SANDBOX' | 'GATEWAY_PROV';
   details: string;
 }
+
+// -----------------------------------------------------------------------------
+// EXPANDED DOMAIN TYPES (QUANT, NOTIFICATIONS, SETTINGS, LAB, OPS, AUDIT)
+// -----------------------------------------------------------------------------
+
+export type ExtendedNavTab = NavTab | 'LAB' | 'OPS' | 'AUDIT';
+
+export type NotificationClass =
+  | 'safety_critical'
+  | 'trade_lifecycle'
+  | 'risk_limit'
+  | 'calibration_rollout'
+  | 'informational_daily';
+
+export interface NotificationDeliveryAttempt {
+  channel: 'gui' | 'telegram';
+  status: 'DELIVERED' | 'PENDING' | 'SIMULATED' | 'FAILED';
+  timestamp?: number;
+}
+
+export interface NotificationEvent {
+  id: string;
+  class: NotificationClass;
+  severity: 'CRITICAL' | 'WARN' | 'INFO';
+  timestamp: number;
+  title: string;
+  detail: string;
+  lane?: string;
+  symbol?: string;
+  acknowledged: boolean;
+  acknowledgedAt?: number;
+  resolved: boolean;
+  resolvedAt?: number;
+  deliveryAttempts: NotificationDeliveryAttempt[];
+  isAuthoritative: boolean;
+}
+
+export interface PresentationPreferences {
+  layoutDensity: 'compact' | 'default' | 'spacious';
+  audioCues: boolean;
+  colorTheme: 'obsidian_black';
+}
+
+export interface OperationalRiskConfig {
+  effectiveConfigId: string;
+  version: string;
+  maxLaneRiskR: number;
+  maxAccountExposureR: number;
+  dailyLossLimitUsd: number;
+  killSwitchThresholdL: number;
+  lastUpdated: number;
+  source: 'SIM_ENGINE' | 'CONTROL_SERVICE';
+}
+
+export type ModelPermittedIntent = 'VETO' | 'REDUCE' | 'NONE';
+
+export interface QuantModelRecord {
+  id: string;
+  name: string;
+  version: string;
+  artifactSha256: string;
+  rolloutStage: 'SHADOW' | 'PAPER' | 'CANARY' | 'ACTIVE';
+  permittedIntents: ModelPermittedIntent[];
+  laneEligibility: string[];
+  health: 'HEALTHY' | 'DEGRADED' | 'STALE';
+  lastInferenceTime: number;
+  sourceState: 'SIMULATED' | 'SHADOW' | 'LIVE';
+}
+
+export interface ModelAdviceRecord {
+  id: string;
+  timestamp: number;
+  modelId: string;
+  symbol: string;
+  lane: string;
+  prediction: string;
+  confidence: number;
+  permittedIntent: ModelPermittedIntent;
+  recommendedAction: string;
+  gateDisposition: 'ACCEPTED_AS_ADVICE' | 'VETO_OVERRIDDEN_BY_RISK_GATE' | 'DEGRADED_BY_STALENESS';
+  rationale: string;
+  isAuthoritative: boolean;
+}
+
+export interface RolloutPromotionEvent {
+  id: string;
+  timestamp: number;
+  target: string;
+  fromStage: 'SHADOW' | 'PAPER' | 'CANARY';
+  toStage: 'PAPER' | 'CANARY' | 'ACTIVE';
+  evidenceSha256: string;
+  approver: string;
+  gateStatus: 'PASS' | 'FAIL';
+}
+
+export interface LabRunArtifact {
+  id: string;
+  name: string;
+  commitSha: string;
+  engineVersion: string;
+  fidelity: 'F0' | 'F1' | 'F2' | 'F3';
+  labTier: 'Lab-0' | 'Lab-1' | 'Lab-2' | 'Lab-3';
+  dateRange: string;
+  costModel: {
+    spreadPips: number;
+    commissionUsdPerLot: number;
+    slippageModel: string;
+  };
+  netRealizedR: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdownR: number;
+  maxDrawdownPct: number;
+  sharpe: number;
+  totalTrades: number;
+  nullWorldCheck: 'PASS' | 'FAIL';
+  plantedEdgeRecovery: 'PASS' | 'FAIL';
+  oosDegradationPct: number;
+  sensitivity: 'STABLE' | 'SENSITIVE';
+  isAuthoritative: boolean;
+}
+
+export interface RemediationBlockerRecord {
+  id: string;
+  category: 'AUTHORITY' | 'SECURITY' | 'BRIDGE' | 'TELEMETRY' | 'PERSISTENCE';
+  severity: 'P0' | 'P1' | 'P2';
+  status: 'RESOLVED_IN_STAGE_D' | 'BLOCKED_ON_BACKEND' | 'MONITORING';
+  summary: string;
+  owner: string;
+  evidenceArtifact: string;
+  lastUpdated: string;
+}
+
+export interface AuditTrailRecord {
+  id: string;
+  timestamp: number;
+  actor: string;
+  action: string;
+  target: string;
+  outcome: 'SUCCESS_SIMULATED' | 'REJECTED_FAIL_CLOSED' | 'MUTATION_BLOCKED';
+  correlationId: string;
+  intentDigestSha256: string;
+  details: string;
+}
+

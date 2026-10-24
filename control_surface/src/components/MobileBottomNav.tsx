@@ -1,25 +1,28 @@
 import React, { useEffect, useRef } from 'react';
-import { NavTab } from '../types';
+import { ExtendedNavTab } from '../types';
 
 interface MobileBottomNavProps {
-  activeTab: NavTab;
-  onTabChange: (tab: NavTab) => void;
+  activeTab: ExtendedNavTab;
+  onTabChange: (tab: ExtendedNavTab) => void;
   isMoreOpen: boolean;
   onToggleMore: (open: boolean) => void;
 }
 
-const PRIMARY_TABS: { id: NavTab; label: string; full: string }[] = [
+const PRIMARY_TABS: { id: ExtendedNavTab; label: string; full: string }[] = [
   { id: 'POS', label: 'POS', full: 'Positions' },
   { id: 'DEC', label: 'DEC', full: 'Decisions' },
   { id: 'RISK', label: 'RISK', full: 'Risk' },
   { id: 'MODE', label: 'MODE', full: 'Modes' },
 ];
 
-const SECONDARY_TABS: { id: NavTab; label: string; full: string; desc: string }[] = [
+const SECONDARY_TABS: { id: ExtendedNavTab; label: string; full: string; desc: string }[] = [
   { id: 'NEWS', label: 'NEWS', full: 'Market News & Embargo', desc: 'Gate N macro embargoes and scheduled releases' },
-  { id: 'CALIB', label: 'CALIB', full: 'Calibration', desc: 'Rollout stages: SHADOW → PAPER → CANARY → ACTIVE' },
+  { id: 'CALIB', label: 'CALIB', full: 'Calibration & QUANT', desc: 'Rollout stages: SHADOW → PAPER → CANARY → ACTIVE' },
   { id: 'HEALTH', label: 'HEALTH', full: 'System Health', desc: 'Gateway bridge, consensus epoch, and fence status' },
   { id: 'STATS', label: 'STATS', full: 'Performance Stats', desc: 'Expectancy, profit factor, and closed trade analytics' },
+  { id: 'LAB', label: 'LAB', full: 'Lab & Backtesting', desc: 'Read-only multi-run artifacts and null-world validation' },
+  { id: 'OPS', label: 'OPS', full: 'Remediation Register', desc: 'Open architectural blockers and governance ledger' },
+  { id: 'AUDIT', label: 'AUDIT', full: 'System Audit Trail', desc: 'Cryptographically attributed event history' },
 ];
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -35,7 +38,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   // Focus trap & focus restoration (UX-07)
   useEffect(() => {
     if (isMoreOpen) {
-      // Focus close button on open
       setTimeout(() => {
         closeButtonRef.current?.focus();
       }, 50);
@@ -48,7 +50,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           return;
         }
 
-        // Focus trap
         if (e.key === 'Tab' && drawerRef.current) {
           const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -159,38 +160,31 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         </div>
       )}
 
-      {/* Docked bottom navigation bar */}
-      <nav
+      {/* Docked bottom navigation bar for mobile (< 768px) */}
+      <nav 
+        className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-[#10151D] border-t border-[#232A35] flex items-stretch justify-around px-1 select-none"
         aria-label="Mobile Navigation"
-        className="fixed bottom-0 inset-x-0 z-30 md:hidden bg-[#10151D] border-t border-[#232A35] flex items-stretch justify-around h-14 select-none pb-safe"
       >
-        {PRIMARY_TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
+        {PRIMARY_TABS.map((item) => {
+          const isActive = activeTab === item.id;
           return (
             <button
-              key={tab.id}
+              key={item.id}
               type="button"
-              onClick={() => {
-                onTabChange(tab.id);
-                if (isMoreOpen) onToggleMore(false);
-              }}
-              aria-current={isActive ? 'page' : undefined}
-              className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer focus-visible:ring-1 focus-visible:ring-[#5B8FBF] outline-none ${
+              onClick={() => onTabChange(item.id)}
+              className={`flex-1 min-h-[44px] py-1.5 text-center text-[11px] font-mono font-medium transition-colors flex flex-col items-center justify-center cursor-pointer border-t-2 ${
                 isActive
-                  ? 'text-[#5B8FBF] bg-[#161C26]'
-                  : 'text-[#6E7A8A] hover:text-[#E7EAEE] hover:bg-[#161C26]/40'
+                  ? 'border-[#5B8FBF] text-[#E7EAEE] bg-[#161C26]'
+                  : 'border-transparent text-[#6E7A8A] hover:text-[#E7EAEE]'
               }`}
             >
-              {isActive && (
-                <div className="absolute top-0 inset-x-2 h-0.5 bg-[#5B8FBF] rounded-full" />
-              )}
-              <span className="font-mono text-xs font-semibold tracking-wider">{tab.label}</span>
-              <span className="text-[9px] text-[#6E7A8A] mt-0.5">{tab.full}</span>
+              <span>{item.label}</span>
+              <span className="text-[9px] text-[#454E5C] font-sans -mt-0.5">{item.full}</span>
             </button>
           );
         })}
 
-        {/* More Tab */}
+        {/* More button */}
         <button
           ref={triggerRef}
           type="button"
@@ -198,21 +192,19 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           aria-expanded={isMoreOpen}
           aria-haspopup="dialog"
           aria-label="More control surfaces and diagnostics"
-          className={`flex-1 min-h-[44px] min-w-[48px] flex flex-col items-center justify-center relative transition-colors cursor-pointer focus-visible:ring-1 focus-visible:ring-[#5B8FBF] outline-none ${
+          className={`flex-1 min-h-[44px] py-1.5 text-center text-[11px] font-mono font-medium transition-colors flex flex-col items-center justify-center cursor-pointer border-t-2 ${
             isSecondaryActive || isMoreOpen
-              ? 'text-[#5B8FBF] bg-[#161C26]'
-              : 'text-[#6E7A8A] hover:text-[#E7EAEE] hover:bg-[#161C26]/40'
+              ? 'border-[#5B8FBF] text-[#E7EAEE] bg-[#161C26]'
+              : 'border-transparent text-[#6E7A8A] hover:text-[#E7EAEE]'
           }`}
         >
-          {(isSecondaryActive || isMoreOpen) && (
-            <div className="absolute top-0 inset-x-2 h-0.5 bg-[#5B8FBF] rounded-full" />
-          )}
-          <span className="font-mono text-xs font-semibold tracking-wider">
-            {isSecondaryActive ? activeTab : 'MORE'}
+          <span className="flex items-center gap-1">
+            MORE ▾
+            {isSecondaryActive && (
+              <span className="w-1.5 h-1.5 rounded-full bg-[#5B8FBF] inline-block" />
+            )}
           </span>
-          <span className="text-[9px] text-[#6E7A8A] mt-0.5">
-            {isSecondaryActive ? 'Active' : 'Panels ▾'}
-          </span>
+          <span className="text-[9px] text-[#454E5C] font-sans -mt-0.5">Surfaces</span>
         </button>
       </nav>
     </>

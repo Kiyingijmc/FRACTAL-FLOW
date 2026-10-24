@@ -539,3 +539,389 @@ export const INITIAL_MARKET_NEWS: MarketNewsItem[] = [
   },
 ];
 
+// -----------------------------------------------------------------------------
+// EXPANDED CAPABILITY FIXTURES (QUANT, NOTIFICATIONS, SETTINGS, LAB, OPS, AUDIT)
+// -----------------------------------------------------------------------------
+
+import { 
+  NotificationEvent, 
+  OperationalRiskConfig, 
+  QuantModelRecord, 
+  ModelAdviceRecord, 
+  RolloutPromotionEvent, 
+  LabRunArtifact, 
+  RemediationBlockerRecord, 
+  AuditTrailRecord 
+} from '../types';
+
+export const INITIAL_NOTIFICATIONS: NotificationEvent[] = [
+  {
+    id: 'notif_001',
+    class: 'safety_critical',
+    severity: 'CRITICAL',
+    timestamp: Date.now() - 1000 * 60 * 18,
+    title: 'Lane Fence Epoch Desynchronization Monitored',
+    detail: 'Simulated fence verification detected epoch transition 417 -> 418. Protective fail-closed invariants active.',
+    lane: 'ACT_PRIMARY',
+    symbol: 'EURUSD',
+    acknowledged: false,
+    resolved: false,
+    deliveryAttempts: [
+      { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 18 },
+      { channel: 'telegram', status: 'SIMULATED', timestamp: Date.now() - 1000 * 60 * 18 }
+    ],
+    isAuthoritative: false
+  },
+  {
+    id: 'notif_002',
+    class: 'risk_limit',
+    severity: 'WARN',
+    timestamp: Date.now() - 1000 * 60 * 45,
+    title: 'Account Open Exposure Approaching Warning Threshold (72%)',
+    detail: 'Total open risk across lanes is 1.80R against configured ceiling of 2.50R.',
+    lane: 'ALL',
+    acknowledged: true,
+    acknowledgedAt: Date.now() - 1000 * 60 * 30,
+    resolved: false,
+    deliveryAttempts: [
+      { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 45 }
+    ],
+    isAuthoritative: false
+  },
+  {
+    id: 'notif_003',
+    class: 'trade_lifecycle',
+    severity: 'INFO',
+    timestamp: Date.now() - 1000 * 60 * 82,
+    title: 'Position EURUSD LONG Ratcheted to Structural Breakeven',
+    detail: 'Stop level moved to 1.08420 following 15M swing progression (MFE +1.84R).',
+    lane: 'ACT_PRIMARY',
+    symbol: 'EURUSD',
+    acknowledged: true,
+    acknowledgedAt: Date.now() - 1000 * 60 * 70,
+    resolved: true,
+    resolvedAt: Date.now() - 1000 * 60 * 70,
+    deliveryAttempts: [
+      { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 82 },
+      { channel: 'telegram', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 82 }
+    ],
+    isAuthoritative: false
+  },
+  {
+    id: 'notif_004',
+    class: 'calibration_rollout',
+    severity: 'INFO',
+    timestamp: Date.now() - 1000 * 60 * 140,
+    title: 'Model ML-EXIT-RF-01 Transitioned to CANARY (15% Traffic)',
+    detail: 'Out-of-sample validation completed with 0.68 F1-score. Permitted intent: VETO only.',
+    lane: 'ACT_PRIMARY',
+    acknowledged: true,
+    resolved: true,
+    deliveryAttempts: [
+      { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 140 }
+    ],
+    isAuthoritative: false
+  },
+  {
+    id: 'notif_005',
+    class: 'informational_daily',
+    severity: 'INFO',
+    timestamp: Date.now() - 1000 * 60 * 320,
+    title: 'Session Rollover Synchronized: Daily P&L Reset Anchor Set',
+    detail: 'Trading epoch 418 established. Clock skew drift measured at +4ms.',
+    lane: 'GLOBAL',
+    acknowledged: true,
+    resolved: true,
+    deliveryAttempts: [
+      { channel: 'gui', status: 'DELIVERED', timestamp: Date.now() - 1000 * 60 * 320 }
+    ],
+    isAuthoritative: false
+  }
+];
+
+export const INITIAL_OPERATIONAL_RISK_CONFIG: OperationalRiskConfig = {
+  effectiveConfigId: 'cfg_live_418_f89c02',
+  version: 'v4.1.8',
+  maxLaneRiskR: 2.5,
+  maxAccountExposureR: 5.0,
+  dailyLossLimitUsd: 1500.0,
+  killSwitchThresholdL: 3,
+  lastUpdated: Date.now() - 1000 * 60 * 60 * 4,
+  source: 'SIM_ENGINE'
+};
+
+export const INITIAL_QUANT_MODELS: QuantModelRecord[] = [
+  {
+    id: 'ML-EXIT-RF-01',
+    name: 'Random Forest Volatility Deceleration Veto',
+    version: 'v1.4.2',
+    artifactSha256: '9f82d1c6e4a2b8537415d86f91c3384a20b8540915787192ff0ce86abe36bec7',
+    rolloutStage: 'CANARY',
+    permittedIntents: ['VETO', 'REDUCE'],
+    laneEligibility: ['EURUSD:ACT_PRIMARY', 'GBPUSD:ACT_PRIMARY'],
+    health: 'HEALTHY',
+    lastInferenceTime: Date.now() - 1000 * 14,
+    sourceState: 'SIMULATED'
+  },
+  {
+    id: 'QUANT-VOL-GARCH',
+    name: 'GARCH(1,1) Microstructure Variance Estimator',
+    version: 'v2.1.0',
+    artifactSha256: '44d6a43f481f454efb22ac8784ed6d599a9f436a5c2ed42ec946bf9e237424f0',
+    rolloutStage: 'ACTIVE',
+    permittedIntents: ['REDUCE', 'NONE'],
+    laneEligibility: ['ALL_LANES'],
+    health: 'HEALTHY',
+    lastInferenceTime: Date.now() - 1000 * 5,
+    sourceState: 'SIMULATED'
+  },
+  {
+    id: 'REGIME-HMM-02',
+    name: '4-State Hidden Markov Regime Classifier',
+    version: 'v0.9.4',
+    artifactSha256: 'ac8cc76eb731049ad54911e17f991e04c078c4a0fa7f469e84cf650526e68c94',
+    rolloutStage: 'PAPER',
+    permittedIntents: ['VETO'],
+    laneEligibility: ['USDJPY', 'AUDUSD'],
+    health: 'HEALTHY',
+    lastInferenceTime: Date.now() - 1000 * 32,
+    sourceState: 'SHADOW'
+  },
+  {
+    id: 'LIQUIDITY-SHADOW-04',
+    name: 'Deep Orderbook Imbalance Predictor',
+    version: 'v0.3.1',
+    artifactSha256: '3f359b3f4d3bb5bf3f9c4e903ecabede6be0bac87a1937363adf3f0c02db4825',
+    rolloutStage: 'SHADOW',
+    permittedIntents: ['NONE'],
+    laneEligibility: ['EURUSD'],
+    health: 'DEGRADED',
+    lastInferenceTime: Date.now() - 1000 * 180,
+    sourceState: 'SHADOW'
+  }
+];
+
+export const INITIAL_MODEL_ADVICE_STREAM: ModelAdviceRecord[] = [
+  {
+    id: 'adv_001',
+    timestamp: Date.now() - 1000 * 12,
+    modelId: 'ML-EXIT-RF-01',
+    symbol: 'EURUSD',
+    lane: 'ACT_PRIMARY',
+    prediction: 'VOLATILITY_EXPANSION_CONTRA_TREND',
+    confidence: 0.84,
+    permittedIntent: 'VETO',
+    recommendedAction: 'HOLD_OR_TIGHTEN',
+    gateDisposition: 'ACCEPTED_AS_ADVICE',
+    rationale: 'Elevated contra-directional entropy detected on 15M bar close; probability of swing failure exceeds 80%.',
+    isAuthoritative: false
+  },
+  {
+    id: 'adv_002',
+    timestamp: Date.now() - 1000 * 38,
+    modelId: 'QUANT-VOL-GARCH',
+    symbol: 'GBPUSD',
+    lane: 'ACT_PRIMARY',
+    prediction: 'SPREAD_REGIME_STABLE',
+    confidence: 0.91,
+    permittedIntent: 'NONE',
+    recommendedAction: 'MAINTAIN_CURRENT_SL',
+    gateDisposition: 'ACCEPTED_AS_ADVICE',
+    rationale: 'Realized variance within 1.1 sigma historical boundary; no premature tightening advised.',
+    isAuthoritative: false
+  },
+  {
+    id: 'adv_003',
+    timestamp: Date.now() - 1000 * 95,
+    modelId: 'REGIME-HMM-02',
+    symbol: 'USDJPY',
+    lane: 'ACT_PRIMARY',
+    prediction: 'HIGH_VOLATILITY_CHOP',
+    confidence: 0.73,
+    permittedIntent: 'VETO',
+    recommendedAction: 'VETO_NEW_LONGS',
+    gateDisposition: 'VETO_OVERRIDDEN_BY_RISK_GATE',
+    rationale: 'Markov state transitioned to Choppy Congestion. Trade was already gated by upstream gate L.',
+    isAuthoritative: false
+  }
+];
+
+export const INITIAL_ROLLOUT_PROMOTIONS: RolloutPromotionEvent[] = [
+  {
+    id: 'prm_001',
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
+    target: 'QUANT-VOL-GARCH (v2.1.0)',
+    fromStage: 'CANARY',
+    toStage: 'ACTIVE',
+    evidenceSha256: '44d6a43f481f454efb22ac8784ed6d599a9f436a5c2ed42ec946bf9e237424f0',
+    approver: 'operator:daniel (Lead Quant)',
+    gateStatus: 'PASS'
+  },
+  {
+    id: 'prm_002',
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
+    target: 'ML-EXIT-RF-01 (v1.4.2)',
+    fromStage: 'PAPER',
+    toStage: 'CANARY',
+    evidenceSha256: '9f82d1c6e4a2b8537415d86f91c3384a20b8540915787192ff0ce86abe36bec7',
+    approver: 'operator:daniel (Lead Quant)',
+    gateStatus: 'PASS'
+  },
+  {
+    id: 'prm_003',
+    timestamp: Date.now() - 1000 * 60 * 60 * 24 * 12,
+    target: 'Adaptive Trail k=3.6',
+    fromStage: 'CANARY',
+    toStage: 'ACTIVE',
+    evidenceSha256: '7f2a19c4d92058145bbcd54877319ad02948c21a41982bde92015fa7431eef90',
+    approver: 'operator:daniel (Lead Quant)',
+    gateStatus: 'PASS'
+  }
+];
+
+export const INITIAL_LAB_RUNS: LabRunArtifact[] = [
+  {
+    id: 'run_20261023_candidate_f2',
+    name: 'Candidate: Dynamic Volatility Decay (F2 Synthetic)',
+    commitSha: 'c392c3e95f8e950cf7552d494a97d8821c2dd158',
+    engineVersion: 'v2.4.1-rc3',
+    fidelity: 'F2',
+    labTier: 'Lab-2',
+    dateRange: '2025-01-01 to 2026-09-30 (21 Months)',
+    costModel: {
+      spreadPips: 0.8,
+      commissionUsdPerLot: 6.0,
+      slippageModel: 'TICK_LEVEL_MONTE_CARLO'
+    },
+    netRealizedR: 142.8,
+    winRate: 0.442,
+    profitFactor: 1.88,
+    maxDrawdownR: 6.4,
+    maxDrawdownPct: 7.2,
+    sharpe: 2.14,
+    totalTrades: 894,
+    nullWorldCheck: 'PASS',
+    plantedEdgeRecovery: 'PASS',
+    oosDegradationPct: 12.8,
+    sensitivity: 'STABLE',
+    isAuthoritative: false
+  },
+  {
+    id: 'run_20261020_baseline_f1',
+    name: 'Production Baseline: Fixed Multi-Timeframe Trail (F1 Bar)',
+    commitSha: '74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d',
+    engineVersion: 'v2.3.8',
+    fidelity: 'F1',
+    labTier: 'Lab-1',
+    dateRange: '2025-01-01 to 2026-09-30 (21 Months)',
+    costModel: {
+      spreadPips: 0.8,
+      commissionUsdPerLot: 6.0,
+      slippageModel: 'FIXED_HALF_SPREAD'
+    },
+    netRealizedR: 118.2,
+    winRate: 0.418,
+    profitFactor: 1.65,
+    maxDrawdownR: 8.9,
+    maxDrawdownPct: 9.8,
+    sharpe: 1.76,
+    totalTrades: 840,
+    nullWorldCheck: 'PASS',
+    plantedEdgeRecovery: 'PASS',
+    oosDegradationPct: 18.5,
+    sensitivity: 'STABLE',
+    isAuthoritative: false
+  }
+];
+
+export const INITIAL_REMEDIATION_BLOCKERS: RemediationBlockerRecord[] = [
+  {
+    id: 'BLK-001',
+    category: 'AUTHORITY',
+    severity: 'P0',
+    status: 'BLOCKED_ON_BACKEND',
+    summary: 'Authoritative Live ExecutionGateway backend service not yet provisioned; live broker orders strictly fail-closed.',
+    owner: 'Platform Engineering',
+    evidenceArtifact: 'LiveCommandAdapter.ts (LiveExecutionBlockedError)',
+    lastUpdated: '2026-10-24 00:30 UTC'
+  },
+  {
+    id: 'D2.3-F01',
+    category: 'TELEMETRY',
+    severity: 'P1',
+    status: 'RESOLVED_IN_STAGE_D',
+    summary: 'Empty or whitespace telemetry source classification ambiguity remediated with strict diagnostic precedence.',
+    owner: 'GUI Forensic Team',
+    evidenceArtifact: 'commit 2085409 / test SC-01.26',
+    lastUpdated: '2026-10-23 23:14 UTC'
+  },
+  {
+    id: 'SEC-L2-GW',
+    category: 'SECURITY',
+    severity: 'P0',
+    status: 'BLOCKED_ON_BACKEND',
+    summary: 'Cryptographically authenticated multi-signature RBAC required for Level 2 / Level 3 Kill-Switch actuation.',
+    owner: 'Security / Risk Committee',
+    evidenceArtifact: '01_ARCHITECTURE.md §1 & HPL SC-01.21',
+    lastUpdated: '2026-10-23 18:00 UTC'
+  },
+  {
+    id: 'PER-JOURNAL-SYNC',
+    category: 'PERSISTENCE',
+    severity: 'P1',
+    status: 'MONITORING',
+    summary: 'Journal append-only event stream reconciliation verified in simulation; pending PostgreSQL durable write bridge.',
+    owner: 'Persistence Team',
+    evidenceArtifact: 'SimulationProvider.ts',
+    lastUpdated: '2026-10-24 00:15 UTC'
+  }
+];
+
+export const INITIAL_AUDIT_TRAIL: AuditTrailRecord[] = [
+  {
+    id: 'aud_001',
+    timestamp: Date.now() - 1000 * 60 * 14,
+    actor: 'operator:daniel',
+    action: 'TIGHTEN_STOP',
+    target: 'EURUSD:pos_01',
+    outcome: 'SUCCESS_SIMULATED',
+    correlationId: 'corr_8f2910ab3',
+    intentDigestSha256: '11194880a614c26b40875d4106839cd93b69b6d6e3476f2e714514f6abc8cf6f',
+    details: 'Stop level adjusted from 1.08290 to 1.08420 in local off-broker sandbox.'
+  },
+  {
+    id: 'aud_002',
+    timestamp: Date.now() - 1000 * 60 * 42,
+    actor: 'operator:daniel',
+    action: 'MOVE_TO_BREAKEVEN',
+    target: 'EURUSD:pos_01',
+    outcome: 'SUCCESS_SIMULATED',
+    correlationId: 'corr_4c7811de9',
+    intentDigestSha256: '0b5131bd897ca045e6ed2bd758ffbd2bb1baa5a4d7383a4b0539e30fbda1c937',
+    details: 'Breakeven flag engaged at entry 1.08420.'
+  },
+  {
+    id: 'aud_003',
+    timestamp: Date.now() - 1000 * 60 * 110,
+    actor: 'system:risk_engine',
+    action: 'CHECK_MAX_ACCOUNT_EXPOSURE',
+    target: 'lane:ACT_PRIMARY',
+    outcome: 'SUCCESS_SIMULATED',
+    correlationId: 'corr_99f0122cd',
+    intentDigestSha256: '1b18ee2901fb0ab92074b59d6d93b2c06674ae0aa943fb303261059e274e9ed3',
+    details: 'Open risk 1.80R evaluated against 2.50R cap. Safe margin maintained.'
+  },
+  {
+    id: 'aud_004',
+    timestamp: Date.now() - 1000 * 60 * 190,
+    actor: 'operator:daniel',
+    action: 'LIVE_EXECUTION_ATTEMPT',
+    target: 'EURUSD:pos_01',
+    outcome: 'REJECTED_FAIL_CLOSED',
+    correlationId: 'corr_33a9087eb',
+    intentDigestSha256: '185885045e7be5b8c496062f393706dc63127c44edf474120352d723179f585a',
+    details: 'LIVE_EXECUTION_BLOCKED: LiveCommandAdapter rejected execution. Backend Control Service not provisioned.'
+  }
+];
+
+

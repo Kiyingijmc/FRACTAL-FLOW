@@ -8,8 +8,18 @@ import {
   CommandExecutionRecord, 
   CommandLifecycleState,
   NavTab, 
+  ExtendedNavTab,
   SystemEvent, 
-  PositionsSubTab 
+  PositionsSubTab,
+  NotificationEvent,
+  PresentationPreferences,
+  OperationalRiskConfig,
+  QuantModelRecord,
+  ModelAdviceRecord,
+  RolloutPromotionEvent,
+  LabRunArtifact,
+  RemediationBlockerRecord,
+  AuditTrailRecord
 } from './types';
 import { 
   ApplicationMode, 
@@ -31,12 +41,23 @@ import { ContextPanel } from './components/ContextPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FooterLog } from './components/FooterLog';
 import { SecondaryViews } from './components/SecondaryViews';
+import { SettingsModal } from './components/SettingsModal';
+import { CriticalBanner } from './components/CriticalBanner';
+import { NotificationDrawer } from './components/NotificationDrawer';
 import { 
   INITIAL_POSITIONS, 
   INITIAL_PENDING_ORDERS, 
   GATE_CANDIDATES, 
   INITIAL_SYSTEM_EVENTS, 
-  INITIAL_CLOSED_TRADES 
+  INITIAL_CLOSED_TRADES,
+  INITIAL_NOTIFICATIONS,
+  INITIAL_OPERATIONAL_RISK_CONFIG,
+  INITIAL_QUANT_MODELS,
+  INITIAL_MODEL_ADVICE_STREAM,
+  INITIAL_ROLLOUT_PROMOTIONS,
+  INITIAL_LAB_RUNS,
+  INITIAL_REMEDIATION_BLOCKERS,
+  INITIAL_AUDIT_TRAIL
 } from './data/mockData';
 
 export const App: React.FC = () => {
@@ -58,9 +79,34 @@ export const App: React.FC = () => {
   });
 
   // Navigation & Sub-Tabs
-  const [activeNavTab, setActiveNavTab] = useState<NavTab>('POS');
+  const [activeNavTab, setActiveNavTab] = useState<ExtendedNavTab>('POS');
   const [activeSubTab, setActiveSubTab] = useState<PositionsSubTab>('open');
   const [isMoreNavOpen, setIsMoreNavOpen] = useState(false);
+
+  // Settings & Notification Center Modal/Drawer State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+
+  // Local Presentation Preferences
+  const [preferences, setPreferences] = useState<PresentationPreferences>({
+    layoutDensity: 'default',
+    audioCues: false,
+    colorTheme: 'obsidian_black'
+  });
+
+  // Operational Risk Configuration State
+  const [riskConfig, setRiskConfig] = useState<OperationalRiskConfig>(INITIAL_OPERATIONAL_RISK_CONFIG);
+
+  // Notification Event Feeds
+  const [notifications, setNotifications] = useState<NotificationEvent[]>(INITIAL_NOTIFICATIONS);
+
+  // Quant Models, Advice, Promotions, Lab, Blockers & Audit Trail State
+  const [quantModels] = useState<QuantModelRecord[]>(INITIAL_QUANT_MODELS);
+  const [modelAdvice] = useState<ModelAdviceRecord[]>(INITIAL_MODEL_ADVICE_STREAM);
+  const [rolloutPromotions] = useState<RolloutPromotionEvent[]>(INITIAL_ROLLOUT_PROMOTIONS);
+  const [labRuns] = useState<LabRunArtifact[]>(INITIAL_LAB_RUNS);
+  const [blockers] = useState<RemediationBlockerRecord[]>(INITIAL_REMEDIATION_BLOCKERS);
+  const [auditTrail, setAuditTrail] = useState<AuditTrailRecord[]>(INITIAL_AUDIT_TRAIL);
 
   // Mobile View Switcher for Positions: 'table' vs 'detail'
   const [mobileViewTab, setMobileViewTab] = useState<'table' | 'detail'>('table');
@@ -97,6 +143,87 @@ export const App: React.FC = () => {
     action: null,
     targetPosition: null,
   });
+
+  // Active Critical Alert & Unread Notifications
+  const criticalAlert = useMemo(() => {
+    return notifications.find((n) => n.class === 'safety_critical' && !n.resolved) || null;
+  }, [notifications]);
+
+  const unreadNotificationsCount = useMemo(() => {
+    return notifications.filter((n) => !n.acknowledged && !n.resolved).length;
+  }, [notifications]);
+
+  // Acknowledge Notification
+  const handleAcknowledgeNotification = useCallback((id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) =>
+        n.id === id ? { ...n, acknowledged: true, acknowledgedAt: Date.now() } : n
+      )
+    );
+
+    const auditEntry: AuditTrailRecord = {
+      id: `aud_${Date.now()}`,
+      timestamp: Date.now(),
+      actor: 'operator:daniel',
+      action: 'ACKNOWLEDGE_NOTIFICATION',
+      target: id,
+      outcome: 'SUCCESS_SIMULATED',
+      correlationId: `corr_ack_${id}`,
+      intentDigestSha256: 'e5f67890123456789abcdef0123456789abcdef0123456789abcdef012345678',
+      details: `Operator acknowledged notification [${id}]. Note: Acknowledgement does not resolve condition.`
+    };
+    setAuditTrail((prev) => [auditEntry, ...prev]);
+
+    setSystemEvents((prev) => [
+      {
+        id: `evt_${Date.now()}`,
+        eventId: `EVT-${Date.now().toString().slice(-4)}`,
+        timestamp: new Date().toLocaleTimeString(),
+        message: `Notification [${id}] acknowledged by operator (Ack ≠ Resolution)`,
+        source: 'CLIENT_INTAKE',
+        level: 'info',
+        status: 'SIMULATED',
+        isAuthoritative: false
+      },
+      ...prev
+    ]);
+  }, []);
+
+  // Update Operational Risk Configuration
+  const handleUpdateRiskConfig = useCallback((draftConfig: OperationalRiskConfig) => {
+    setRiskConfig({
+      ...draftConfig,
+      lastUpdated: Date.now(),
+      source: 'SIM_ENGINE'
+    });
+
+    const auditEntry: AuditTrailRecord = {
+      id: `aud_${Date.now()}`,
+      timestamp: Date.now(),
+      actor: 'operator:daniel',
+      action: 'UPDATE_RISK_CONFIG_DRAFT',
+      target: draftConfig.effectiveConfigId,
+      outcome: 'SUCCESS_SIMULATED',
+      correlationId: `corr_cfg_${draftConfig.effectiveConfigId}`,
+      intentDigestSha256: 'f67890123456789abcdef0123456789abcdef0123456789abcdef0123456789a',
+      details: `MaxLaneRisk=${draftConfig.maxLaneRiskR}R, MaxExposure=${draftConfig.maxAccountExposureR}R, DailyLossLimit=$${draftConfig.dailyLossLimitUsd}`
+    };
+    setAuditTrail((prev) => [auditEntry, ...prev]);
+
+    setSystemEvents((prev) => [
+      {
+        id: `evt_${Date.now()}`,
+        eventId: `EVT-${Date.now().toString().slice(-4)}`,
+        timestamp: new Date().toLocaleTimeString(),
+        message: `Simulated risk configuration updated: MaxLaneRisk=${draftConfig.maxLaneRiskR}R, MaxExposure=${draftConfig.maxAccountExposureR}R`,
+        source: 'CLIENT_INTAKE',
+        level: 'info',
+        status: 'SIMULATED',
+        isAuthoritative: false
+      },
+      ...prev
+    ]);
+  }, []);
 
   // Compute live KPIs
   const selectedPosition = useMemo(() => {
@@ -396,6 +523,15 @@ export const App: React.FC = () => {
         onToggleSimPause={() => setIsSimPaused((prev) => !prev)}
         telemetry={telemetry}
         applicationMode={applicationMode}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
+        unreadNotificationsCount={unreadNotificationsCount}
+      />
+
+      {/* Safety-Critical Incident Banner (Persistent, Non-Blocking, Ack ≠ Resolution) */}
+      <CriticalBanner
+        criticalAlert={criticalAlert}
+        onAcknowledge={handleAcknowledgeNotification}
       />
 
       {/* Signature Element 1: Gate-Chain Strip (Candidate Intake Pipeline) */}
@@ -463,6 +599,12 @@ export const App: React.FC = () => {
           <SecondaryViews
             activeTab={activeNavTab}
             onReturnToPositions={() => setActiveNavTab('POS')}
+            quantModels={quantModels}
+            modelAdvice={modelAdvice}
+            rolloutPromotions={rolloutPromotions}
+            labRuns={labRuns}
+            blockers={blockers}
+            auditTrail={auditTrail}
           />
         )}
       </div>
@@ -488,6 +630,24 @@ export const App: React.FC = () => {
         position={confirmModal.targetPosition}
         onConfirm={handleConfirmAction}
         onCancel={() => setConfirmModal({ isOpen: false, action: null, targetPosition: null })}
+      />
+
+      {/* Settings & Operational Risk Configuration Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        preferences={preferences}
+        onUpdatePreferences={setPreferences}
+        riskConfig={riskConfig}
+        onUpdateRiskConfig={handleUpdateRiskConfig}
+      />
+
+      {/* Notification Center & Delivery Log Drawer */}
+      <NotificationDrawer
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onAcknowledge={handleAcknowledgeNotification}
       />
     </div>
   );
