@@ -292,3 +292,52 @@ export interface AuditTrailRecord {
   details: string;
 }
 
+// -----------------------------------------------------------------------------
+// AUTOMATED RISK VALIDATOR & REAL-TIME LATENCY MONITOR CONTRACTS
+// -----------------------------------------------------------------------------
+
+export type RiskViolationType =
+  | 'MAX_LANE_RISK_EXCEEDED'
+  | 'MAX_ACCOUNT_EXPOSURE_EXCEEDED'
+  | 'DAILY_LOSS_LIMIT_EXCEEDED'
+  | 'KILL_SWITCH_THRESHOLD_REACHED'
+  | 'INVALID_POSITION_PARAM';
+
+export interface RiskViolation {
+  code: RiskViolationType;
+  severity: 'WARNING' | 'BLOCKING';
+  message: string;
+  metric: string;
+  currentValue: number;
+  limitValue: number;
+}
+
+export interface CandidateRiskValidation {
+  candidateId: string;
+  hasViolations: boolean;
+  violations: RiskViolation[];
+  projectedLaneRiskR: number;
+  projectedAccountExposureR: number;
+  laneRiskCapR: number;
+  accountExposureCapR: number;
+  dailyLossLimitUsd: number;
+  currentDailyPnlUsd: number;
+  status: 'CLEAR' | 'WARNING' | 'BREACHED';
+}
+
+export type LatencyStatus = 'NOMINAL' | 'ELEVATED' | 'EXCEEDED';
+
+export interface LatencyMetrics {
+  lastRttMs: number;
+  avgRttMs: number;
+  minRttMs: number;
+  maxRttMs: number;
+  sampleCount: number;
+  warningThresholdMs: number;
+  criticalThresholdMs: number;
+  status: LatencyStatus;
+  lastMeasuredAt: number;
+  injectedDelayMs: number;
+}
+
+

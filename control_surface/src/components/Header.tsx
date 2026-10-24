@@ -1,6 +1,7 @@
-import React from 'react';
-import { Settings, Bell } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings, Bell, Activity, AlertTriangle, Clock, Sliders, X } from 'lucide-react';
 import { TelemetryProvenance, ApplicationMode } from '../types/contracts';
+import { LatencyMetrics } from '../types';
 
 interface HeaderProps {
   equity: number;
@@ -15,7 +16,22 @@ interface HeaderProps {
   onOpenSettings?: () => void;
   onOpenNotifications?: () => void;
   unreadNotificationsCount?: number;
+  latency?: LatencyMetrics;
+  onUpdateLatencyDelay?: (delayMs: number) => void;
 }
+
+const DEFAULT_LATENCY: LatencyMetrics = {
+  lastRttMs: 142,
+  avgRttMs: 156,
+  minRttMs: 112,
+  maxRttMs: 228,
+  sampleCount: 14,
+  warningThresholdMs: 250,
+  criticalThresholdMs: 500,
+  status: 'NOMINAL',
+  lastMeasuredAt: Date.now(),
+  injectedDelayMs: 0,
+};
 
 export const Header: React.FC<HeaderProps> = ({
   equity,
@@ -30,7 +46,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   onOpenNotifications,
   unreadNotificationsCount = 1,
+  latency = DEFAULT_LATENCY,
+  onUpdateLatencyDelay,
 }) => {
+  const [isLatencyOpen, setIsLatencyOpen] = useState(false);
+
   const getStatusColor = () => {
     switch (telemetry.status) {
       case 'HEALTHY':
@@ -45,7 +65,36 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const getLatencyStyle = (status: LatencyMetrics['status']) => {
+    switch (status) {
+      case 'EXCEEDED':
+        return {
+          dot: 'bg-[#C25B6B] animate-pulse',
+          badge: 'border-[#B23B3B]/60 bg-[#B23B3B]/20 text-[#C25B6B]',
+          text: 'text-[#C25B6B]',
+          label: 'EXCEEDED',
+        };
+      case 'ELEVATED':
+        return {
+          dot: 'bg-[#BFA13B]',
+          badge: 'border-[#BFA13B]/50 bg-[#BFA13B]/15 text-[#BFA13B]',
+          text: 'text-[#BFA13B]',
+          label: 'ELEVATED',
+        };
+      case 'NOMINAL':
+      default:
+        return {
+          dot: 'bg-[#4FAE86]',
+          badge: 'border-[#4FAE86]/40 bg-[#4FAE86]/10 text-[#4FAE86]',
+          text: 'text-[#4FAE86]',
+          label: 'NOMINAL',
+        };
+    }
+  };
+
   const statusColorClass = getStatusColor();
+  const latencyStyle = getLatencyStyle(latency.status);
+  const isLatencyDelayed = latency.status !== 'NOMINAL';
 
   return (
     <>
@@ -63,6 +112,23 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-[#BFA13B]" />
             <span>SIM: OFF-BROKER</span>
           </div>
+
+          {/* Mobile Real-Time Latency Monitor */}
+          <button
+            type="button"
+            onClick={() => setIsLatencyOpen((prev) => !prev)}
+            data-testid="latency-monitor-mobile"
+            aria-label={`Real-time latency: ${latency.lastRttMs}ms status ${latency.status}`}
+            className="min-h-[44px] px-2 flex items-center gap-1 text-[10px] font-mono text-[#6E7A8A] border border-[#232A35] bg-[#161C26] rounded-[2px]"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${latencyStyle.dot}`} />
+            <span className={`font-semibold ${latencyStyle.text}`}>{latency.lastRttMs}ms</span>
+            {isLatencyDelayed && (
+              <span data-testid="latency-warning-badge-mobile" className="text-[#C25B6B]">
+                ⚠️
+              </span>
+            )}
+          </button>
 
           {/* Telemetry Status Dot & Source */}
           <div className="flex items-center gap-1.5 font-mono text-[10px] text-[#6E7A8A] shrink-0">
@@ -145,7 +211,7 @@ export const Header: React.FC<HeaderProps> = ({
       </header>
 
       {/* Desktop Single-Deck Header (>= 768px) */}
-      <header className="hidden md:flex items-center gap-4 px-4 h-12 border-b border-[#232A35] bg-[#10151D] shrink-0 select-none overflow-x-auto">
+      <header className="hidden md:flex items-center gap-3 px-4 h-12 border-b border-[#232A35] bg-[#10151D] shrink-0 select-none overflow-x-auto">
         {/* Brand */}
         <div className="text-[13px] tracking-[0.2px] text-[#E7EAEE] font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0">
           FRACTAL&#8209;FLOW
@@ -183,6 +249,40 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="px-1 py-0.2 rounded border border-[#232A35] bg-[#161C26] text-[9px] text-[#6E7A8A]">
             AUTH: {telemetry.isAuthoritative ? 'LIVE' : 'NO (SIM)'}
           </span>
+        </div>
+
+        {/* Real-Time Command Execution Latency Monitor (Desktop) */}
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsLatencyOpen((prev) => !prev)}
+            data-testid="latency-monitor"
+            data-latency-status={latency.status}
+            title="Inspect command execution round-trip latency & delay thresholds"
+            className="flex items-center gap-2 px-2 py-1 rounded-[2px] border border-[#232A35] hover:border-[#5B8FBF] bg-[#161C26] text-[11px] font-mono cursor-pointer transition-colors"
+          >
+            <Activity className={`w-3.5 h-3.5 ${latencyStyle.text}`} />
+            <div className="flex items-center gap-1.5">
+              <span className="text-[#6E7A8A] text-[10px]">RTT:</span>
+              <span className={`font-semibold tabular-nums ${latencyStyle.text}`}>
+                {latency.lastRttMs}ms
+              </span>
+              <span className={`px-1 py-0.2 text-[9px] rounded-[2px] border ${latencyStyle.badge}`}>
+                {latencyStyle.label}
+              </span>
+            </div>
+          </button>
+
+          {/* Visual Warning Badge when delay exceeds threshold */}
+          {isLatencyDelayed && (
+            <div
+              data-testid="latency-warning-badge"
+              className="absolute -top-2 -right-2 flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] bg-[#B23B3B] text-[#FFFFFF] text-[9px] font-mono font-bold shadow-md animate-bounce"
+            >
+              <AlertTriangle className="w-2.5 h-2.5" />
+              <span>DELAY &gt; {latency.status === 'EXCEEDED' ? latency.criticalThresholdMs : latency.warningThresholdMs}ms</span>
+            </div>
+          )}
         </div>
 
         {/* Sim Tick Control */}
@@ -250,6 +350,127 @@ export const Header: React.FC<HeaderProps> = ({
           daniel · OPERATOR
         </div>
       </header>
+
+      {/* Latency Monitor Flyout Dialog */}
+      {isLatencyOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command Execution Latency Monitor"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4"
+        >
+          <div className="w-full max-w-md bg-[#10151D] border border-[#232A35] rounded-[3px] shadow-2xl p-4 font-mono text-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-[#232A35] pb-2">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-[#5B8FBF]" />
+                <h3 className="font-semibold text-[#E7EAEE] uppercase tracking-wider text-[11px]">
+                  Execution Latency Monitor (Simulated RTT)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLatencyOpen(false)}
+                className="p-1 text-[#6E7A8A] hover:text-[#E7EAEE]"
+                aria-label="Close latency monitor dialog"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Threshold Warning Banner */}
+            {isLatencyDelayed && (
+              <div 
+                data-testid="latency-dialog-warning"
+                className={`p-2.5 rounded-[2px] border flex items-center gap-2 ${
+                  latency.status === 'EXCEEDED' 
+                    ? 'bg-[#B23B3B]/15 text-[#C25B6B] border-[#B23B3B]/40' 
+                    : 'bg-[#BFA13B]/15 text-[#BFA13B] border-[#BFA13B]/40'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>
+                  Visual Warning Active: Round-trip delay ({latency.lastRttMs}ms) exceeds{' '}
+                  {latency.status === 'EXCEEDED' ? `critical threshold (${latency.criticalThresholdMs}ms)` : `warning threshold (${latency.warningThresholdMs}ms)`}.
+                </span>
+              </div>
+            )}
+
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-2 gap-2 bg-[#161C26] p-3 rounded-[2px] border border-[#232A35]">
+              <div>
+                <span className="text-[10px] text-[#6E7A8A] block">LAST COMMAND RTT</span>
+                <span className={`text-base font-bold ${latencyStyle.text}`}>{latency.lastRttMs}ms</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#6E7A8A] block">ROLLING AVG RTT</span>
+                <span className="text-base font-bold text-[#E7EAEE]">{latency.avgRttMs}ms</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#6E7A8A] block">MIN / MAX RECORDED</span>
+                <span className="text-[#6E7A8A]">{latency.minRttMs}ms / {latency.maxRttMs}ms</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-[#6E7A8A] block">TOTAL SAMPLES</span>
+                <span className="text-[#6E7A8A]">{latency.sampleCount} commands</span>
+              </div>
+            </div>
+
+            {/* Threshold Settings Info */}
+            <div className="p-2.5 bg-[#161C26]/60 border border-[#232A35] rounded-[2px] space-y-1.5 text-[11px]">
+              <div className="flex justify-between">
+                <span className="text-[#6E7A8A]">Nominal Target:</span>
+                <span className="text-[#4FAE86]">&lt; {latency.warningThresholdMs}ms</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6E7A8A]">Warning Threshold:</span>
+                <span className="text-[#BFA13B]">&gt;= {latency.warningThresholdMs}ms</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6E7A8A]">Critical Threshold:</span>
+                <span className="text-[#C25B6B]">&gt;= {latency.criticalThresholdMs}ms</span>
+              </div>
+            </div>
+
+            {/* Interactive Delay Injector for Testing */}
+            {onUpdateLatencyDelay && (
+              <div className="p-3 bg-[#161C26] border border-[#232A35] rounded-[2px] space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#6E7A8A] flex items-center gap-1">
+                    <Sliders className="w-3.5 h-3.5 text-[#5B8FBF]" />
+                    Inject Simulated Latency Jitter:
+                  </span>
+                  <span className="font-bold text-[#5B8FBF]">+{latency.injectedDelayMs || 0}ms</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="700"
+                  step="50"
+                  value={latency.injectedDelayMs || 0}
+                  onChange={(e) => onUpdateLatencyDelay(parseInt(e.target.value, 10))}
+                  aria-label="Simulated latency delay in milliseconds"
+                  className="w-full accent-[#5B8FBF] cursor-pointer"
+                />
+                <div className="flex justify-between text-[9px] text-[#6E7A8A]">
+                  <span>0ms (Nominal)</span>
+                  <span>250ms (Elevated)</span>
+                  <span>550ms+ (Exceeded Warning)</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setIsLatencyOpen(false)}
+                className="min-h-[32px] px-3 py-1 bg-[#232A35] hover:bg-[#2C3542] text-[#E7EAEE] rounded-[2px] cursor-pointer"
+              >
+                Close Monitor
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

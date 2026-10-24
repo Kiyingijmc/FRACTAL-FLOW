@@ -19,7 +19,8 @@ import {
   RolloutPromotionEvent,
   LabRunArtifact,
   RemediationBlockerRecord,
-  AuditTrailRecord
+  AuditTrailRecord,
+  LatencyMetrics
 } from './types';
 import { 
   ApplicationMode, 
@@ -107,6 +108,18 @@ export const App: React.FC = () => {
   const [labRuns] = useState<LabRunArtifact[]>(INITIAL_LAB_RUNS);
   const [blockers] = useState<RemediationBlockerRecord[]>(INITIAL_REMEDIATION_BLOCKERS);
   const [auditTrail, setAuditTrail] = useState<AuditTrailRecord[]>(INITIAL_AUDIT_TRAIL);
+  const [latencyMetrics, setLatencyMetrics] = useState<LatencyMetrics>({
+    lastRttMs: 142,
+    avgRttMs: 156,
+    minRttMs: 112,
+    maxRttMs: 228,
+    sampleCount: 14,
+    warningThresholdMs: 250,
+    criticalThresholdMs: 500,
+    status: 'NOMINAL',
+    lastMeasuredAt: Date.now(),
+    injectedDelayMs: 0,
+  });
 
   // Mobile View Switcher for Positions: 'table' vs 'detail'
   const [mobileViewTab, setMobileViewTab] = useState<'table' | 'detail'>('table');
@@ -458,6 +471,8 @@ export const App: React.FC = () => {
       'SIMULATED'
     );
 
+    const commandStartTime = performance.now();
+
     // Operational boundary gate: If in LIVE mode, adapter throws LiveExecutionBlockedError
     if (applicationMode === 'LIVE_OPERATIONAL') {
       try {
@@ -473,8 +488,39 @@ export const App: React.FC = () => {
       }
     }
 
+    // Record latency helper
+    const recordLatencyMeasurement = () => {
+      const elapsed = Math.round(performance.now() - commandStartTime);
+      setLatencyMetrics((prev) => {
+        const count = prev.sampleCount + 1;
+        const avg = Math.round((prev.avgRttMs * prev.sampleCount + elapsed) / count);
+        const min = Math.min(prev.minRttMs, elapsed);
+        const max = Math.max(prev.maxRttMs, elapsed);
+        const status =
+          elapsed >= prev.criticalThresholdMs
+            ? 'EXCEEDED'
+            : elapsed >= prev.warningThresholdMs
+            ? 'ELEVATED'
+            : 'NOMINAL';
+        return {
+          ...prev,
+          lastRttMs: elapsed,
+          avgRttMs: avg,
+          minRttMs: min,
+          maxRttMs: max,
+          sampleCount: count,
+          status,
+          lastMeasuredAt: Date.now(),
+        };
+      });
+    };
+
     // Simulation Sandbox Progression owned entirely by SimulationProvider
     try {
+      if (latencyMetrics.injectedDelayMs > 0) {
+        await new Promise((res) => setTimeout(res, latencyMetrics.injectedDelayMs));
+      }
+
       const res = await simulationProvider.submitCommand(
         intent,
         (progress) => {
@@ -490,6 +536,8 @@ export const App: React.FC = () => {
         }
       );
 
+      recordLatencyMeasurement();
+
       const updatedPositions = await simulationProvider.getPositions();
       setPositions(updatedPositions);
 
@@ -502,6 +550,7 @@ export const App: React.FC = () => {
 
       setTimeout(() => setActiveCommand(null), 3500);
     } catch (err: unknown) {
+      recordLatencyMeasurement();
       const msg = err instanceof Error ? err.message : String(err);
       setActiveCommand((prev) =>
         prev ? { ...prev, status: 'REJECTED', details: msg } : null
@@ -512,7 +561,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen w-full max-w-full overflow-hidden bg-[#10151D] text-[#E7EAEE] font-sans antialiased pb-14 md:pb-0">
-      {/* Dynamic Telemetry & Mode-Aware Header */}
+      {/* Dynamic Telemetry & Mode-Aware Header with Real-Time Latency Monitor */}
       <Header
         equity={equity}
         dailyPnl={dailyPnl}
@@ -526,6 +575,8 @@ export const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
         unreadNotificationsCount={unreadNotificationsCount}
+        latency={latencyMetrics}
+        onUpdateLatencyDelay={(d) => setLatencyMetrics((prev) => ({ ...prev, injectedDelayMs: d }))}
       />
 
       {/* Safety-Critical Incident Banner (Persistent, Non-Blocking, Ack ≠ Resolution) */}
@@ -534,11 +585,14 @@ export const App: React.FC = () => {
         onAcknowledge={handleAcknowledgeNotification}
       />
 
-      {/* Signature Element 1: Gate-Chain Strip (Candidate Intake Pipeline) */}
+      {/* Signature Element 1: Gate-Chain Strip (Candidate Intake Pipeline + Automated Risk Validator) */}
       <GateChainStrip
         candidates={candidates}
         selectedCandidateId={selectedCandidateId}
         onSelectCandidate={setSelectedCandidateId}
+        riskConfig={riskConfig}
+        positions={positions}
+        dailyPnl={dailyPnl}
       />
 
       {/* Main Body Area */}
