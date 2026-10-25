@@ -9,9 +9,13 @@ import {
   RolloutPromotionEvent,
   LabRunArtifact,
   RemediationBlockerRecord,
-  AuditTrailRecord
+  AuditTrailRecord,
+  Position,
+  OperationalRiskConfig
 } from '../types';
+import { evaluatePortfolioRisk } from '../utils/riskValidator';
 import { 
+  INITIAL_POSITIONS,
   INITIAL_MARKET_NEWS, 
   INITIAL_CLOSED_TRADES,
   INITIAL_QUANT_MODELS,
@@ -45,6 +49,8 @@ interface SecondaryViewsProps {
   labRuns?: LabRunArtifact[];
   blockers?: RemediationBlockerRecord[];
   auditTrail?: AuditTrailRecord[];
+  positions?: Position[];
+  riskConfig?: OperationalRiskConfig;
 }
 
 interface ModeProfileItem {
@@ -160,7 +166,9 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
   rolloutPromotions = INITIAL_ROLLOUT_PROMOTIONS,
   labRuns = INITIAL_LAB_RUNS,
   blockers = INITIAL_REMEDIATION_BLOCKERS,
-  auditTrail = INITIAL_AUDIT_TRAIL
+  auditTrail = INITIAL_AUDIT_TRAIL,
+  positions,
+  riskConfig
 }) => {
   // News filtering state
   const [newsFilterImpact, setNewsFilterImpact] = useState<NewsImpactLevel | 'ALL'>('ALL');
@@ -283,32 +291,64 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
       )}
 
       {/* RISK VIEW */}
-      {activeTab === 'RISK' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">Total Open Risk</div>
-              <div className="font-mono text-xl text-[#E7EAEE] font-semibold">1.80R</div>
-              <div className="text-[10px] text-[#4FAE86] mt-1">72% of 2.50R cap</div>
-            </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">Max Lane Risk (ACT_PRIM)</div>
-              <div className="font-mono text-xl text-[#E7EAEE] font-semibold">1.20R</div>
-              <div className="text-[10px] text-[#4FAE86] mt-1">60% of 2.00R lane cap</div>
-            </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">Daily Loss Limit</div>
-              <div className="font-mono text-xl text-[#4FAE86] font-semibold">+$312.50</div>
-              <div className="text-[10px] text-[#6E7A8A] mt-1">Circuit breaker: -$1,500.00</div>
-            </div>
-            <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
-              <div className="text-[11px] text-[#6E7A8A] mb-1">Kill-Switch State</div>
-              <div className="font-mono text-xl text-[#4FAE86] font-semibold">NOMINAL</div>
-              <div className="text-[10px] text-[#4FAE86] mt-1">L0 Normal Operation</div>
+      {activeTab === 'RISK' && (() => {
+        const targetPositions = positions || INITIAL_POSITIONS;
+        const portfolioEval = evaluatePortfolioRisk(targetPositions);
+        const laneEval = evaluatePortfolioRisk(targetPositions, 'ACT_PRIMARY');
+        const accountCap = riskConfig?.maxAccountExposureR ?? 5.0;
+        const laneCap = riskConfig?.maxLaneRiskR ?? 2.5;
+
+        const totalRiskDisplay = portfolioEval.status === 'VALID' && portfolioEval.totalRiskR !== null
+          ? `${portfolioEval.totalRiskR.toFixed(2)}R`
+          : 'INVALID';
+        const laneRiskDisplay = laneEval.status === 'VALID' && laneEval.totalRiskR !== null
+          ? `${laneEval.totalRiskR.toFixed(2)}R`
+          : 'INVALID';
+
+        const accountPercent = portfolioEval.status === 'VALID' && portfolioEval.totalRiskR !== null
+          ? Math.round((portfolioEval.totalRiskR / accountCap) * 100)
+          : null;
+        const lanePercent = laneEval.status === 'VALID' && laneEval.totalRiskR !== null
+          ? Math.round((laneEval.totalRiskR / laneCap) * 100)
+          : null;
+
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+                <div className="text-[11px] text-[#6E7A8A] mb-1">Total Open Risk</div>
+                <div data-testid="secondary-total-open-risk" className={`font-mono text-xl font-semibold ${portfolioEval.status === 'VALID' ? 'text-[#E7EAEE]' : 'text-[#C25B6B]'}`}>
+                  {totalRiskDisplay}
+                </div>
+                <div className="text-[10px] text-[#4FAE86] mt-1">
+                  {accountPercent !== null ? `${accountPercent}% of ${accountCap.toFixed(2)}R cap` : 'Risk evaluation invalid'}
+                </div>
+              </div>
+              <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+                <div className="text-[11px] text-[#6E7A8A] mb-1">Max Lane Risk (ACT_PRIM)</div>
+                <div data-testid="secondary-lane-risk" className={`font-mono text-xl font-semibold ${laneEval.status === 'VALID' ? 'text-[#E7EAEE]' : 'text-[#C25B6B]'}`}>
+                  {laneRiskDisplay}
+                </div>
+                <div className="text-[10px] text-[#4FAE86] mt-1">
+                  {lanePercent !== null ? `${lanePercent}% of ${laneCap.toFixed(2)}R lane cap` : 'Lane evaluation invalid'}
+                </div>
+              </div>
+              <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+                <div className="text-[11px] text-[#6E7A8A] mb-1">Daily Loss Limit</div>
+                <div className="font-mono text-xl text-[#4FAE86] font-semibold">+$312.50</div>
+                <div className="text-[10px] text-[#6E7A8A] mt-1">
+                  Circuit breaker: -${riskConfig ? riskConfig.dailyLossLimitUsd.toLocaleString() : '1,500.00'}
+                </div>
+              </div>
+              <div className="bg-[#10151D] border border-[#232A35] p-3 rounded-[2px]">
+                <div className="text-[11px] text-[#6E7A8A] mb-1">Kill-Switch State</div>
+                <div className="font-mono text-xl text-[#4FAE86] font-semibold">NOMINAL</div>
+                <div className="text-[10px] text-[#4FAE86] mt-1">L0 Normal Operation</div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODE VIEW */}
       {activeTab === 'MODE' && (

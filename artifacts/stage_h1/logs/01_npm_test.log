@@ -1,0 +1,262 @@
+
+> react-example@0.0.0 test
+> tsx src/tests/safety_invariants.test.ts && tsx src/tests/responsive_structural.test.ts && tsx src/tests/positions_table_sort.test.ts && tsx src/tests/modal_focus_behavior.test.ts && tsx src/tests/gui_expansion_invariants.test.ts && tsx src/tests/risk_validator_and_latency.test.ts && tsx src/tests/stage_h_adversarial_invariants.test.ts && tsx src/tests/stage_h1_production_behavior.test.ts
+
+========================================================
+FRACTAL-FLOW GUI — Stage D Forensic Adversarial Test Suite
+Governing Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY
+========================================================
+
+--- SC-01: Telemetry Source Integrity & Provenance ---
+  [PASS] SC-01.1: Simulation tick (SIM_ENGINE) CANNOT heal or overwrite a disconnected external source
+  [PASS] SC-01.2: Events from a different source cannot refresh or overwrite the active source
+  [PASS] SC-01.3: Stale out-of-order events cannot overwrite newer valid telemetry state
+  [PASS] SC-01.4: Invalid, non-positive, or non-finite threshold values fail safely to DEGRADED
+  [PASS] SC-01.5: Missing, invalid, or non-finite timestamps fail safely to UNKNOWN/DEGRADED
+  [PASS] SC-01.6: Correct-source healthy observation restores health under documented policy
+  [PASS] SC-01.7: Disconnected state timestamp refresh prevention (FF-D-01)
+  [PASS] SC-01.8: Strict authorized handshake requirement and fail-closed reconnection gating (FF-D-01 / D2-A / D.2.1 / D.2.2)
+  [PASS] SC-01.9: Epoch regression rejection
+  [PASS] SC-01.10: Malformed epoch rejects update atomically with zero field mutation (D2-A Risk 1)
+  [PASS] SC-01.11: Cross-source migration strictly rejected fail-closed (D2-A Risk 2)
+  [PASS] SC-01.12: Initial state creation does NOT synthesize Date.now() when timestamp absent (D2-A Risk 3)
+  [PASS] SC-01.13: Dual timestamp tracking preserves sourceEventTime and localReceiveTime
+  [PASS] SC-01.14: Forged caller-controlled boolean reconnectAuthorized: true is strictly rejected fail-closed
+  [PASS] SC-01.15: Reconnection attempt with UNKNOWN or unallowlisted bridge status is strictly rejected fail-closed
+  [PASS] SC-01.16: Malformed initial source and epoch produce DOCUMENTED_UNKNOWN_TELEMETRY without synthetic defaults
+  [PASS] SC-01.17: Negative, zero, NaN, and infinite thresholds reject update atomically on existing snapshot and produce DOCUMENTED_UNKNOWN_TELEMETRY initially
+  [PASS] SC-01.18: Invalid source-event timestamps reject update atomically and fail safely on initial state
+  [PASS] SC-01.19: Invalid status values reject update atomically and fail safely on initial state
+  [PASS] SC-01.20: Complete snapshot preservation on rejected updates across all invalid fields
+  [PASS] SC-01.21: Fail-closed reconnection enforcement: caller-manufactured proofs, tokens, and callbacks are strictly rejected as unauthenticated authority bypasses (Stage D.2.2)
+  [PASS] SC-01.22: Reconnection remains fail-closed and preserves snapshot even with advancing epoch and active bridge status (Stage D.2.2)
+  [PASS] SC-01.23: Initial-state strict validation: missing source, missing epoch, or missing observation timestamp fail safely to DOCUMENTED_UNKNOWN_TELEMETRY (Stage D.2.2)
+  [PASS] SC-01.24: Source-event timestamp provenance and absence preservation (Stage D.2.3 / D2.3-A)
+  [PASS] SC-01.25: Precise typed initial-state diagnostics and fail-safe unstated status (Stage D.2.3 / D2.3-B & D2.3-C)
+  [PASS] SC-01.26: Source classification matrix, empty/whitespace classification, and strict diagnostic precedence (Stage D.2.3.1 / D2.3-F01)
+  [PASS] SC-01.27: Comprehensive threat matrix verification: boundary staleness, clock skew degradation, object immutability, and anti-poisoning (Stage D.2.3.2 / C1–C6)
+
+--- SC-02: Secure Intent Identity & Idempotency ---
+  [PASS] SC-02.1: Cryptographically secure intent identity generation without Math.random()
+  [PASS] SC-02.2: Two separate actions with identical payload receive distinct intent IDs and idempotency keys
+  [PASS] SC-02.3: Retrying same logical action preserves intent identity and idempotency key
+  [PASS] SC-02.4: Reusing existing intent ID with altered semantic payload is STRICTLY REJECTED
+  [PASS] SC-02.5: Malformed existing intent IDs fail safely and are rejected
+  [PASS] SC-02.6: Explicit non-authoritative boundary scoping (FF-D-03)
+
+--- SC-03: Strict Canonicalization Invariants ---
+  [PASS] SC-03.1: Deterministic key sorting across nested plain objects
+  [PASS] SC-03.2: Negative zero (-0) normalizes deterministically to 0
+  [PASS] SC-03.3: Explicit null is preserved and distinguished from absent property
+  [PASS] SC-03.4: Rejects sparse arrays and arrays with unexpected custom own properties
+  [PASS] SC-03.5: Rejects undefined, NaN, Infinities, and BigInt
+  [PASS] SC-03.6: Rejects Date, RegExp, Map, Set, TypedArray, and custom classes
+  [PASS] SC-03.7: Rejects cyclic structures and functions/symbols
+
+--- SC-04: Simulation Reconciliation Truthfulness ---
+  [PASS] SC-04.1: Unknown intent ID strictly rejected with INTENT_NOT_RECORDED
+  [PASS] SC-04.2: Malformed intent IDs rejected safely with MALFORMED_INTENT_ID
+  [PASS] SC-04.3: Recorded intents reconcile with consistent non-authoritative lifecycle
+
+--- SC-05: Full-State Rejection Invariants ---
+  [PASS] SC-05.1: Rejected command leaves deep sandbox positions, orders, and events completely unmodified
+  [PASS] SC-05.2: LiveCommandAdapter fails closed without mutating simulation state
+  [PASS] SC-05.3: Bit-for-bit protected state immutability proof (FF-D-04)
+
+--- SC-06: Audit-Event Persistence Truthfulness ---
+  [PASS] SC-06.1: Simulated and session events are labeled SIMULATED/SESSION without false PERSISTED claim
+
+--- Keyboard Safety & Operator Interaction Controls ---
+  [PASS] Keyboard guard rejects all interactive text inputs, textareas, and comboboxes
+  [PASS] Keyboard guard rejects IME composition, repeated key chatter, and modal/in-flight states
+
+========================================================
+Results: 49 PASSED, 0 FAILED
+========================================================
+
+========================================================
+FRACTAL-FLOW GUI — Responsive Structural & Viewport Behavioral Verification (D2-C)
+Target Viewports: 320px, 360px, 390px, 430px, 768px, 1024px, 1280px
+Targets: Static source analysis + Real rendered React <App /> in JSDOM
+========================================================
+
+  [PASS] UX-01.1: Root container prevents document-level horizontal overflow (no w-screen)
+  [PASS] UX-04.1: Desktop NavRail hidden on mobile viewports (<768px)
+  [PASS] UX-04.2: MobileBottomNav docked exclusively on mobile (<768px) with 44px+ touch targets
+  [PASS] UX-02.1: Header implements two-tier layout on mobile and single-deck on desktop
+  [PASS] UX-03.1: PositionsTable wraps data tables in dedicated horizontal scrolling container
+  [PASS] UX-03.2: Secondary views (DEC, MODE, NEWS, CALIB) prevent wide-table overflow blowouts
+  [PASS] UX-05.1: Risk, News, and Stats cards use responsive multi-breakpoint column layouts
+  [PASS] UX-06.1: Gated execution buttons enforce 44px minimum touch targets
+  [PASS] UX-07.1: Drawers in MobileBottomNav and FooterLog implement ARIA dialog semantics and Escape dismissal
+  [PASS] UX-08.1: Main viewport container enforces bottom padding clearance for docked mobile nav
+  [PASS] VIEWPORT-320px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-360px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-390px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-430px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-768px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-1024px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] VIEWPORT-1280px: Document bounding, overflow prevention & safe-area clearance
+  [PASS] NAV-01: Mobile reachability of all 8 destinations via MobileBottomNav and More Drawer
+  [PASS] NAV-02: Desktop reachability of all 8 destinations via NavRail sidebar
+  [PASS] TOUCH-01: Critical touch controls guarantee min-h-[44px] on mobile
+
+========================================================
+Responsive Behavioral Results: 20 PASSED, 0 FAILED
+========================================================
+
+========================================================
+FRACTAL-FLOW GUI — PositionsTable Real Component Sort Verification (D2-C)
+Targets: Real rendered React <PositionsTable /> DOM in JSDOM
+========================================================
+
+  [PASS] SORT-01: Default initial sort orders open positions by PnL (unrealizedR) descending in DOM
+  [PASS] SORT-02: Clicking PnL header toggles direction to ascending (deepest loss to highest profit)
+  [PASS] SORT-03: Clicking Symbol header orders rows alphabetically (A to Z) then (Z to A)
+  [PASS] SORT-04: Clicking Size header orders rows numerically by lot exposure
+  [PASS] SORT-05: Selected position row retains active data-selected="true" after re-sorting
+  [PASS] SORT-06: Closed trades tab supports interactive sorting by Realized R and Realized $
+--------------------------------------------------------
+Results: 6 passed, 0 failed
+========================================================
+
+========================================================
+FRACTAL-FLOW GUI — Real Component Modal Accessibility Verification (D2-B)
+Targets: Production <FooterLog />, <MobileBottomNav /> rendered in JSDOM
+Standards: W3C WCAG 2.2 (2.1.2 No Keyboard Trap, 2.4.3 Focus Order)
+========================================================
+
+  [PASS] D2-B.01: FooterLog trigger renders accessible ARIA popup contracts
+  [PASS] D2-B.02: Opening FooterLog transfers real focus into dialog close button
+  [PASS] D2-B.03: Tab key on last focusable element wraps cleanly to first element (Real DOM Event)
+  [PASS] D2-B.04: Shift+Tab on first focusable element wraps cleanly to last element (Real DOM Event)
+  [PASS] D2-B.05: Real Escape keydown dismisses modal and restores focus to invoking trigger
+  [PASS] D2-B.06: Close button click dismisses modal and restores focus to trigger
+  [PASS] D2-B.07: Backdrop outside-click dismisses modal and restores focus to trigger
+  [PASS] D2-B.08: Real MobileBottomNav drawer focus management and tab activation
+  [PASS] D2-B.09: Defensive handling: Unmounted trigger fails safely without throwing
+--------------------------------------------------------
+Results: 9 passed, 0 failed
+========================================================
+
+========================================================
+FRACTAL-FLOW GUI — Expansion & Hardening Invariant Suite
+Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY
+========================================================
+
+--- EXP-01: Operational Risk Configuration & Invariant Guardrails ---
+  [PASS] EXP-01.1: Cross-field invariant: Max Lane Risk cannot exceed Max Account Exposure
+  [PASS] EXP-01.2: Fail-closed configuration write boundary: Simulation updates do not manufacture live authority
+
+--- EXP-02: 5-Class Notification Taxonomy & Critical Incident Semantics ---
+  [PASS] EXP-02.1: Safety-critical notification subscriptions are permanently enabled and non-mutable
+  [PASS] EXP-02.2: Acknowledgement invariant: Operator Ack sets timestamp but strictly does NOT resolve condition
+
+--- EXP-03: Quant Model Registry & Permitted Advisory Intents ---
+  [PASS] EXP-03.1: Model permitted intents are strictly constrained to VETO, REDUCE, NONE (strictly NO CREATE)
+  [PASS] EXP-03.2: Model advice cannot bypass upstream risk gates
+
+--- EXP-04: Lab & Backtesting Analytical Contracts ---
+  [PASS] EXP-04.1: Lab backtest artifacts maintain statistical robustness checks (Null-World & Planted-Edge)
+
+--- EXP-05: Blockers Register & Cryptographic Audit Trail ---
+  [PASS] EXP-05.1: Remediation blockers retain verifiable evidence artifacts and owner attribution
+  [PASS] EXP-05.2: Audit trail records require correlation ID and SHA-256 intent digest
+
+========================================================
+Expansion Invariant Results: 9 PASSED, 0 FAILED
+========================================================
+
+========================================================
+FRACTAL-FLOW GUI — Automated Risk Validator & Latency Monitor
+Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY
+========================================================
+
+--- RISK-VAL: Automated Risk Validator Against OperationalRiskConfig ---
+  [PASS] RISK-01: Detects Lane Risk Cap breach when candidate risk exceeds maxLaneRiskR
+  [PASS] RISK-02: Detects Total Account Exposure Cap breach when aggregate risk exceeds maxAccountExposureR
+  [PASS] RISK-03: Detects Daily Loss Limit breach when daily PnL exceeds dailyLossLimitUsd
+  [PASS] RISK-04: Returns CLEAR when candidate risk is strictly within all limits
+  [PASS] RISK-05: Warning badge renders on GateCandidate with correct data-testid and status
+
+--- LATENCY-MON: Real-Time Latency Monitor in Header ---
+  [PASS] LATENCY-01: Nominal latency status (<250ms) renders without critical warning banner
+  [PASS] LATENCY-02: Elevated and exceeded delay thresholds display visual warning badge in Header
+  [PASS] LATENCY-03: Mobile header implements accessible touch target for latency monitor
+
+========================================================
+Risk & Latency Invariant Results: 8 PASSED, 0 FAILED
+========================================================
+
+========================================================
+FRACTAL-FLOW Stage H Forensic Adversarial Invariants Suite
+Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM
+========================================================
+
+--- HPL-RISK: Forensic Risk Invariant Matrix ---
+  [PASS] HPL-RISK-01: Invalid, non-finite, and negative candidate risk rejects with INVALID/UNKNOWN, never CLEAR
+  [PASS] HPL-RISK-02: Zero silent fallbacks — invalid position risk units fail closed without partial aggregation
+  [PASS] HPL-RISK-03: Exact risk-cap equality — boundary is inclusive cap; strictly greater breaches
+  [PASS] HPL-RISK-04: Exact daily-loss equality and threshold crossing with deterministic currency cents
+  [PASS] HPL-RISK-05: OperationalRiskConfig validation rejects cross-field violations, NaN, and negative values
+  [PASS] HPL-RISK-06: Position modification validator allows de-risking actions and rejects additions during daily loss breach
+
+--- HPL-LAT: Latency Telemetry Truthfulness Matrix ---
+  [PASS] HPL-LAT-01: No fabricated startup measurements — monitor initializes in NO_DATA state with null samples
+  [PASS] HPL-LAT-02: Telemetry semantics distinguish measured processing duration from injected test delay
+  [PASS] HPL-LAT-03: Invalid and non-finite latency observations fail closed to INVALID state
+
+--- HPL-AUD: Audit Provenance & Canonical Digest Matrix ---
+  [PASS] HPL-AUD-01: Session events use honest non-authoritative session actor and no hardcoded personal identities
+  [PASS] HPL-AUD-02: Canonical JSON SHA-256 digest is deterministic, stable under key reordering, and changes when payload mutated
+
+--- HPL-NOT: Notification Delivery & Acknowledgement Matrix ---
+  [PASS] HPL-NOT-01: Notification fixtures reflect unconfigured/simulated delivery, never false confirmed delivery
+  [PASS] HPL-NOT-02: Operator acknowledgement records timestamp but strictly does NOT resolve active safety condition
+
+--- HPL-GOV: Lab, Quant, & Live Execution Isolation Matrix ---
+  [PASS] HPL-LAB-01: Lab view backtests are explicitly identified as unverified synthetic fixtures
+  [PASS] HPL-QUANT-01: QUANT model registry strictly disallows order creation authority (NO CREATE intent)
+  [PASS] HPL-LIVE-01: LiveCommandAdapter submitCommand and reconcileCommand fail closed unconditionally with zero mutation
+  [PASS] HPL-LIVE-02: SimulationProvider state remains bit-for-bit immutable upon rejected command (FF-D-04)
+
+========================================================
+Stage H Adversarial Invariant Results: 17 PASSED, 0 FAILED
+========================================================
+
+========================================================
+FRACTAL-FLOW Stage H.1 Production Behavior & Invariant Suite
+Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM
+========================================================
+
+--- HPL-H1-RISK-01: Production Risk KPI Rendering & Zero Fabricated Fallbacks ---
+  [PASS] H1-RISK-01.1: Production Header renders exact aggregate openRiskR when nominal
+  [PASS] H1-RISK-01.2: Production Header renders explicit INVALID badge when openRiskR is null (zero numeric guess)
+  [PASS] H1-RISK-01.3: Empty portfolio evaluates to valid 0.0R and is distinct from invalid state
+  [PASS] H1-RISK-01.4: SecondaryViews RISK tab renders dynamic open risk and handles invalid portfolio fail-closed
+
+--- HPL-H1-RISK-02: Canonical Precision, Micro-R Scaling & Boundary Equality ---
+  [PASS] H1-RISK-02.1: Three 0.005R positions sum to 0.015R (proves zero premature per-position hundredth rounding)
+  [PASS] H1-RISK-02.2: Aggregation order determinism under position permutations
+  [PASS] H1-RISK-02.3: Cap comparison boundary equality — exact equality is CLEAR, strictly greater breaches
+
+--- HPL-H1-RISK-03: Risk Provenance & Semantics ---
+  [PASS] H1-RISK-03.1: Allocated risk takes precedence over setup map
+  [PASS] H1-RISK-03.2: Missing allocated risk and unknown setup fails closed without guessing
+
+--- HPL-H1-CRYPTO-01: FIPS 180-4 Standard SHA-256 Conformance ---
+  [PASS] H1-CRYPTO-01.1: NIST Standard Vector 1 (Empty String)
+  [PASS] H1-CRYPTO-01.2: NIST Standard Vector 2 ("abc")
+  [PASS] H1-CRYPTO-01.3: Non-ASCII UTF-8 string with symbols, accents and emojis
+  [PASS] H1-CRYPTO-01.4: Multi-block message spanning >64 bytes across block boundary
+  [PASS] H1-CRYPTO-01.5: Canonical JSON key-order invariance and array-order sensitivity
+  [PASS] H1-CRYPTO-01.6: Canonical JSON fails closed on unsupported non-finite numbers and circular refs
+
+--- HPL-H1-AUTH-01 & PROTECT-01: Authority & Live Execution Barrier ---
+  [PASS] H1-AUTH-01.1: LiveCommandAdapter unconditionally throws LiveExecutionBlockedError
+  [PASS] H1-AUTH-01.2: SimulationProvider state remains bit-for-bit immutable on command rejection
+  [PASS] H1-PROTECT-01.1: OperationalRiskConfig rejection on cross-field violation preserves state
+
+========================================================
+Stage H.1 Production Behavior Results: 18 PASSED, 0 FAILED
+========================================================

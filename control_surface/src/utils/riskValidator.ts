@@ -106,7 +106,7 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
 
   const invalidPositionIds: string[] = [];
   const diagnostics: string[] = [];
-  let totalHundredths = 0;
+  let totalMicroR = 0;
 
   for (const pos of targetPositions) {
     const evalResult = getValidPositionRiskR(pos);
@@ -114,7 +114,7 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
       invalidPositionIds.push(pos?.id || 'UNKNOWN_ID');
       diagnostics.push(evalResult.reason || 'Invalid position risk');
     } else {
-      totalHundredths += Math.round(evalResult.riskR * 100);
+      totalMicroR += Math.round(evalResult.riskR * 1_000_000);
     }
   }
 
@@ -128,7 +128,8 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
     };
   }
 
-  const totalRiskR = Number((totalHundredths / 100).toFixed(2));
+  // Preserve full precision via micro-R integer scaling (no premature intermediate rounding)
+  const totalRiskR = Number((totalMicroR / 1_000_000).toFixed(6));
   return {
     status: 'VALID',
     totalRiskR,
@@ -401,23 +402,23 @@ export function validateCandidateAgainstRiskConfig(
     };
   }
 
-  // Step 6: Deterministic arithmetic (hundredths of R and cents USD)
-  const currentLaneHundredths = Math.round(laneRiskEval.totalRiskR! * 100);
-  const currentAccountHundredths = Math.round(accountExposureEval.totalRiskR! * 100);
-  const candidateHundredths = Math.round(candidateRisk * 100);
+  // Step 6: Deterministic arithmetic (micro-R basis and integer cents USD)
+  const currentLaneMicroR = Math.round(laneRiskEval.totalRiskR! * 1_000_000);
+  const currentAccountMicroR = Math.round(accountExposureEval.totalRiskR! * 1_000_000);
+  const candidateMicroR = Math.round(candidateRisk * 1_000_000);
 
-  const projectedLaneHundredths = currentLaneHundredths + candidateHundredths;
-  const projectedAccountHundredths = currentAccountHundredths + candidateHundredths;
+  const projectedLaneMicroR = currentLaneMicroR + candidateMicroR;
+  const projectedAccountMicroR = currentAccountMicroR + candidateMicroR;
 
-  const projectedLaneRiskR = Number((projectedLaneHundredths / 100).toFixed(2));
-  const projectedAccountExposureR = Number((projectedAccountHundredths / 100).toFixed(2));
+  const projectedLaneRiskR = Number((projectedLaneMicroR / 1_000_000).toFixed(4));
+  const projectedAccountExposureR = Number((projectedAccountMicroR / 1_000_000).toFixed(4));
 
-  const maxLaneHundredths = Math.round(riskConfig.maxLaneRiskR * 100);
-  const maxAccountHundredths = Math.round(riskConfig.maxAccountExposureR * 100);
+  const maxLaneMicroR = Math.round(riskConfig.maxLaneRiskR * 1_000_000);
+  const maxAccountMicroR = Math.round(riskConfig.maxAccountExposureR * 1_000_000);
 
   // Invariant 1: Max Lane Risk Cap (inclusive ceiling: > breaches)
-  if (projectedLaneHundredths > maxLaneHundredths) {
-    const excessR = Number(((projectedLaneHundredths - maxLaneHundredths) / 100).toFixed(2));
+  if (projectedLaneMicroR > maxLaneMicroR) {
+    const excessR = Number(((projectedLaneMicroR - maxLaneMicroR) / 1_000_000).toFixed(4));
     violations.push({
       code: 'MAX_LANE_RISK_EXCEEDED',
       severity: 'BLOCKING',
@@ -429,8 +430,8 @@ export function validateCandidateAgainstRiskConfig(
   }
 
   // Invariant 2: Max Account Aggregate Exposure Cap (inclusive ceiling: > breaches)
-  if (projectedAccountHundredths > maxAccountHundredths) {
-    const excessR = Number(((projectedAccountHundredths - maxAccountHundredths) / 100).toFixed(2));
+  if (projectedAccountMicroR > maxAccountMicroR) {
+    const excessR = Number(((projectedAccountMicroR - maxAccountMicroR) / 1_000_000).toFixed(4));
     violations.push({
       code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
       severity: 'BLOCKING',

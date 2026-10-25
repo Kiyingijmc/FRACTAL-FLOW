@@ -60,7 +60,7 @@ import {
   INITIAL_REMEDIATION_BLOCKERS,
   INITIAL_AUDIT_TRAIL
 } from './data/mockData';
-import { validateOperationalRiskConfig } from './utils/riskValidator';
+import { validateOperationalRiskConfig, evaluatePortfolioRisk } from './utils/riskValidator';
 import { computeCanonicalSha256 } from './utils/crypto';
 
 export const App: React.FC = () => {
@@ -322,9 +322,15 @@ export const App: React.FC = () => {
     return positions.reduce((acc, pos) => acc + pos.unrealizedR * 125.0, 312.5);
   }, [positions]);
 
-  const openRiskR = useMemo(() => {
-    return positions.length * 0.6;
+  const portfolioRiskEval = useMemo(() => {
+    return evaluatePortfolioRisk(positions);
   }, [positions]);
+
+  const openRiskR = useMemo(() => {
+    return portfolioRiskEval.status === 'VALID' && portfolioRiskEval.totalRiskR !== null
+      ? portfolioRiskEval.totalRiskR
+      : null;
+  }, [portfolioRiskEval]);
 
   // Synchronize tick stream from SimulationProvider
   useEffect(() => {
@@ -738,6 +744,8 @@ export const App: React.FC = () => {
             labRuns={labRuns}
             blockers={blockers}
             auditTrail={auditTrail}
+            positions={positions}
+            riskConfig={riskConfig}
           />
         )}
       </div>

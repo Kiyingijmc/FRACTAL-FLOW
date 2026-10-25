@@ -6,7 +6,7 @@ import { LatencyMetrics } from '../types';
 interface HeaderProps {
   equity: number;
   dailyPnl: number;
-  openRiskR: number;
+  openRiskR: number | null;
   lane: string;
   onLaneChange: (lane: string) => void;
   isSimPaused: boolean;
@@ -119,6 +119,8 @@ export const Header: React.FC<HeaderProps> = ({
   const latencyStyle = getLatencyStyle(latency.status);
   const isLatencyDelayed = latency.status === 'ELEVATED' || latency.status === 'EXCEEDED';
   const displayRttText = latency.lastRttMs !== null ? `${latency.lastRttMs}ms` : '--ms';
+  const isRiskValid = openRiskR !== null && typeof openRiskR === 'number' && Number.isFinite(openRiskR);
+  const displayRiskText = isRiskValid ? `${openRiskR.toFixed(1)}R` : null;
 
   return (
     <>
@@ -226,9 +228,15 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <div className="text-right">
               <span className="text-[9px] text-[#6E7A8A] block">risk (sim)</span>
-              <span className="text-[#E7EAEE] tabular-nums font-semibold">
-                {openRiskR.toFixed(1)}R
-              </span>
+              {isRiskValid ? (
+                <span data-testid="open-risk-kpi-mobile" className="text-[#E7EAEE] tabular-nums font-semibold">
+                  {displayRiskText}
+                </span>
+              ) : (
+                <span data-testid="open-risk-invalid-mobile" className="text-[#C25B6B] tabular-nums font-semibold">
+                  INVALID
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -336,9 +344,15 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="text-right">
             <div className="text-[10px] text-[#6E7A8A]">open risk (sim)</div>
-            <div className="font-mono text-[15px] text-[#E7EAEE] tabular-nums">
-              {openRiskR.toFixed(1)}R
-            </div>
+            {isRiskValid ? (
+              <div data-testid="open-risk-kpi" className="font-mono text-[15px] text-[#E7EAEE] tabular-nums">
+                {displayRiskText}
+              </div>
+            ) : (
+              <div data-testid="open-risk-invalid" className="font-mono text-[15px] text-[#C25B6B] font-semibold tabular-nums">
+                INVALID
+              </div>
+            )}
           </div>
         </div>
 
