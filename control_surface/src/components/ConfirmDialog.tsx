@@ -67,7 +67,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 transition-opacity duration-150">
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="confirm-dialog"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 transition-opacity duration-150"
+    >
       <div className="w-[460px] bg-[#10151D] border border-[#232A35] p-4 text-left select-none">
         {/* Header */}
         <div className="flex justify-between items-start pb-2 mb-3 border-b border-[#232A35]">
@@ -130,6 +135,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}
+            data-testid="confirm-dialog-cancel"
             className="px-3 py-1.5 text-xs text-[#6E7A8A] hover:text-[#E7EAEE] bg-[#161C26] border border-[#232A35] rounded-[2px] transition-colors cursor-pointer flex items-center gap-1.5"
           >
             <span>Cancel</span>

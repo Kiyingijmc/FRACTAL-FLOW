@@ -30,6 +30,103 @@ export const DEFAULT_SETUP_RISK_MAP: Record<string, number> = {
   'FF-04': 0.5, // Transition Watch
 };
 
+export const RISK_ARITHMETIC_CONSTANTS = {
+  SCALE: 1_000_000, // micro-R: 1 R = 1,000,000 micro-R
+  MAX_INPUT_DECIMALS: 4, // 0.0001 R = 100 micro-R
+  MIN_POSITION_RISK_R: 0.0001, // 100 micro-R
+  MAX_POSITION_RISK_R: 100.0, // 100,000,000 micro-R
+  MAX_PORTFOLIO_RISK_R: 200.0, // 200,000,000 micro-R
+} as const;
+
+export type PositionRiskRejectionReason =
+  | 'EXPLICIT_ALLOCATED_RISK'
+  | 'MISSING_ALLOCATED_RISK'
+  | 'NON_FINITE_RISK'
+  | 'NON_POSITIVE_RISK'
+  | 'EXCEEDS_MAX_POSITION_RISK'
+  | 'UNSUPPORTED_PRECISION'
+  | 'INTEGER_OVERFLOW'
+  | 'INVALID_OBJECT'
+  | 'INVALID_LANE';
+
+/**
+ * Validates whether a numeric risk value conforms to the permitted input precision (at most 4 decimal places).
+ * Rejects values with excess fractional precision beyond 4 decimal places (e.g. 0.00001, 0.12345).
+ */
+export function hasValidRiskPrecision(val: number): boolean {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return false;
+  const scaled = val * 10_000;
+  return Math.abs(scaled - Math.round(scaled)) < 1e-7;
+}
+
+/**
+ * Safely converts a risk value in R to integer micro-R units (10^6 scale).
+ * Strictly validates:
+ * 1. Type: number only (no strings, booleans, objects, null, undefined).
+ * 2. Finite: Number.isFinite (no NaN, Infinity, -Infinity).
+ * 3. Positive: val > 0.
+ * 4. Bound: val <= MAX_POSITION_RISK_R (100.0R).
+ * 5. Precision: at most 4 decimal places (0.0001R). Rejects unsupported precision fail-closed.
+ * 6. Safe integer: Math.round(val * 1_000_000) is a safe integer.
+ */
+export function toSafeMicroR(val: unknown): {
+  isValid: boolean;
+  microR: number;
+  reason?: PositionRiskRejectionReason;
+  error?: string;
+} {
+  if (typeof val !== 'number') {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'NON_FINITE_RISK',
+      error: `Risk value (${val}) is not a number`
+    };
+  }
+  if (!Number.isFinite(val)) {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'NON_FINITE_RISK',
+      error: `Risk value (${val}) is non-finite (NaN or Infinity)`
+    };
+  }
+  if (val <= 0) {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'NON_POSITIVE_RISK',
+      error: `Risk value (${val}) is non-positive; must be strictly > 0`
+    };
+  }
+  if (val > RISK_ARITHMETIC_CONSTANTS.MAX_POSITION_RISK_R) {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'EXCEEDS_MAX_POSITION_RISK',
+      error: `Risk value (${val}R) exceeds maximum supported individual risk (${RISK_ARITHMETIC_CONSTANTS.MAX_POSITION_RISK_R}R)`
+    };
+  }
+  if (!hasValidRiskPrecision(val)) {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'UNSUPPORTED_PRECISION',
+      error: `Risk value (${val}) exceeds maximum permitted input precision of ${RISK_ARITHMETIC_CONSTANTS.MAX_INPUT_DECIMALS} decimal places (0.0001R)`
+    };
+  }
+  const microR = Math.round(val * RISK_ARITHMETIC_CONSTANTS.SCALE);
+  if (!Number.isSafeInteger(microR)) {
+    return {
+      isValid: false,
+      microR: NaN,
+      reason: 'INTEGER_OVERFLOW',
+      error: `Risk value (${val}) causes integer overflow beyond safe integers`
+    };
+  }
+  return { isValid: true, microR };
+}
+
 export interface PositionRiskEvaluation {
   isValid: boolean;
   riskR: number | null;
@@ -58,7 +155,7 @@ export function getValidPositionRiskR(pos: Position): PositionRiskEvaluation {
 
   // Stage H.1.1 Mandatory Invariant: Existing positions must strictly have explicit allocatedRiskR.
   // Setup-mapped defaults are prohibited as silent fallbacks for open positions.
-  if (typeof pos.allocatedRiskR !== 'number') {
+  if (pos.allocatedRiskR === undefined || pos.allocatedRiskR === null) {
     return {
       isValid: false,
       riskR: null,
@@ -66,11 +163,12 @@ export function getValidPositionRiskR(pos: Position): PositionRiskEvaluation {
     };
   }
 
-  if (!Number.isFinite(pos.allocatedRiskR) || pos.allocatedRiskR <= 0) {
+  const safeMicro = toSafeMicroR(pos.allocatedRiskR);
+  if (!safeMicro.isValid) {
     return {
       isValid: false,
       riskR: null,
-      reason: `Position ${pos.id || 'UNKNOWN'} allocatedRiskR (${pos.allocatedRiskR}) is non-finite or non-positive`
+      reason: `Position ${pos.id || 'UNKNOWN'} allocatedRiskR (${pos.allocatedRiskR}): ${safeMicro.error}`
     };
   }
 
@@ -90,11 +188,12 @@ export function getCandidatePlannedRiskR(
   }
 
   if (typeof overrideRiskR === 'number') {
-    if (!Number.isFinite(overrideRiskR) || overrideRiskR <= 0) {
+    const safeMicro = toSafeMicroR(overrideRiskR);
+    if (!safeMicro.isValid) {
       return {
         isValid: false,
         plannedRiskR: null,
-        reason: `Candidate override risk (${overrideRiskR}) is non-finite or non-positive`
+        reason: `Candidate override risk (${overrideRiskR}): ${safeMicro.error}`
       };
     }
     return { isValid: true, plannedRiskR: overrideRiskR };
@@ -102,7 +201,8 @@ export function getCandidatePlannedRiskR(
 
   if (candidate.setup && typeof DEFAULT_SETUP_RISK_MAP[candidate.setup] === 'number') {
     const mapped = DEFAULT_SETUP_RISK_MAP[candidate.setup];
-    if (Number.isFinite(mapped) && mapped > 0) {
+    const safeMicro = toSafeMicroR(mapped);
+    if (safeMicro.isValid) {
       return { isValid: true, plannedRiskR: mapped };
     }
   }
@@ -144,7 +244,20 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
       invalidPositionIds.push(pos?.id || 'UNKNOWN_ID');
       diagnostics.push(evalResult.reason || 'Invalid position risk');
     } else {
-      totalMicroR += Math.round(evalResult.riskR * 1_000_000);
+      const safeMicro = toSafeMicroR(evalResult.riskR);
+      if (!safeMicro.isValid) {
+        invalidPositionIds.push(pos?.id || 'UNKNOWN_ID');
+        diagnostics.push(safeMicro.error || 'Invalid position micro-R conversion');
+      } else {
+        totalMicroR += safeMicro.microR;
+        if (
+          !Number.isSafeInteger(totalMicroR) ||
+          totalMicroR > RISK_ARITHMETIC_CONSTANTS.MAX_PORTFOLIO_RISK_R * RISK_ARITHMETIC_CONSTANTS.SCALE
+        ) {
+          invalidPositionIds.push(pos?.id || 'UNKNOWN_ID');
+          diagnostics.push(`Portfolio aggregate risk exceeds safe limit (${RISK_ARITHMETIC_CONSTANTS.MAX_PORTFOLIO_RISK_R}R)`);
+        }
+      }
     }
   }
 
@@ -158,8 +271,8 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
     };
   }
 
-  // Preserve full precision via micro-R integer scaling (no premature intermediate rounding)
-  const totalRiskR = Number((totalMicroR / 1_000_000).toFixed(6));
+  // Preserve authoritative precision via exact micro-R integer scaling
+  const totalRiskR = totalMicroR / RISK_ARITHMETIC_CONSTANTS.SCALE;
   return {
     status: 'VALID',
     totalRiskR,
@@ -409,19 +522,20 @@ export function validateCandidateAgainstRiskConfig(
   const projectedLaneMicroR = currentLaneMicroR + candidateMicroR;
   const projectedAccountMicroR = currentAccountMicroR + candidateMicroR;
 
-  const projectedLaneRiskR = Number((projectedLaneMicroR / 1_000_000).toFixed(4));
-  const projectedAccountExposureR = Number((projectedAccountMicroR / 1_000_000).toFixed(4));
+  // Authoritative un-rounded values
+  const projectedLaneRiskR = projectedLaneMicroR / 1_000_000;
+  const projectedAccountExposureR = projectedAccountMicroR / 1_000_000;
 
   const maxLaneMicroR = Math.round(riskConfig.maxLaneRiskR * 1_000_000);
   const maxAccountMicroR = Math.round(riskConfig.maxAccountExposureR * 1_000_000);
 
   // Invariant 1: Max Lane Risk Cap (inclusive ceiling: > breaches)
   if (projectedLaneMicroR > maxLaneMicroR) {
-    const excessR = Number(((projectedLaneMicroR - maxLaneMicroR) / 1_000_000).toFixed(4));
+    const excessR = (projectedLaneMicroR - maxLaneMicroR) / 1_000_000;
     violations.push({
       code: 'MAX_LANE_RISK_EXCEEDED',
       severity: 'BLOCKING',
-      message: `Projected lane risk (${projectedLaneRiskR}R) exceeds maximum lane risk limit (${riskConfig.maxLaneRiskR.toFixed(1)}R) by ${excessR}R`,
+      message: `Projected lane risk (${projectedLaneRiskR.toFixed(4)}R) exceeds maximum lane risk limit (${riskConfig.maxLaneRiskR.toFixed(1)}R) by ${excessR.toFixed(4)}R`,
       metric: 'LANE_RISK',
       currentValue: projectedLaneRiskR,
       limitValue: riskConfig.maxLaneRiskR,
@@ -430,11 +544,11 @@ export function validateCandidateAgainstRiskConfig(
 
   // Invariant 2: Max Account Aggregate Exposure Cap (inclusive ceiling: > breaches)
   if (projectedAccountMicroR > maxAccountMicroR) {
-    const excessR = Number(((projectedAccountMicroR - maxAccountMicroR) / 1_000_000).toFixed(4));
+    const excessR = (projectedAccountMicroR - maxAccountMicroR) / 1_000_000;
     violations.push({
       code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
       severity: 'BLOCKING',
-      message: `Projected total account exposure (${projectedAccountExposureR}R) exceeds account exposure limit (${riskConfig.maxAccountExposureR.toFixed(1)}R) by ${excessR}R`,
+      message: `Projected total account exposure (${projectedAccountExposureR.toFixed(4)}R) exceeds account exposure limit (${riskConfig.maxAccountExposureR.toFixed(1)}R) by ${excessR.toFixed(4)}R`,
       metric: 'ACCOUNT_EXPOSURE',
       currentValue: projectedAccountExposureR,
       limitValue: riskConfig.maxAccountExposureR,

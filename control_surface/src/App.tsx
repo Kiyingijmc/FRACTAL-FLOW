@@ -1,15 +1,15 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { 
-  Position, 
-  PendingOrder, 
-  ClosedTrade, 
-  GateCandidate, 
-  ActionType, 
-  CommandExecutionRecord, 
+import {
+  Position,
+  PendingOrder,
+  ClosedTrade,
+  GateCandidate,
+  ActionType,
+  CommandExecutionRecord,
   CommandLifecycleState,
-  NavTab, 
+  NavTab,
   ExtendedNavTab,
-  SystemEvent, 
+  SystemEvent,
   PositionsSubTab,
   NotificationEvent,
   PresentationPreferences,
@@ -22,11 +22,11 @@ import {
   AuditTrailRecord,
   LatencyMetrics
 } from './types';
-import { 
-  ApplicationMode, 
-  TelemetryProvenance, 
+import {
+  ApplicationMode,
+  TelemetryProvenance,
   IntentFingerprint,
-  CommandLifecycle 
+  CommandLifecycle
 } from './types/contracts';
 import { SimulationProvider } from './providers/SimulationProvider';
 import { LiveCommandAdapter } from './providers/LiveCommandAdapter';
@@ -45,11 +45,11 @@ import { SecondaryViews } from './components/SecondaryViews';
 import { SettingsModal } from './components/SettingsModal';
 import { CriticalBanner } from './components/CriticalBanner';
 import { NotificationDrawer } from './components/NotificationDrawer';
-import { 
-  INITIAL_POSITIONS, 
-  INITIAL_PENDING_ORDERS, 
-  GATE_CANDIDATES, 
-  INITIAL_SYSTEM_EVENTS, 
+import {
+  INITIAL_POSITIONS,
+  INITIAL_PENDING_ORDERS,
+  GATE_CANDIDATES,
+  INITIAL_SYSTEM_EVENTS,
   INITIAL_CLOSED_TRADES,
   INITIAL_NOTIFICATIONS,
   INITIAL_OPERATIONAL_RISK_CONFIG,
@@ -63,7 +63,32 @@ import {
 import { validateOperationalRiskConfig, evaluatePortfolioRisk } from './utils/riskValidator';
 import { computeCanonicalSha256 } from './utils/crypto';
 
-export const App: React.FC = () => {
+export interface AppTestControlHandle {
+  setPositions: React.Dispatch<React.SetStateAction<Position[]>>;
+  setRiskConfig: (cfg: OperationalRiskConfig) => void;
+  triggerAction: (action: ActionType, pos: Position) => void;
+  setActiveNavTab: (tab: ExtendedNavTab) => void;
+  getPositions: () => Position[];
+  getRiskConfig: () => OperationalRiskConfig;
+  getOpenRiskR: () => number | null;
+  getPortfolioRiskEval: () => ReturnType<typeof evaluatePortfolioRisk>;
+}
+
+export interface AppProps {
+  initialPositions?: Position[];
+  initialRiskConfig?: OperationalRiskConfig;
+  initialNavTab?: ExtendedNavTab;
+  onPositionsChange?: (positions: Position[]) => void;
+  testRef?: React.MutableRefObject<AppTestControlHandle | null>;
+}
+
+export const App: React.FC<AppProps> = ({
+  initialPositions,
+  initialRiskConfig,
+  initialNavTab,
+  onPositionsChange,
+  testRef
+}) => {
   // Provider boundaries
   const simulationProvider = useMemo(() => new SimulationProvider(), []);
   const liveCommandAdapter = useMemo(() => new LiveCommandAdapter(), []);
@@ -82,7 +107,7 @@ export const App: React.FC = () => {
   });
 
   // Navigation & Sub-Tabs
-  const [activeNavTab, setActiveNavTab] = useState<ExtendedNavTab>('POS');
+  const [activeNavTab, setActiveNavTab] = useState<ExtendedNavTab>(initialNavTab || 'POS');
   const [activeSubTab, setActiveSubTab] = useState<PositionsSubTab>('open');
   const [isMoreNavOpen, setIsMoreNavOpen] = useState(false);
 
@@ -98,7 +123,9 @@ export const App: React.FC = () => {
   });
 
   // Operational Risk Configuration State
-  const [riskConfig, setRiskConfig] = useState<OperationalRiskConfig>(INITIAL_OPERATIONAL_RISK_CONFIG);
+  const [riskConfig, setRiskConfig] = useState<OperationalRiskConfig>(
+    initialRiskConfig || INITIAL_OPERATIONAL_RISK_CONFIG
+  );
 
   // Notification Event Feeds
   const [notifications, setNotifications] = useState<NotificationEvent[]>(INITIAL_NOTIFICATIONS);
@@ -133,7 +160,9 @@ export const App: React.FC = () => {
 
   // Simulation Controls & Data State
   const [isSimPaused, setIsSimPaused] = useState<boolean>(false);
-  const [positions, setPositions] = useState<Position[]>(INITIAL_POSITIONS);
+  const [positions, setPositions] = useState<Position[]>(
+    initialPositions || INITIAL_POSITIONS
+  );
   const [pendingOrders] = useState<PendingOrder[]>(INITIAL_PENDING_ORDERS);
   const [closedTrades] = useState<ClosedTrade[]>(INITIAL_CLOSED_TRADES);
   const [candidates] = useState<GateCandidate[]>(GATE_CANDIDATES);
@@ -332,6 +361,12 @@ export const App: React.FC = () => {
       : null;
   }, [portfolioRiskEval]);
 
+  useEffect(() => {
+    if (onPositionsChange) {
+      onPositionsChange(positions);
+    }
+  }, [positions, onPositionsChange]);
+
   // Synchronize tick stream from SimulationProvider
   useEffect(() => {
     simulationProvider.setPaused(isSimPaused);
@@ -373,9 +408,9 @@ export const App: React.FC = () => {
   // Append audit event safely with proper non-persisted labeling (SC-09)
   const addEvent = useCallback(
     (
-      message: string, 
-      source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE' = 'SIM_ENGINE', 
-      level: 'info' | 'warn' | 'crit' = 'info', 
+      message: string,
+      source: 'JOURNAL' | 'GATEWAY' | 'SIM_ENGINE' | 'CLIENT_INTAKE' = 'SIM_ENGINE',
+      level: 'info' | 'warn' | 'crit' = 'info',
       status: 'SESSION' | 'IN_MEMORY' | 'SIMULATED' | 'DISPATCHED' | 'CONFIRMED' | 'REJECTED' = 'SESSION'
     ) => {
       const newEvt: SystemEvent = {
@@ -401,6 +436,19 @@ export const App: React.FC = () => {
       targetPosition: pos,
     });
   };
+
+  if (testRef) {
+    testRef.current = {
+      setPositions,
+      setRiskConfig: handleUpdateRiskConfig,
+      triggerAction: handleTriggerAction,
+      setActiveNavTab,
+      getPositions: () => positions,
+      getRiskConfig: () => riskConfig,
+      getOpenRiskR: () => openRiskR,
+      getPortfolioRiskEval: () => portfolioRiskEval
+    };
+  }
 
   // Keyboard Navigation & Shortcuts
   useEffect(() => {
@@ -509,11 +557,11 @@ export const App: React.FC = () => {
       targetPosition.id,
       targetPosition.symbol,
       actionMap[action],
-      { 
-        side: targetPosition.side, 
-        entryPrice: targetPosition.entryPrice, 
+      {
+        side: targetPosition.side,
+        entryPrice: targetPosition.entryPrice,
         currentPrice: targetPosition.currentPrice,
-        simulateRejection 
+        simulateRejection
       }
     );
 

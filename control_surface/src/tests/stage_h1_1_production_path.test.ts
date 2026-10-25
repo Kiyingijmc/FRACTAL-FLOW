@@ -1,31 +1,52 @@
 /**
- * FRACTAL-FLOW Stage H.1.1 Production Path & Risk Provenance Test Suite
+ * FRACTAL-FLOW Stage H.1.1 Production Path, Risk Provenance & Precision Enforcement Test Suite
  * Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY
- * 
+ *
  * Verifies:
  * - HPL-H1.1-RISK-01: Zero setup-map fallback for open positions (strict allocatedRiskR requirement).
- * - HPL-H1.1-RISK-02: Micro-R integer scaling, cap boundary equality, and permutation invariance.
- * - HPL-H1.1-TEST-01: Production interactive state transitions (valid -> invalid -> valid).
- * - HPL-H1.1-PROTECT-01: De-risking allowed during risk-invalid states; live execution blocked.
+ * - HPL-H1.1-RISK-02: Micro-R integer scaling, 4-decimal input precision enforcement, cap boundary equality.
+ * - HPL-H1.1-TEST-01: Real mounted production component state transitions in <App /> (Valid -> Invalid -> Valid).
+ * - HPL-H1.1-PROTECT-01: De-risking allowed during risk-invalid states; live execution blocked fail-closed.
  */
 
-import React from 'react';
 import { JSDOM } from 'jsdom';
-import { renderToString } from 'react-dom/server';
-import { Header } from '../components/Header';
-import { SecondaryViews } from '../components/SecondaryViews';
-import { 
-  evaluatePortfolioRisk, 
-  getValidPositionRiskR, 
+import React, { act } from 'react';
+import ReactDOM from 'react-dom/client';
+
+// 1. Initialize DOM environment before importing React components that attach listeners
+const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
+  url: 'http://localhost'
+});
+const { window } = dom;
+const { document } = window;
+(globalThis as any).window = window;
+(globalThis as any).document = document;
+try {
+  Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
+} catch {
+  // Ignore in Node 22
+}
+(globalThis as any).HTMLElement = window.HTMLElement;
+(globalThis as any).HTMLButtonElement = window.HTMLButtonElement;
+(globalThis as any).KeyboardEvent = window.KeyboardEvent;
+(globalThis as any).MouseEvent = window.MouseEvent;
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+import { App, AppTestControlHandle } from '../App';
+import {
+  evaluatePortfolioRisk,
+  getValidPositionRiskR,
   getCandidatePlannedRiskR,
   validateCandidateAgainstRiskConfig,
-  validateOperationalRiskConfig
+  validateOperationalRiskConfig,
+  hasValidRiskPrecision,
+  toSafeMicroR,
+  RISK_ARITHMETIC_CONSTANTS
 } from '../utils/riskValidator';
 import { LiveCommandAdapter, LiveExecutionBlockedError } from '../providers/LiveCommandAdapter';
 import { SimulationProvider } from '../providers/SimulationProvider';
 import { INITIAL_POSITIONS, GATE_CANDIDATES, INITIAL_OPERATIONAL_RISK_CONFIG } from '../data/mockData';
 import { Position, OperationalRiskConfig } from '../types';
-import { TelemetryProvenance } from '../types/contracts';
 
 let passed = 0;
 let failed = 0;
@@ -48,20 +69,27 @@ async function test(name: string, fn: () => void | Promise<void>) {
   }
 }
 
-const DUMMY_TELEMETRY: TelemetryProvenance = {
-  source: 'SIM_ENGINE',
-  status: 'HEALTHY',
-  freshnessTimestamp: Date.now(),
-  isAuthoritative: false,
-  staleThresholdMs: 5000,
-  epoch: 1,
-  bridgeStatus: 'SIM_DISPATCH',
-  fenceStatus: 'OFF_BROKER'
-};
+const container = document.getElementById('root')!;
+let root: ReactDOM.Root | null = null;
+
+function setupMount() {
+  container.innerHTML = '';
+  root = ReactDOM.createRoot(container);
+}
+
+function teardownMount() {
+  if (root) {
+    act(() => {
+      root!.unmount();
+    });
+    root = null;
+  }
+  container.innerHTML = '';
+}
 
 async function runStageH11ProductionPathSuite() {
   console.log('========================================================');
-  console.log('FRACTAL-FLOW Stage H.1.1 Production Path & Provenance Suite');
+  console.log('FRACTAL-FLOW Stage H.1.1 Production Path & Precision Suite');
   console.log('Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM');
   console.log('========================================================\n');
 
@@ -153,38 +181,82 @@ async function runStageH11ProductionPathSuite() {
     expect(res.totalRiskR === 0.015, `Expected exactly 0.015, got ${res.totalRiskR}`);
   });
 
-  await test('H1.1-RISK-02.2: Large position count aggregation: 100 x 0.005R equals exactly 0.500R', () => {
-    const hundredPositions: Position[] = Array.from({ length: 100 }, (_, i) => ({
+  await test('H1.1-RISK-02.2: 4-decimal precision enforcement: inputs with <= 4 decimals accepted; 5+ decimals strictly rejected', () => {
+    // Valid precision inputs (<= 4 decimals)
+    expect(hasValidRiskPrecision(0.0001), '0.0001 (4 decimals) must be valid');
+    expect(hasValidRiskPrecision(0.005), '0.005 (3 decimals) must be valid');
+    expect(hasValidRiskPrecision(0.1234), '0.1234 (4 decimals) must be valid');
+    expect(hasValidRiskPrecision(1.8), '1.8 (1 decimal) must be valid');
+
+    // Invalid precision inputs (5+ decimals)
+    expect(!hasValidRiskPrecision(0.00001), '0.00001 (5 decimals) must be rejected');
+    expect(!hasValidRiskPrecision(0.12345), '0.12345 (5 decimals) must be rejected');
+    expect(!hasValidRiskPrecision(0.00005), '0.00005 (5 decimals) must be rejected');
+    expect(!hasValidRiskPrecision(0.123456), '0.123456 (6 decimals) must be rejected');
+
+    // Rejection at position level
+    const posInvalidPrecision: Position = {
       ...INITIAL_POSITIONS[0],
-      id: `p_bulk_${i}`,
-      allocatedRiskR: 0.005,
-    }));
-    const res = evaluatePortfolioRisk(hundredPositions);
-    expect(res.status === 'VALID', 'Evaluation must be valid');
-    expect(res.totalRiskR === 0.5, `Expected exactly 0.5R, got ${res.totalRiskR}`);
+      allocatedRiskR: 0.12345, // 5 decimals
+    };
+    const posEval = getValidPositionRiskR(posInvalidPrecision);
+    expect(!posEval.isValid, 'Position with 5 decimals must fail closed');
+    expect(Boolean(posEval.reason?.includes('exceeds maximum permitted input precision')), 'Must cite precision violation');
   });
 
-  await test('H1.1-RISK-02.3: Cap equality: exact equality is CLEAR, excess of 0.0001R is BREACHED', () => {
-    const candidate = GATE_CANDIDATES[0];
-    const positions: Position[] = [
-      { ...INITIAL_POSITIONS[0], lane: 'ACT_PRIMARY', allocatedRiskR: 1.0 },
-    ];
+  await test('H1.1-RISK-02.3: Individual position upper bound and overflow protections', () => {
+    // Max individual position risk is 100.0R
+    const safePos = toSafeMicroR(100.0);
+    expect(safePos.isValid && safePos.microR === 100_000_000, '100.0R must be accepted');
+
+    const excessPos = toSafeMicroR(100.0001);
+    expect(!excessPos.isValid, '100.0001R must exceed max position risk');
+    expect(excessPos.reason === 'EXCEEDS_MAX_POSITION_RISK', 'Must report EXCEEDS_MAX_POSITION_RISK');
+
+    // Unsafe integer / massive numbers
+    const hugePos = toSafeMicroR(1e25);
+    expect(!hugePos.isValid, '1e25 must be rejected');
+  });
+
+  await test('H1.1-RISK-02.4: Cap equality: exact equality is CLEAR, excess of 0.0001R is BREACHED', () => {
     const config: OperationalRiskConfig = {
       ...INITIAL_OPERATIONAL_RISK_CONFIG,
       maxLaneRiskR: 1.8,
-      maxAccountExposureR: 5.0,
+      maxAccountExposureR: 3.0,
     };
 
-    // Exact equality (1.0 + 0.8 = 1.8R <= 1.8R) -> CLEAR
-    const clearResult = validateCandidateAgainstRiskConfig(candidate, positions, config, 0, 0.8);
-    expect(clearResult.status === 'CLEAR', `Exact equality must be CLEAR, got ${clearResult.status}`);
+    const candidate = GATE_CANDIDATES[0]; // lane: ACT_PRIMARY
 
-    // Excess of 0.0001R (1.0 + 0.8001 = 1.8001R > 1.8R) -> BREACHED
-    const breachResult = validateCandidateAgainstRiskConfig(candidate, positions, config, 0, 0.8001);
-    expect(breachResult.status === 'BREACHED', `Excess must breach, got ${breachResult.status}`);
+    // Case A: 1.0R + 0.8R = 1.8R (exact cap equality -> CLEAR)
+    const currentPositionsEqual: Position[] = [
+      { ...INITIAL_POSITIONS[0], lane: 'ACT_PRIMARY', allocatedRiskR: 1.0 },
+    ];
+    const resEqual = validateCandidateAgainstRiskConfig(
+      candidate,
+      currentPositionsEqual,
+      config,
+      100.0,
+      0.8 // Override candidate risk to 0.8
+    );
+    expect(resEqual.status === 'CLEAR', '1.8R against 1.8R cap must be CLEAR');
+    expect(!resEqual.hasViolations, 'Must have zero violations on exact cap equality');
+
+    // Case B: 1.0R + 0.8001R = 1.8001R (excess of 0.0001R -> BREACHED)
+    const resBreach = validateCandidateAgainstRiskConfig(
+      candidate,
+      currentPositionsEqual,
+      config,
+      100.0,
+      0.8001 // Override candidate risk to 0.8001
+    );
+    expect(resBreach.status === 'BREACHED', '1.8001R against 1.8R cap must be BREACHED');
+    expect(resBreach.hasViolations, 'Must have violations');
+    const laneViolation = resBreach.violations.find((v) => v.code === 'MAX_LANE_RISK_EXCEEDED');
+    expect(laneViolation !== undefined, 'Must trigger MAX_LANE_RISK_EXCEEDED');
+    expect(Boolean(laneViolation?.message.includes('0.0001R')), 'Excess must be exactly 0.0001R');
   });
 
-  await test('H1.1-RISK-02.4: Permutation determinism across 6 order permutations', () => {
+  await test('H1.1-RISK-02.5: Permutation determinism across position order permutations', () => {
     const p1: Position = { ...INITIAL_POSITIONS[0], id: 'p1', allocatedRiskR: 0.1111 };
     const p2: Position = { ...INITIAL_POSITIONS[1], id: 'p2', allocatedRiskR: 0.2222 };
     const p3: Position = { ...INITIAL_POSITIONS[2], id: 'p3', allocatedRiskR: 0.3333 };
@@ -198,85 +270,121 @@ async function runStageH11ProductionPathSuite() {
       [p3, p2, p1],
     ];
 
-    const baseResult = evaluatePortfolioRisk(permutations[0]).totalRiskR;
-    for (let i = 1; i < permutations.length; i++) {
-      const permResult = evaluatePortfolioRisk(permutations[i]).totalRiskR;
-      expect(permResult === baseResult, `Permutation ${i} (${permResult}) must match base (${baseResult})`);
+    const expectedTotal = 0.6666;
+    for (const perm of permutations) {
+      const res = evaluatePortfolioRisk(perm);
+      expect(res.status === 'VALID', 'Must be valid');
+      expect(res.totalRiskR === expectedTotal, `Permutation total must be ${expectedTotal}, got ${res.totalRiskR}`);
     }
   });
 
-  // --- SECTION 3: HPL-H1.1-TEST-01 — PRODUCTION INTERACTIVE STATE TRANSITIONS ---
-  console.log('\n--- HPL-H1.1-TEST-01: Interactive Production State Transitions ---');
+  // --- SECTION 3: HPL-H1.1-TEST-01 — REAL MOUNTED PRODUCTION COMPONENT STATE TRANSITIONS ---
+  console.log('\n--- HPL-H1.1-TEST-01: Real Mounted Production Component State Transitions in <App /> ---');
 
-  await test('H1.1-TEST-01.1: Production state transition: Valid -> Invalid -> Valid on position modification', () => {
-    // Stage 1: Valid initial portfolio
-    let currentPositions: Position[] = [...INITIAL_POSITIONS];
-    let evalRes = evaluatePortfolioRisk(currentPositions);
-    expect(evalRes.status === 'VALID', 'Initial portfolio must be valid');
+  await test('H1.1-TEST-01.1: Production <App /> interactive state lifecycle: Valid -> Invalid -> Valid mounted in JSDOM', async () => {
+    setupMount();
+    const testControlRef = React.createRef<AppTestControlHandle | null>();
 
-    let html = renderToString(
-      React.createElement(Header, {
-        equity: 50000,
-        dailyPnl: 312.5,
-        openRiskR: evalRes.totalRiskR,
-        lane: 'ACT_PRIMARY',
-        onLaneChange: () => {},
-        isSimPaused: false,
-        onToggleSimPause: () => {},
-        telemetry: DUMMY_TELEMETRY,
-        applicationMode: 'SIMULATION_SANDBOX',
-      })
+    // Step 1: Mount real production <App /> with valid INITIAL_POSITIONS
+    act(() => {
+      root!.render(
+        React.createElement(App, {
+          initialPositions: INITIAL_POSITIONS,
+          testRef: testControlRef,
+        })
+      );
+    });
+
+    const handle = testControlRef.current;
+    expect(handle !== null, 'App testControlRef must be populated by mounted component');
+
+    // Verify initial mounted DOM Header KPI
+    let kpiEl = container.querySelector('[data-testid="open-risk-kpi"]');
+    expect(kpiEl !== null, 'Header KPI element must exist in DOM');
+    expect(kpiEl!.textContent!.trim() === '2.3R', `Initial mounted KPI must be 2.3R, got ${kpiEl?.textContent}`);
+    expect(handle!.getOpenRiskR() === 2.3, 'Authoritative open risk must be 2.3R');
+
+    // Step 2: Trigger real production state update: Introduce an unallocated position
+    const unallocatedPos: Position = {
+      ...INITIAL_POSITIONS[0],
+      id: 'pos_corrupt_test_01',
+      allocatedRiskR: undefined, // Missing explicit allocation
+      setup: 'FF-01',
+    };
+
+    act(() => {
+      handle!.setPositions((prev) => [...prev, unallocatedPos]);
+    });
+
+    // Step 3: Verify mounted DOM updates in real-time to INVALID
+    let invalidEl = container.querySelector('[data-testid="open-risk-invalid"]');
+    expect(invalidEl !== null, 'Header INVALID badge must render in DOM after state transition');
+    expect(invalidEl!.textContent!.trim() === 'INVALID', 'INVALID badge text must be "INVALID"');
+    expect(testControlRef.current!.getOpenRiskR() === null, 'Authoritative open risk must be null when portfolio is invalid');
+
+    // Step 4: Verify candidate validation in GateChainStrip reflects invalid portfolio
+    const evalRes = testControlRef.current!.getPortfolioRiskEval();
+    expect(evalRes.status === 'INVALID', 'Portfolio risk status must be INVALID');
+    expect(evalRes.invalidPositionIds.includes('pos_corrupt_test_01'), 'Must flag corrupt position');
+
+    // Candidate validation against invalid portfolio fails closed
+    const candidateValidation = validateCandidateAgainstRiskConfig(
+      GATE_CANDIDATES[0],
+      testControlRef.current!.getPositions(),
+      testControlRef.current!.getRiskConfig(),
+      100.0
     );
-    let dom = new JSDOM(html);
-    let kpi = dom.window.document.querySelector('[data-testid="open-risk-kpi"]');
-    expect(kpi !== null && kpi.textContent!.trim() === '2.3R', 'Must render 2.3R for valid portfolio');
+    expect(candidateValidation.status === 'INVALID', 'Candidate validation must fail closed when portfolio is invalid');
+    expect(candidateValidation.hasViolations, 'Must have violations');
+    const portViolation = candidateValidation.violations.find((v) => v.metric === 'PORTFOLIO_INPUT');
+    expect(portViolation !== undefined, 'Must flag PORTFOLIO_INPUT blocking violation');
 
-    // Stage 2: Ingest an unallocated position (transition to INVALID)
-    currentPositions = [
-      ...currentPositions,
-      { ...INITIAL_POSITIONS[0], id: 'pos_unallocated', allocatedRiskR: undefined }
-    ];
-    evalRes = evaluatePortfolioRisk(currentPositions);
-    expect(evalRes.status === 'INVALID', 'Portfolio must transition to INVALID');
+    // Step 5: Verify protective actions remain permitted during invalid portfolio state
+    // De-risking: Triggering close_position modal
+    act(() => {
+      testControlRef.current!.triggerAction('close_position', INITIAL_POSITIONS[0]);
+    });
 
-    html = renderToString(
-      React.createElement(Header, {
-        equity: 50000,
-        dailyPnl: 312.5,
-        openRiskR: evalRes.totalRiskR, // null
-        lane: 'ACT_PRIMARY',
-        onLaneChange: () => {},
-        isSimPaused: false,
-        onToggleSimPause: () => {},
-        telemetry: DUMMY_TELEMETRY,
-        applicationMode: 'SIMULATION_SANDBOX',
-      })
-    );
-    dom = new JSDOM(html);
-    let invalidEl = dom.window.document.querySelector('[data-testid="open-risk-invalid"]');
-    expect(invalidEl !== null && invalidEl.textContent!.trim() === 'INVALID', 'Must transition to INVALID badge');
+    // Verify confirmation dialog opens in mounted DOM
+    const confirmModalEl = container.querySelector('[role="dialog"]');
+    expect(confirmModalEl !== null, 'Confirmation modal must mount for protective de-risking action');
 
-    // Stage 3: Close/remove the unallocated position (recovery back to VALID)
-    currentPositions = currentPositions.filter((p) => p.id !== 'pos_unallocated');
-    evalRes = evaluatePortfolioRisk(currentPositions);
-    expect(evalRes.status === 'VALID', 'Portfolio must recover to VALID');
+    // Dismiss modal
+    const cancelBtn = container.querySelector<HTMLButtonElement>('button[data-testid="confirm-dialog-cancel"]') ||
+                     container.querySelectorAll<HTMLButtonElement>('button')[0];
+    if (cancelBtn) {
+      act(() => {
+        cancelBtn.click();
+      });
+    }
 
-    html = renderToString(
-      React.createElement(Header, {
-        equity: 50000,
-        dailyPnl: 312.5,
-        openRiskR: evalRes.totalRiskR,
-        lane: 'ACT_PRIMARY',
-        onLaneChange: () => {},
-        isSimPaused: false,
-        onToggleSimPause: () => {},
-        telemetry: DUMMY_TELEMETRY,
-        applicationMode: 'SIMULATION_SANDBOX',
-      })
-    );
-    dom = new JSDOM(html);
-    kpi = dom.window.document.querySelector('[data-testid="open-risk-kpi"]');
-    expect(kpi !== null && kpi.textContent!.trim() === '2.3R', 'Must recover to 2.3R');
+    // Step 6: Recovery: Remove the corrupt position through real production state dispatcher
+    act(() => {
+      testControlRef.current!.setPositions((prev) => prev.filter((p) => p.id !== 'pos_corrupt_test_01'));
+    });
+
+    // Step 7: Verify mounted DOM immediately recovers to valid 2.3R
+    kpiEl = container.querySelector('[data-testid="open-risk-kpi"]');
+    expect(kpiEl !== null, 'Header KPI element must recover in DOM');
+    expect(kpiEl!.textContent!.trim() === '2.3R', `Recovered mounted KPI must be 2.3R, got ${kpiEl?.textContent}`);
+    expect(testControlRef.current!.getOpenRiskR() === 2.3, 'Authoritative open risk must recover to 2.3R');
+
+    // Step 8: Switch active tab to 'RISK' and verify SecondaryViews renders dynamic open risk
+    act(() => {
+      testControlRef.current!.setActiveNavTab('RISK');
+    });
+
+    const riskViewBadge = container.querySelector('[data-testid="secondary-total-open-risk"]');
+    expect(riskViewBadge !== null, 'SecondaryViews RISK KPI badge must mount in DOM');
+    expect(riskViewBadge!.textContent!.includes('2.30R'), 'SecondaryViews must render 2.30R in detailed tab');
+
+    // Step 9: Responsive layout presence check (both desktop md:flex and mobile md:hidden structures present)
+    const desktopView = container.querySelector('.md\\:flex');
+    const mobileView = container.querySelector('.md\\:hidden');
+    expect(desktopView !== null, 'Desktop responsive container must exist in mounted tree');
+    expect(mobileView !== null, 'Mobile responsive container must exist in mounted tree');
+
+    teardownMount();
   });
 
   // --- SECTION 4: HPL-H1.1-PROTECT-01 — PROTECTIVE BEHAVIOR & AUTHORITY ---
@@ -284,7 +392,7 @@ async function runStageH11ProductionPathSuite() {
 
   await test('H1.1-PROTECT-01.1: De-risking actions remain authorized during risk-invalid states', async () => {
     const provider = new SimulationProvider();
-    
+
     // Command to close position (de-risking)
     const result = await provider.submitCommand({
       intentId: 'derisk_close_01',
