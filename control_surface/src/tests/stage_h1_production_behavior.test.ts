@@ -249,11 +249,11 @@ async function runStageH1ProductionBehaviorSuite() {
   // --- SECTION 3: HPL-H1-RISK-03 — PROVENANCE & SEMANTICS ---
   console.log('\n--- HPL-H1-RISK-03: Risk Provenance & Semantics ---');
 
-  await test('H1-RISK-03.1: Allocated risk takes precedence over setup map', () => {
+  await test('H1-RISK-03.1: Allocated risk on existing position is strictly required', () => {
     const pos: Position = {
       ...INITIAL_POSITIONS[0],
-      setup: 'FF-01', // mapped to 0.8
-      allocatedRiskR: 0.45, // explicit allocation
+      setup: 'FF-01',
+      allocatedRiskR: 0.45,
     };
 
     const evalResult = getValidPositionRiskR(pos);
@@ -261,16 +261,17 @@ async function runStageH1ProductionBehaviorSuite() {
     expect(evalResult.riskR === 0.45, `Expected 0.45, got: ${evalResult.riskR}`);
   });
 
-  await test('H1-RISK-03.2: Missing allocated risk and unknown setup fails closed without guessing', () => {
+  await test('H1-RISK-03.2: Missing allocatedRiskR on existing position fails closed even with recognized setup (zero setup map fallback)', () => {
     const pos: Position = {
       ...INITIAL_POSITIONS[0],
-      setup: 'UNKNOWN_CUSTOM_SETUP',
-      allocatedRiskR: undefined,
+      setup: 'FF-01', // Recognized setup
+      allocatedRiskR: undefined, // Missing explicit risk allocation
     };
 
     const evalResult = getValidPositionRiskR(pos);
-    expect(!evalResult.isValid, 'Must fail closed');
+    expect(!evalResult.isValid, 'Must fail closed for existing position missing allocatedRiskR');
     expect(evalResult.riskR === null, 'Risk must be null');
+    expect(Boolean(evalResult.reason?.includes('missing allocatedRiskR')), 'Must state missing allocatedRiskR');
   });
 
   // --- SECTION 4: HPL-H1-CRYPTO-01 — STANDARD SHA-256 CONFORMANCE ---

@@ -2,7 +2,7 @@
  * Automated Risk Validator Utility
  * FRACTAL-FLOW Forensic Risk Engine
  * Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY
- * 
+ *
  * Invariants:
  * 1. Explicit risk units: Open risk is denominated in R (initial structural risk allocated).
  * 2. Zero silent fallbacks: Missing or invalid position risk yields INVALID/UNKNOWN, never 0.6 or 1.0*size.
@@ -11,13 +11,13 @@
  * 5. Floating-point precision: Deterministic cents / hundredths arithmetic.
  */
 
-import { 
-  Position, 
-  GateCandidate, 
-  OperationalRiskConfig, 
-  CandidateRiskValidation, 
+import {
+  Position,
+  GateCandidate,
+  OperationalRiskConfig,
+  CandidateRiskValidation,
   RiskViolation,
-  ActionType 
+  ActionType
 } from '../types';
 
 /**
@@ -56,31 +56,61 @@ export function getValidPositionRiskR(pos: Position): PositionRiskEvaluation {
     return { isValid: false, riskR: null, reason: `Position ${pos.id || 'UNKNOWN'} has missing or invalid lane` };
   }
 
-  // Explicit allocatedRiskR takes precedence
-  if (typeof pos.allocatedRiskR === 'number') {
-    if (!Number.isFinite(pos.allocatedRiskR) || pos.allocatedRiskR <= 0) {
-      return { 
-        isValid: false, 
-        riskR: null, 
-        reason: `Position ${pos.id} allocatedRiskR (${pos.allocatedRiskR}) is non-finite or non-positive` 
+  // Stage H.1.1 Mandatory Invariant: Existing positions must strictly have explicit allocatedRiskR.
+  // Setup-mapped defaults are prohibited as silent fallbacks for open positions.
+  if (typeof pos.allocatedRiskR !== 'number') {
+    return {
+      isValid: false,
+      riskR: null,
+      reason: `Position ${pos.id || 'UNKNOWN'} has missing allocatedRiskR (setup default estimates prohibited for open positions)`
+    };
+  }
+
+  if (!Number.isFinite(pos.allocatedRiskR) || pos.allocatedRiskR <= 0) {
+    return {
+      isValid: false,
+      riskR: null,
+      reason: `Position ${pos.id || 'UNKNOWN'} allocatedRiskR (${pos.allocatedRiskR}) is non-finite or non-positive`
+    };
+  }
+
+  return { isValid: true, riskR: pos.allocatedRiskR };
+}
+
+/**
+ * Resolves planned risk in R for a prospective trade candidate.
+ * Dedicated strictly to candidate planning; never used for open position actual exposure.
+ */
+export function getCandidatePlannedRiskR(
+  candidate: GateCandidate,
+  overrideRiskR?: number
+): { isValid: boolean; plannedRiskR: number | null; reason?: string } {
+  if (!candidate || typeof candidate !== 'object') {
+    return { isValid: false, plannedRiskR: null, reason: 'Candidate is null or invalid object' };
+  }
+
+  if (typeof overrideRiskR === 'number') {
+    if (!Number.isFinite(overrideRiskR) || overrideRiskR <= 0) {
+      return {
+        isValid: false,
+        plannedRiskR: null,
+        reason: `Candidate override risk (${overrideRiskR}) is non-finite or non-positive`
       };
     }
-    return { isValid: true, riskR: pos.allocatedRiskR };
+    return { isValid: true, plannedRiskR: overrideRiskR };
   }
 
-  // Authoritative setup-mapped default if setup is recognized
-  if (pos.setup && typeof DEFAULT_SETUP_RISK_MAP[pos.setup] === 'number') {
-    const mapped = DEFAULT_SETUP_RISK_MAP[pos.setup];
+  if (candidate.setup && typeof DEFAULT_SETUP_RISK_MAP[candidate.setup] === 'number') {
+    const mapped = DEFAULT_SETUP_RISK_MAP[candidate.setup];
     if (Number.isFinite(mapped) && mapped > 0) {
-      return { isValid: true, riskR: mapped };
+      return { isValid: true, plannedRiskR: mapped };
     }
   }
 
-  // If no explicit allocatedRiskR and unknown setup: FAIL CLOSED (no silent 0.6 fallback!)
-  return { 
-    isValid: false, 
-    riskR: null, 
-    reason: `Position ${pos.id} has no explicit allocatedRiskR and unknown setup risk for '${pos.setup}'` 
+  return {
+    isValid: false,
+    plannedRiskR: null,
+    reason: `Candidate setup '${candidate.setup}' has no documented planned risk in DEFAULT_SETUP_RISK_MAP`
   };
 }
 
@@ -100,7 +130,7 @@ export function evaluatePortfolioRisk(positions: Position[], laneFilter?: string
     };
   }
 
-  const targetPositions = laneFilter 
+  const targetPositions = laneFilter
     ? positions.filter((p) => p && p.lane === laneFilter)
     : positions;
 
@@ -214,7 +244,7 @@ export function validateOperationalRiskConfig(config: unknown): { isValid: boole
 /**
  * Analyzes a GateCandidate against the active OperationalRiskConfig.
  * Detects whether admitting this candidate into execution would breach lane or account caps.
- * 
+ *
  * Boundary semantics:
  * - Limits are inclusive ceilings: projected <= cap is permitted; strictly greater (projected > cap) breaches.
  * - Daily loss limit: currentDailyPnlUsd <= -dailyLossLimitUsd breaches.
@@ -285,65 +315,34 @@ export function validateCandidateAgainstRiskConfig(
     };
   }
 
-  // Step 3: Determine and validate candidate risk input
-  let candidateRisk: number;
-  if (candidateRiskOverride !== undefined) {
-    if (!Number.isFinite(candidateRiskOverride) || candidateRiskOverride <= 0) {
-      violations.push({
-        code: 'INVALID_POSITION_PARAM',
-        severity: 'BLOCKING',
-        message: `Candidate risk override (${candidateRiskOverride}) is non-finite or non-positive`,
-        metric: 'CANDIDATE_RISK',
-        currentValue: candidateRiskOverride,
-        limitValue: 0
-      });
+  // Step 3: Resolve candidate planned risk via dedicated candidate planner
+  const plannedRiskEval = getCandidatePlannedRiskR(candidate, candidateRiskOverride);
+  if (!plannedRiskEval.isValid || plannedRiskEval.plannedRiskR === null) {
+    violations.push({
+      code: 'INVALID_POSITION_PARAM',
+      severity: 'BLOCKING',
+      message: plannedRiskEval.reason || `Candidate setup '${candidate.setup}' has no documented planned risk`,
+      metric: 'CANDIDATE_RISK_MAPPING',
+      currentValue: NaN,
+      limitValue: 0
+    });
 
-      return {
-        candidateId: candidate.id,
-        hasViolations: true,
-        violations,
-        projectedLaneRiskR: NaN,
-        projectedAccountExposureR: NaN,
-        laneRiskCapR: riskConfig.maxLaneRiskR,
-        accountExposureCapR: riskConfig.maxAccountExposureR,
-        dailyLossLimitUsd: riskConfig.dailyLossLimitUsd,
-        currentDailyPnlUsd,
-        status: 'INVALID',
-        isValid: false,
-        diagnostic: 'Candidate risk override invalid'
-      };
-    }
-    candidateRisk = candidateRiskOverride;
-  } else {
-    const mappedRisk = DEFAULT_SETUP_RISK_MAP[candidate.setup];
-    if (typeof mappedRisk === 'number' && Number.isFinite(mappedRisk) && mappedRisk > 0) {
-      candidateRisk = mappedRisk;
-    } else {
-      violations.push({
-        code: 'INVALID_POSITION_PARAM',
-        severity: 'BLOCKING',
-        message: `Candidate setup '${candidate.setup}' has no documented risk allocation in DEFAULT_SETUP_RISK_MAP`,
-        metric: 'CANDIDATE_RISK_MAPPING',
-        currentValue: NaN,
-        limitValue: 0
-      });
-
-      return {
-        candidateId: candidate.id,
-        hasViolations: true,
-        violations,
-        projectedLaneRiskR: NaN,
-        projectedAccountExposureR: NaN,
-        laneRiskCapR: riskConfig.maxLaneRiskR,
-        accountExposureCapR: riskConfig.maxAccountExposureR,
-        dailyLossLimitUsd: riskConfig.dailyLossLimitUsd,
-        currentDailyPnlUsd,
-        status: 'UNKNOWN',
-        isValid: false,
-        diagnostic: 'Candidate setup risk mapping unknown'
-      };
-    }
+    return {
+      candidateId: candidate.id,
+      hasViolations: true,
+      violations,
+      projectedLaneRiskR: NaN,
+      projectedAccountExposureR: NaN,
+      laneRiskCapR: riskConfig.maxLaneRiskR,
+      accountExposureCapR: riskConfig.maxAccountExposureR,
+      dailyLossLimitUsd: riskConfig.dailyLossLimitUsd,
+      currentDailyPnlUsd,
+      status: typeof candidateRiskOverride === 'number' ? 'INVALID' : 'UNKNOWN',
+      isValid: false,
+      diagnostic: plannedRiskEval.reason || 'Candidate planned risk could not be determined'
+    };
   }
+  const candidateRisk = plannedRiskEval.plannedRiskR;
 
   // Step 4: Validate current positions and calculate portfolio exposure
   const laneRiskEval = evaluatePortfolioRisk(currentPositions, candidate.lane);
