@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Position,
   PendingOrder,
@@ -60,18 +60,31 @@ import {
   INITIAL_REMEDIATION_BLOCKERS,
   INITIAL_AUDIT_TRAIL
 } from './data/mockData';
-import { validateOperationalRiskConfig, evaluatePortfolioRisk } from './utils/riskValidator';
+import {
+  validateOperationalRiskConfig,
+  evaluatePortfolioRisk,
+  validatePositionModification
+} from './utils/riskValidator';
 import { computeCanonicalSha256 } from './utils/crypto';
+
+// Fallback for Node/tsx test runner environments where Vite does not inject import.meta.env
+if (typeof import.meta !== 'undefined' && !(import.meta as any).env) {
+  (import.meta as any).env = { DEV: process.env.NODE_ENV !== 'production' };
+}
 
 export interface AppTestControlHandle {
   setPositions: React.Dispatch<React.SetStateAction<Position[]>>;
   setRiskConfig: (cfg: OperationalRiskConfig) => void;
   triggerAction: (action: ActionType, pos: Position) => void;
+  confirmAction: (simulateRejection?: boolean) => Promise<void>;
   setActiveNavTab: (tab: ExtendedNavTab) => void;
   getPositions: () => Position[];
   getRiskConfig: () => OperationalRiskConfig;
   getOpenRiskR: () => number | null;
   getPortfolioRiskEval: () => ReturnType<typeof evaluatePortfolioRisk>;
+  getActiveCommand: () => CommandExecutionRecord | null;
+  getAuditTrail: () => AuditTrailRecord[];
+  getSimulationProvider: () => SimulationProvider;
 }
 
 export interface AppProps {
@@ -189,6 +202,20 @@ export const App: React.FC<AppProps> = ({
     action: null,
     targetPosition: null,
   });
+  const confirmModalRef = useRef(confirmModal);
+  confirmModalRef.current = confirmModal;
+
+  const positionsRef = useRef(positions);
+  positionsRef.current = positions;
+
+  const riskConfigRef = useRef(riskConfig);
+  riskConfigRef.current = riskConfig;
+
+  const activeCommandRef = useRef(activeCommand);
+  activeCommandRef.current = activeCommand;
+
+  const auditTrailRef = useRef(auditTrail);
+  auditTrailRef.current = auditTrail;
 
   // Active Critical Alert & Unread Notifications
   const criticalAlert = useMemo(() => {
@@ -430,25 +457,17 @@ export const App: React.FC<AppProps> = ({
 
   // Trigger modal for confirmation
   const handleTriggerAction = (action: ActionType, pos: Position) => {
+    confirmModalRef.current = {
+      isOpen: true,
+      action,
+      targetPosition: pos,
+    };
     setConfirmModal({
       isOpen: true,
       action,
       targetPosition: pos,
     });
   };
-
-  if (testRef) {
-    testRef.current = {
-      setPositions,
-      setRiskConfig: handleUpdateRiskConfig,
-      triggerAction: handleTriggerAction,
-      setActiveNavTab,
-      getPositions: () => positions,
-      getRiskConfig: () => riskConfig,
-      getOpenRiskR: () => openRiskR,
-      getPortfolioRiskEval: () => portfolioRiskEval
-    };
-  }
 
   // Keyboard Navigation & Shortcuts
   useEffect(() => {
@@ -482,6 +501,11 @@ export const App: React.FC<AppProps> = ({
         if (selectedPosition && activeNavTab === 'POS') {
           e.preventDefault();
           handleTriggerAction('close_position', selectedPosition);
+        }
+      } else if (key === '+' || key === '=' || key === 'a' || key === 'A') {
+        if (selectedPosition && activeNavTab === 'POS') {
+          e.preventDefault();
+          handleTriggerAction('add_size', selectedPosition);
         }
       } else if (key === 'ArrowDown' || key === 'j') {
         if (activeNavTab === 'POS' && positions.length > 0) {
@@ -540,15 +564,84 @@ export const App: React.FC<AppProps> = ({
   };
 
   // Explicit Command Execution via Provider Boundary
-  const handleConfirmAction = async (simulateRejection = false) => {
-    const { action, targetPosition } = confirmModal;
+  const handleConfirmAction = async (
+    simulateRejection = false,
+    actionOverride?: ActionType,
+    targetPositionOverride?: Position
+  ) => {
+    const action = actionOverride || confirmModalRef.current.action || confirmModal.action;
+    const targetPosition = targetPositionOverride || confirmModalRef.current.targetPosition || confirmModal.targetPosition;
     if (!action || !targetPosition) return;
 
+    // PRODUCTION AUTHORIZATION BOUNDARY:
+    // Validate position modification against risk policy and portfolio state
+    const currentPositions = positionsRef.current || positions;
+    const currentRiskConfig = riskConfigRef.current || riskConfig;
+    const modValidation = validatePositionModification(
+      action,
+      targetPosition,
+      currentRiskConfig,
+      dailyPnl,
+      currentPositions
+    );
+
+    if (!modValidation.isAllowed) {
+      // Authorization boundary rejection: fail closed immediately with zero submission
+      const rejectionReason = modValidation.violations.map(v => v.message).join('; ') || 'RISK_AUTHORIZATION_REJECTED';
+      const rejectedCmdRecord: CommandExecutionRecord = {
+        id: `CMD-REJ-${Date.now()}`,
+        action,
+        symbol: targetPosition.symbol,
+        side: targetPosition.side,
+        status: 'REJECTED',
+        idempotencyKey: `REJ_${Date.now()}`,
+        requestedAt: new Date().toTimeString().slice(0, 8),
+        source: 'PRODUCTION_RISK_GATE',
+        details: `[REJECTED FAIL-CLOSED] Action ${action} rejected: ${rejectionReason}`,
+      };
+
+      setActiveCommand(rejectedCmdRecord);
+      setConfirmModal({ isOpen: false, action: null, targetPosition: null });
+
+      const auditPayload = {
+        action: `REJECT_${action.toUpperCase()}`,
+        target: targetPosition.id,
+        reason: rejectionReason,
+        timestamp: Date.now()
+      };
+
+      const auditEntry: AuditTrailRecord = {
+        id: `aud_rej_${Date.now()}`,
+        timestamp: Date.now(),
+        actor: 'PRODUCTION_AUTHORITY_GATE',
+        action: `REJECT_${action.toUpperCase()}`,
+        target: targetPosition.id,
+        outcome: 'REJECTED_FAIL_CLOSED',
+        correlationId: `corr_rej_${targetPosition.id}`,
+        intentDigestSha256: computeCanonicalSha256(auditPayload),
+        details: `[AUTHORIZATION REJECTED] ${action} on ${targetPosition.id} (${targetPosition.symbol}) rejected: ${rejectionReason}`,
+        isSessionOnly: true
+      };
+      setAuditTrail((prev) => [auditEntry, ...prev]);
+
+      addEvent(
+        `[AUTHORIZATION REJECTED] ${action} on ${targetPosition.id}: ${rejectionReason}`,
+        'GATEWAY',
+        'crit',
+        'REJECTED'
+      );
+
+      setTimeout(() => setActiveCommand(null), 4000);
+      return;
+    }
+
     // Map UI action to canonical ActionType
-    const actionMap: Record<ActionType, 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN'> = {
+    const actionMap: Record<ActionType, 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'ADD_SIZE' | 'SCALE_IN'> = {
       close_position: 'CLOSE',
       tighten_stop: 'TIGHTEN_STOP',
       move_to_breakeven: 'MOVE_TO_BREAKEVEN',
+      add_size: 'ADD_SIZE',
+      scale_in: 'SCALE_IN',
     };
 
     // Generate canonical intent and fingerprint
@@ -691,6 +784,26 @@ export const App: React.FC<AppProps> = ({
       setTimeout(() => setActiveCommand(null), 4000);
     }
   };
+
+  if (import.meta.env.DEV && testRef) {
+    testRef.current = {
+      setPositions,
+      setRiskConfig: handleUpdateRiskConfig,
+      triggerAction: handleTriggerAction,
+      confirmAction: handleConfirmAction,
+      setActiveNavTab,
+      getPositions: () => positionsRef.current,
+      getRiskConfig: () => riskConfigRef.current,
+      getOpenRiskR: () => {
+        const evalRes = evaluatePortfolioRisk(positionsRef.current);
+        return evalRes.status === 'VALID' && evalRes.totalRiskR !== null ? evalRes.totalRiskR : null;
+      },
+      getPortfolioRiskEval: () => evaluatePortfolioRisk(positionsRef.current),
+      getActiveCommand: () => activeCommandRef.current,
+      getAuditTrail: () => auditTrailRef.current,
+      getSimulationProvider: () => simulationProvider
+    };
+  }
 
   return (
     <div className="flex flex-col h-screen w-full max-w-full overflow-hidden bg-[#10151D] text-[#E7EAEE] font-sans antialiased pb-14 md:pb-0">

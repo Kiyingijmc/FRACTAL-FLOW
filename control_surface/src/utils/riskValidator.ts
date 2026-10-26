@@ -606,12 +606,14 @@ export function validateCandidateAgainstRiskConfig(
 /**
  * Analyzes a proposed position modification action against OperationalRiskConfig.
  * Note: Risk reductions (tighten stop, BE, close) are de-risking actions and strictly safe.
+ * Risk-increasing actions (add_size, scale_in) require valid portfolio risk and strict cap enforcement.
  */
 export function validatePositionModification(
   action: ActionType,
   _position: Position,
   riskConfig: OperationalRiskConfig,
-  currentDailyPnlUsd: number
+  currentDailyPnlUsd: number,
+  portfolioPositions?: Position[]
 ): { isAllowed: boolean; violations: RiskViolation[] } {
   // Protective exit or tightening actions always de-risk the book
   if (action === 'tighten_stop' || action === 'move_to_breakeven' || action === 'close_position') {
@@ -654,6 +656,45 @@ export function validatePositionModification(
         },
       ],
     };
+  }
+
+  // Risk-increasing actions (add_size, scale_in) require valid portfolio risk
+  if (action === 'add_size' || action === 'scale_in') {
+    if (portfolioPositions) {
+      const portEval = evaluatePortfolioRisk(portfolioPositions);
+      if (portEval.status !== 'VALID') {
+        return {
+          isAllowed: false,
+          violations: [
+            {
+              code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
+              severity: 'BLOCKING',
+              message: `Cannot execute risk-increasing action '${action}' while portfolio risk is invalid or unknown (${portEval.status})`,
+              metric: 'PORTFOLIO_RISK_STATUS',
+              currentValue: NaN,
+              limitValue: riskConfig.maxAccountExposureR,
+            },
+          ],
+        };
+      }
+
+      // Check if current portfolio risk already equals or exceeds maxAccountExposureR
+      if (portEval.totalRiskR !== null && portEval.totalRiskR >= riskConfig.maxAccountExposureR) {
+        return {
+          isAllowed: false,
+          violations: [
+            {
+              code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
+              severity: 'BLOCKING',
+              message: `Cannot execute risk-increasing action '${action}': portfolio risk (${portEval.totalRiskR}R) >= limit (${riskConfig.maxAccountExposureR}R)`,
+              metric: 'ACCOUNT_EXPOSURE',
+              currentValue: portEval.totalRiskR,
+              limitValue: riskConfig.maxAccountExposureR,
+            },
+          ],
+        };
+      }
+    }
   }
 
   return { isAllowed: true, violations: [] };

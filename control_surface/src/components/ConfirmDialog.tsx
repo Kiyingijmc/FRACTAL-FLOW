@@ -64,6 +64,18 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       )}). Realized P&L will be locked into lane ${position.lane}.`;
       isDanger = true;
       break;
+    case 'add_size':
+      title = `Increase Position Size — ${position.symbol} ${position.side}`;
+      commandRoute = 'ExecutionGateway.ADD_SIZE';
+      detail = `Submit scale-in addition of +50% size (${(position.size * 0.5).toFixed(2)} lots) @ current price (${position.currentPrice.toFixed(
+        position.priceDecimals
+      )}). Subject to strict portfolio risk authority gating.`;
+      break;
+    case 'scale_in':
+      title = `Execute Scale In — ${position.symbol} ${position.side}`;
+      commandRoute = 'ExecutionGateway.SCALE_IN';
+      detail = `Submit pyramid addition for ${position.symbol} ${position.side}. Subject to strict portfolio risk authority gating.`;
+      break;
   }
 
   return (
@@ -143,6 +155,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           </button>
           <button
             onClick={() => onConfirm(simulateRejection)}
+            data-testid="confirm-dialog-confirm"
             className={`px-3 py-1.5 text-xs font-medium rounded-[2px] border transition-colors cursor-pointer flex items-center gap-1.5 ${
               simulateRejection
                 ? 'border-[#B23B3B] bg-[#B23B3B]/15 text-[#B23B3B] hover:bg-[#B23B3B]/25'

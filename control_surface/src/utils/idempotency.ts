@@ -273,7 +273,7 @@ export function computePayloadFingerprint(
   operatorId: string,
   targetPositionId: string,
   symbol: string,
-  actionType: 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'KILL_SWITCH',
+  actionType: IntentFingerprint['actionType'],
   parameters: Record<string, unknown> = {}
 ): string {
   const normalizedEnvelope = {
@@ -303,7 +303,7 @@ export function createIntentFingerprint(
   operatorId: string,
   targetPositionId: string,
   symbol: string,
-  actionType: 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'KILL_SWITCH',
+  actionType: IntentFingerprint['actionType'],
   parameters: Record<string, unknown> = {},
   existingIntentId?: string,
   transportAttempt = 1

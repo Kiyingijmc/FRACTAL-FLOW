@@ -3,7 +3,7 @@
  * Governed by Universal Forensic Engineering Protocol (Survival > Correctness > Authority Integrity)
  */
 
-export type ApplicationMode = 
+export type ApplicationMode =
   | 'SIMULATION_SANDBOX'      // Local off-broker deterministic sandbox (safe for demonstration)
   | 'DISCONNECTED'            // Offline state, all network and mutation controls disabled
   | 'READ_ONLY_CONNECTED'     // Telemetry observation only, no mutation authority
@@ -11,17 +11,17 @@ export type ApplicationMode =
 
 export type AuthorityRole = 'VIEWER' | 'OPERATOR' | 'ADMIN';
 
-export type TelemetrySource = 
-  | 'SIM_ENGINE' 
-  | 'BROKER_FEED' 
-  | 'CONTROL_SERVICE' 
+export type TelemetrySource =
+  | 'SIM_ENGINE'
+  | 'BROKER_FEED'
+  | 'CONTROL_SERVICE'
   | 'FALLBACK_FIXTURE';
 
-export type TelemetryStatus = 
-  | 'HEALTHY' 
-  | 'STALE' 
-  | 'DEGRADED' 
-  | 'DISCONNECTED' 
+export type TelemetryStatus =
+  | 'HEALTHY'
+  | 'STALE'
+  | 'DEGRADED'
+  | 'DISCONNECTED'
   | 'UNKNOWN';
 
 export interface TelemetryProvenance {
@@ -37,7 +37,7 @@ export interface TelemetryProvenance {
   localReceiveTimeMs?: number; // Local ingress receipt timestamp
 }
 
-export type CommandLifecycle = 
+export type CommandLifecycle =
   | 'INTENT_PREPARED'
   | 'PENDING_AUTHORIZATION'
   | 'ACCEPTED_BY_GATEWAY'
@@ -51,7 +51,7 @@ export interface IntentFingerprint {
   operatorId: string;
   targetPositionId: string;
   symbol: string;
-  actionType: 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'KILL_SWITCH';
+  actionType: 'CLOSE' | 'TIGHTEN_STOP' | 'MOVE_TO_BREAKEVEN' | 'KILL_SWITCH' | 'ADD_SIZE' | 'SCALE_IN';
   parameters: Record<string, unknown>;
   idempotencyKey: string;
   createdAt: number;

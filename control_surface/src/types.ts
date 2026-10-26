@@ -125,7 +125,7 @@ export interface MarketNewsItem {
 
 export type PositionsSubTab = 'open' | 'pending' | 'closed';
 
-export type ActionType = 'tighten_stop' | 'move_to_breakeven' | 'close_position';
+export type ActionType = 'tighten_stop' | 'move_to_breakeven' | 'close_position' | 'add_size' | 'scale_in';
 
 export type CommandLifecycleState =
   | 'IDLE'
@@ -145,7 +145,7 @@ export interface CommandExecutionRecord {
   idempotencyKey: string;
   requestedAt: string;
   confirmedAt?: string;
-  source: 'SIMULATION_SANDBOX' | 'GATEWAY_PROV';
+  source: 'SIMULATION_SANDBOX' | 'GATEWAY_PROV' | 'PRODUCTION_RISK_GATE';
   details: string;
 }
 

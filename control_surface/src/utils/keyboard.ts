@@ -1,6 +1,6 @@
 /**
  * FRACTAL-FLOW Keyboard Shortcut Safety Guard
- * 
+ *
  * Invariants:
  * 1. Suppress all shortcuts when focus is in any editable or text-entry target.
  * 2. Suppress shortcuts during IME composition (isComposing || keyCode === 229).
@@ -34,10 +34,12 @@ export function isSafeKeyboardShortcutTarget(event: KeyboardEvent): boolean {
     tagName === 'INPUT' ||
     tagName === 'TEXTAREA' ||
     tagName === 'SELECT' ||
-    target.isContentEditable ||
-    target.getAttribute('role') === 'textbox' ||
-    target.getAttribute('role') === 'combobox' ||
-    target.getAttribute('role') === 'searchbox'
+    Boolean(target.isContentEditable) ||
+    (typeof target.getAttribute === 'function' && (
+      target.getAttribute('role') === 'textbox' ||
+      target.getAttribute('role') === 'combobox' ||
+      target.getAttribute('role') === 'searchbox'
+    ))
   ) {
     return false;
   }

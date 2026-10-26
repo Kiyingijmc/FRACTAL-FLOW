@@ -1,26 +1,26 @@
-import { 
-  IDataProvider, 
-  ICommandProvider, 
-  CommandProgressUpdate 
+import {
+  IDataProvider,
+  ICommandProvider,
+  CommandProgressUpdate
 } from './interfaces';
-import { 
-  TelemetryProvenance, 
-  IntentFingerprint, 
-  CommandResult 
+import {
+  TelemetryProvenance,
+  IntentFingerprint,
+  CommandResult
 } from '../types/contracts';
-import { 
-  Position, 
-  GateCandidate, 
-  SystemEvent, 
+import {
+  Position,
+  GateCandidate,
+  SystemEvent,
   ClosedTrade,
-  PendingOrder 
+  PendingOrder
 } from '../types';
-import { 
-  INITIAL_POSITIONS, 
-  GATE_CANDIDATES, 
-  INITIAL_SYSTEM_EVENTS, 
+import {
+  INITIAL_POSITIONS,
+  GATE_CANDIDATES,
+  INITIAL_SYSTEM_EVENTS,
   INITIAL_CLOSED_TRADES,
-  INITIAL_PENDING_ORDERS 
+  INITIAL_PENDING_ORDERS
 } from '../data/mockData';
 
 export interface ProtectedTradingStateSnapshot {
@@ -32,9 +32,9 @@ export interface ProtectedTradingStateSnapshot {
 
 /**
  * SimulationProvider
- * 
+ *
  * Boundary-isolated, deterministic simulation provider for off-broker operator interaction.
- * 
+ *
  * Safety Invariants:
  * 1. NEVER initiates network connections to live brokers, sockets, or external servers.
  * 2. ALL returned data and progress updates are explicitly tagged with `authoritative: false` and `source: 'SIM_ENGINE'`.
@@ -249,6 +249,10 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
       if (targetIdx >= 0) {
         this.positions[targetIdx].trailDistance = 'tightened 2.0σ (sim)';
       }
+    } else if (intent.actionType === 'ADD_SIZE' || intent.actionType === 'SCALE_IN') {
+      if (targetIdx >= 0) {
+        this.positions[targetIdx].size = Number((this.positions[targetIdx].size * 1.5).toFixed(2));
+      }
     } else if (intent.actionType === 'KILL_SWITCH') {
       this.positions = [];
     }
@@ -288,6 +292,10 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     }
 
     return result;
+  }
+
+  getSimulatedIntents(): Map<string, CommandResult> {
+    return new Map(this.simulatedIntents);
   }
 
   /**

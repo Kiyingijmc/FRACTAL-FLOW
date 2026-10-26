@@ -372,7 +372,17 @@ export const ContextPanel: React.FC<ContextPanelProps> = ({
             </button>
             <button
               disabled={Boolean(isCommandInFlight)}
+              onClick={() => onTriggerAction('add_size', position)}
+              data-testid="context-btn-add-size"
+              className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#384454] text-[#8B98A5] bg-[#161C26] hover:bg-[#384454]/30 active:bg-[#384454]/50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
+            >
+              <span>Add size (+50%)</span>
+              <span className="font-mono text-[10px] bg-[#232A35] text-[#8B98A5] px-1.5 py-0.5 rounded-[2px]">+</span>
+            </button>
+            <button
+              disabled={Boolean(isCommandInFlight)}
               onClick={() => onTriggerAction('close_position', position)}
+              data-testid="context-btn-close-position"
               className="w-full min-h-[44px] py-2 px-3 text-xs font-sans rounded-[2px] border border-[#C25B6B] text-[#C25B6B] bg-[#161C26] hover:bg-[#C25B6B]/10 active:bg-[#C25B6B]/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-between font-medium"
             >
               <span>Close position</span>
