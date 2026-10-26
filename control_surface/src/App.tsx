@@ -745,6 +745,7 @@ export const App: React.FC<AppProps> = ({
         await new Promise((res) => setTimeout(res, delayMs));
       }
 
+      simulationProvider.setPositions(currentPositions);
       const simStartTime = performance.now();
       const res = await simulationProvider.submitCommand(
         intent,

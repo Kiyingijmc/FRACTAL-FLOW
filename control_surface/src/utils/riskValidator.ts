@@ -606,21 +606,23 @@ export function validateCandidateAgainstRiskConfig(
 /**
  * Analyzes a proposed position modification action against OperationalRiskConfig.
  * Note: Risk reductions (tighten stop, BE, close) are de-risking actions and strictly safe.
- * Risk-increasing actions (add_size, scale_in) require valid portfolio risk and strict cap enforcement.
+ * Risk-increasing actions (add_size, scale_in) require valid portfolio risk, deterministic projected-risk calculation,
+ * and strict enforcement of both aggregate account exposure cap and lane-level risk cap.
  */
 export function validatePositionModification(
   action: ActionType,
-  _position: Position,
+  position: Position,
   riskConfig: OperationalRiskConfig,
   currentDailyPnlUsd: number,
-  portfolioPositions?: Position[]
+  portfolioPositions?: Position[],
+  incrementalRiskR?: number
 ): { isAllowed: boolean; violations: RiskViolation[] } {
   // Protective exit or tightening actions always de-risk the book
   if (action === 'tighten_stop' || action === 'move_to_breakeven' || action === 'close_position') {
     return { isAllowed: true, violations: [] };
   }
 
-  // Validate inputs
+  // Validate operational risk configuration
   const configVal = validateOperationalRiskConfig(riskConfig);
   if (!configVal.isValid || !Number.isFinite(currentDailyPnlUsd)) {
     return {
@@ -658,42 +660,213 @@ export function validatePositionModification(
     };
   }
 
-  // Risk-increasing actions (add_size, scale_in) require valid portfolio risk
+  // Risk-increasing actions (add_size, scale_in) require valid portfolio risk and strict projected cap checks
   if (action === 'add_size' || action === 'scale_in') {
-    if (portfolioPositions) {
-      const portEval = evaluatePortfolioRisk(portfolioPositions);
-      if (portEval.status !== 'VALID') {
-        return {
-          isAllowed: false,
-          violations: [
-            {
-              code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
-              severity: 'BLOCKING',
-              message: `Cannot execute risk-increasing action '${action}' while portfolio risk is invalid or unknown (${portEval.status})`,
-              metric: 'PORTFOLIO_RISK_STATUS',
-              currentValue: NaN,
-              limitValue: riskConfig.maxAccountExposureR,
-            },
-          ],
-        };
-      }
+    // 1. Mandatory portfolioPositions: must be a valid array containing target position
+    if (!Array.isArray(portfolioPositions) || portfolioPositions.length === 0) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: `Cannot execute risk-increasing action '${action}': portfolio positions snapshot is missing or empty`,
+            metric: 'PORTFOLIO_INPUT',
+            currentValue: NaN,
+            limitValue: riskConfig.maxAccountExposureR,
+          },
+        ],
+      };
+    }
 
-      // Check if current portfolio risk already equals or exceeds maxAccountExposureR
-      if (portEval.totalRiskR !== null && portEval.totalRiskR >= riskConfig.maxAccountExposureR) {
+    // 2. Validate target position object and lane
+    if (!position || typeof position !== 'object' || !position.id || !position.lane) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: `Cannot execute risk-increasing action '${action}': target position is null or missing id/lane`,
+            metric: 'POSITION_INPUT',
+            currentValue: NaN,
+            limitValue: NaN,
+          },
+        ],
+      };
+    }
+
+    // Target position must exist in portfolio snapshot
+    const targetInPortfolio = portfolioPositions.find(p => p && p.id === position.id);
+    if (!targetInPortfolio) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: `Target position '${position.id}' does not exist in authoritative portfolio snapshot`,
+            metric: 'POSITION_IDENTITY',
+            currentValue: NaN,
+            limitValue: NaN,
+          },
+        ],
+      };
+    }
+
+    // 3. Validate target position allocated risk
+    const targetRiskEval = getValidPositionRiskR(targetInPortfolio);
+    if (!targetRiskEval.isValid || targetRiskEval.riskR === null) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: `Target position '${position.id}' has invalid allocated risk: ${targetRiskEval.reason}`,
+            metric: 'POSITION_RISK',
+            currentValue: NaN,
+            limitValue: NaN,
+          },
+        ],
+      };
+    }
+
+    const targetMicro = toSafeMicroR(targetRiskEval.riskR);
+    if (!targetMicro.isValid) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: `Target position '${position.id}' micro-R conversion failed: ${targetMicro.error}`,
+            metric: 'POSITION_MICRO_R',
+            currentValue: NaN,
+            limitValue: NaN,
+          },
+        ],
+      };
+    }
+
+    // 4. Determine incremental risk delta in micro-R
+    let deltaMicroR: number;
+    if (typeof incrementalRiskR === 'number') {
+      const explicitDeltaMicro = toSafeMicroR(incrementalRiskR);
+      if (!explicitDeltaMicro.isValid) {
         return {
           isAllowed: false,
           violations: [
             {
-              code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
+              code: 'INVALID_POSITION_PARAM',
               severity: 'BLOCKING',
-              message: `Cannot execute risk-increasing action '${action}': portfolio risk (${portEval.totalRiskR}R) >= limit (${riskConfig.maxAccountExposureR}R)`,
-              metric: 'ACCOUNT_EXPOSURE',
-              currentValue: portEval.totalRiskR,
-              limitValue: riskConfig.maxAccountExposureR,
+              message: `Supplied incremental risk (${incrementalRiskR}R) is invalid: ${explicitDeltaMicro.error}`,
+              metric: 'INCREMENTAL_RISK',
+              currentValue: incrementalRiskR,
+              limitValue: NaN,
             },
           ],
         };
       }
+      deltaMicroR = explicitDeltaMicro.microR;
+    } else {
+      // Canonical standard: +50% size addition scales structural risk by 50%
+      deltaMicroR = Math.round(targetMicro.microR * 0.5);
+    }
+
+    if (!Number.isSafeInteger(deltaMicroR) || deltaMicroR <= 0) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'INVALID_POSITION_PARAM',
+            severity: 'BLOCKING',
+            message: 'Incremental risk delta is non-positive or overflows safe integer arithmetic',
+            metric: 'INCREMENTAL_RISK_ARITHMETIC',
+            currentValue: NaN,
+            limitValue: 0,
+          },
+        ],
+      };
+    }
+
+    // 5. Evaluate current portfolio risk across all lanes and for the target position's lane
+    const portEval = evaluatePortfolioRisk(portfolioPositions);
+    if (portEval.status !== 'VALID' || portEval.totalRiskR === null) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
+            severity: 'BLOCKING',
+            message: `Cannot execute risk-increasing action '${action}' while portfolio risk is invalid or unknown (${portEval.status}): ${portEval.diagnostics.join('; ')}`,
+            metric: 'PORTFOLIO_RISK_STATUS',
+            currentValue: NaN,
+            limitValue: riskConfig.maxAccountExposureR,
+          },
+        ],
+      };
+    }
+
+    const laneEval = evaluatePortfolioRisk(portfolioPositions, targetInPortfolio.lane);
+    if (laneEval.status !== 'VALID' || laneEval.totalRiskR === null) {
+      return {
+        isAllowed: false,
+        violations: [
+          {
+            code: 'MAX_LANE_RISK_EXCEEDED',
+            severity: 'BLOCKING',
+            message: `Cannot execute risk-increasing action '${action}' while lane '${targetInPortfolio.lane}' risk is invalid or unknown (${laneEval.status}): ${laneEval.diagnostics.join('; ')}`,
+            metric: 'LANE_RISK_STATUS',
+            currentValue: NaN,
+            limitValue: riskConfig.maxLaneRiskR,
+          },
+        ],
+      };
+    }
+
+    // 6. Compute projected exposure in micro-R
+    const currentAccountMicroR = Math.round(portEval.totalRiskR * RISK_ARITHMETIC_CONSTANTS.SCALE);
+    const currentLaneMicroR = Math.round(laneEval.totalRiskR * RISK_ARITHMETIC_CONSTANTS.SCALE);
+    const maxAccountMicroR = Math.round(riskConfig.maxAccountExposureR * RISK_ARITHMETIC_CONSTANTS.SCALE);
+    const maxLaneMicroR = Math.round(riskConfig.maxLaneRiskR * RISK_ARITHMETIC_CONSTANTS.SCALE);
+
+    const projectedAccountMicroR = currentAccountMicroR + deltaMicroR;
+    const projectedLaneMicroR = currentLaneMicroR + deltaMicroR;
+
+    const projectedAccountExposureR = projectedAccountMicroR / RISK_ARITHMETIC_CONSTANTS.SCALE;
+    const projectedLaneRiskR = projectedLaneMicroR / RISK_ARITHMETIC_CONSTANTS.SCALE;
+
+    const violations: RiskViolation[] = [];
+
+    // Check Lane Cap (inclusive ceiling: > breaches)
+    if (projectedLaneMicroR > maxLaneMicroR) {
+      const excessR = (projectedLaneMicroR - maxLaneMicroR) / RISK_ARITHMETIC_CONSTANTS.SCALE;
+      violations.push({
+        code: 'MAX_LANE_RISK_EXCEEDED',
+        severity: 'BLOCKING',
+        message: `Projected lane risk (${projectedLaneRiskR.toFixed(4)}R) exceeds maximum lane risk limit (${riskConfig.maxLaneRiskR.toFixed(1)}R) by ${excessR.toFixed(4)}R`,
+        metric: 'LANE_RISK',
+        currentValue: projectedLaneRiskR,
+        limitValue: riskConfig.maxLaneRiskR,
+      });
+    }
+
+    // Check Account Cap (inclusive ceiling: > breaches)
+    if (projectedAccountMicroR > maxAccountMicroR) {
+      const excessR = (projectedAccountMicroR - maxAccountMicroR) / RISK_ARITHMETIC_CONSTANTS.SCALE;
+      violations.push({
+        code: 'MAX_ACCOUNT_EXPOSURE_EXCEEDED',
+        severity: 'BLOCKING',
+        message: `Projected total account exposure (${projectedAccountExposureR.toFixed(4)}R) exceeds account exposure limit (${riskConfig.maxAccountExposureR.toFixed(1)}R) by ${excessR.toFixed(4)}R`,
+        metric: 'ACCOUNT_EXPOSURE',
+        currentValue: projectedAccountExposureR,
+        limitValue: riskConfig.maxAccountExposureR,
+      });
+    }
+
+    if (violations.length > 0) {
+      return { isAllowed: false, violations };
     }
   }
 

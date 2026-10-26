@@ -39,6 +39,7 @@ import {
   getCandidatePlannedRiskR,
   validateCandidateAgainstRiskConfig,
   validateOperationalRiskConfig,
+  validatePositionModification,
   hasValidRiskPrecision,
   toSafeMicroR,
   RISK_ARITHMETIC_CONSTANTS
@@ -452,6 +453,7 @@ async function runStageH11ProductionPathSuite() {
       root!.render(
         React.createElement(App, {
           initialPositions: INITIAL_POSITIONS,
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 3.5, maxAccountExposureR: 5.0 },
           testRef: testControlRef,
         })
       );
@@ -489,6 +491,8 @@ async function runStageH11ProductionPathSuite() {
 
     const updatedPos = handle.getPositions().find((p) => p.id === targetPos.id)!;
     expect(updatedPos.size > initialSize, `Position size must increase from ${initialSize}, got ${updatedPos.size}`);
+    expect(updatedPos.allocatedRiskR === 1.2, `Allocated risk must scale proportionally to 1.2R, got ${updatedPos.allocatedRiskR}`);
+    expect(handle.getOpenRiskR() === 2.7, `Open portfolio risk must scale to 2.7R, got ${handle.getOpenRiskR()}`);
 
     teardownMount();
   });
@@ -680,6 +684,7 @@ async function runStageH11ProductionPathSuite() {
       root!.render(
         React.createElement(App, {
           initialPositions: INITIAL_POSITIONS,
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 3.5, maxAccountExposureR: 5.0 },
           testRef: testControlRef,
         })
       );
@@ -801,6 +806,241 @@ async function runStageH11ProductionPathSuite() {
     });
 
     expect(handle.getActiveCommand()?.status === 'REJECTED', 'ContextPanel DOM button path rejected fail-closed');
+
+    teardownMount();
+  });
+
+  // --- SECTION 6: HPL-H1.1.3-PROJECTED-RISK — PROJECTED RISK AUTHORIZATION & STATE CONSISTENCY ---
+  console.log('\n--- HPL-H1.1.3-PROJECTED-RISK: Projected Risk Authorization & State Consistency ---');
+
+  await test('H1.1.3-AUTH-01: Core Finding — Current exposure < cap, but projected exposure > cap rejects fail-closed with zero submission', async () => {
+    setupMount();
+    const testControlRef = React.createRef<AppTestControlHandle | null>();
+
+    // Setup: Account cap is 3.0R. Current exposure is 2.9R (2.1R + 0.8R).
+    // Proposed addition on 0.8R position is +0.4R (+50%).
+    // Projected exposure = 2.9R + 0.4R = 3.3R > 3.0R cap!
+    // Current exposure (2.9R) < cap (3.0R), but projected (3.3R) > cap (3.0R).
+    const posA: Position = { ...INITIAL_POSITIONS[0], id: 'pos_a', allocatedRiskR: 2.1, lane: 'ACT_PRIMARY' };
+    const posB: Position = { ...INITIAL_POSITIONS[1], id: 'pos_b', allocatedRiskR: 0.8, lane: 'ACT_SECONDARY' };
+
+    act(() => {
+      root!.render(
+        React.createElement(App, {
+          initialPositions: [posA, posB],
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 2.5, maxAccountExposureR: 3.0 },
+          testRef: testControlRef,
+        })
+      );
+    });
+
+    const handle = testControlRef.current!;
+    expect(handle.getOpenRiskR() === 2.9, 'Current exposure is 2.9R (< 3.0R cap)');
+
+    const provider = handle.getSimulationProvider();
+    const initialIntentCount = provider.getSimulatedIntents().size;
+    const initialPositionsJson = JSON.stringify(handle.getPositions());
+
+    // Trigger add_size on pos_b (+0.4R delta, projected 3.3R)
+    act(() => {
+      handle.triggerAction('add_size', posB);
+    });
+
+    await act(async () => {
+      await handle.confirmAction();
+    });
+
+    // 1. Must be REJECTED fail-closed
+    const activeCmd = handle.getActiveCommand();
+    expect(activeCmd?.status === 'REJECTED', 'Action must be REJECTED fail-closed');
+    expect(activeCmd?.source === 'PRODUCTION_RISK_GATE', 'Rejection source must be PRODUCTION_RISK_GATE');
+    expect(Boolean(activeCmd?.details?.includes('exceeds account exposure limit')), 'Details must mention account exposure limit');
+
+    // 2. ZERO submission to provider
+    expect(provider.getSimulatedIntents().size === initialIntentCount, 'Zero commands dispatched to provider');
+
+    // 3. State remains bit-for-bit unchanged
+    expect(JSON.stringify(handle.getPositions()) === initialPositionsJson, 'Positions remain strictly unmutated');
+
+    teardownMount();
+  });
+
+  await test('H1.1.3-AUTH-02: Exact cap equality — Projected exposure exactly equal to cap is permitted under inclusive ceiling contract', async () => {
+    setupMount();
+    const testControlRef = React.createRef<AppTestControlHandle | null>();
+
+    // Current exposure: 3.0R (2.2R + 0.8R). Cap is 3.4R.
+    // Pos 0.8R addition (+0.4R) -> projected exposure = exactly 3.4R == 3.4R cap!
+    const posA: Position = { ...INITIAL_POSITIONS[0], id: 'pos_eq_a', allocatedRiskR: 2.2, lane: 'ACT_SECONDARY' };
+    const posB: Position = { ...INITIAL_POSITIONS[1], id: 'pos_eq_b', allocatedRiskR: 0.8, lane: 'ACT_PRIMARY' };
+
+    act(() => {
+      root!.render(
+        React.createElement(App, {
+          initialPositions: [posA, posB],
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 2.5, maxAccountExposureR: 3.4 },
+          testRef: testControlRef,
+        })
+      );
+    });
+
+    const handle = testControlRef.current!;
+    expect(handle.getOpenRiskR() === 3.0, 'Current exposure is 3.0R');
+
+    const provider = handle.getSimulationProvider();
+    const preCount = provider.getSimulatedIntents().size;
+
+    act(() => {
+      handle.triggerAction('add_size', posB);
+    });
+
+    await act(async () => {
+      await handle.confirmAction();
+    });
+
+    // Permitted: exact equality to cap satisfies inclusive ceiling
+    expect(provider.getSimulatedIntents().size === preCount + 1, 'Exact cap equality must be authorized');
+    expect(handle.getOpenRiskR() === 3.4, 'Post-action exposure must equal exactly 3.4R');
+
+    teardownMount();
+  });
+
+  await test('H1.1.3-AUTH-03: Lane cap enforcement — Satisfies account cap but breaches lane cap is rejected fail-closed', async () => {
+    setupMount();
+    const testControlRef = React.createRef<AppTestControlHandle | null>();
+
+    // Account cap = 5.0R (ample headroom). Lane cap = 2.5R.
+    // In lane 'ACT_PRIMARY', current risk is 2.3R (from INITIAL_POSITIONS).
+    // Target pos 0 has allocatedRiskR: 0.8R. Proposed +0.4R addition -> projected lane risk = 2.7R > 2.5R cap!
+    act(() => {
+      root!.render(
+        React.createElement(App, {
+          initialPositions: INITIAL_POSITIONS,
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 2.5, maxAccountExposureR: 5.0 },
+          testRef: testControlRef,
+        })
+      );
+    });
+
+    const handle = testControlRef.current!;
+    const provider = handle.getSimulationProvider();
+    const preCount = provider.getSimulatedIntents().size;
+
+    act(() => {
+      handle.triggerAction('add_size', handle.getPositions()[0]);
+    });
+
+    await act(async () => {
+      await handle.confirmAction();
+    });
+
+    const activeCmd = handle.getActiveCommand();
+    expect(activeCmd?.status === 'REJECTED', 'Lane cap breach must be rejected');
+    expect(
+      Boolean(activeCmd?.details?.includes('MAX_LANE_RISK_EXCEEDED') || activeCmd?.details?.includes('exceeds maximum lane risk limit')),
+      'Must report lane risk limit breach'
+    );
+    expect(provider.getSimulatedIntents().size === preCount, 'Zero provider submission on lane cap breach');
+
+    teardownMount();
+  });
+
+  await test('H1.1.3-AUTH-04: Deterministic micro-R boundary & 0.0001R precision enforcement', async () => {
+    const config = { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 3.0, maxAccountExposureR: 3.0 };
+    const posA: Position = { ...INITIAL_POSITIONS[0], id: 'p1', allocatedRiskR: 2.9999, lane: 'L1' };
+
+    // Case A: delta of 0.0001R -> 2.9999 + 0.0001 = 3.0000R == 3.0R (exact equality -> ALLOWED)
+    const resEqual = validatePositionModification('add_size', posA, config, 0, [posA], 0.0001);
+    expect(resEqual.isAllowed, 'Exact 3.0000R micro-R boundary must be permitted');
+
+    // Case B: delta of 0.0002R -> 2.9999 + 0.0002 = 3.0001R > 3.0000R (100 micro-R excess -> BREACHED)
+    const resBreach = validatePositionModification('add_size', posA, config, 0, [posA], 0.0002);
+    expect(!resBreach.isAllowed, '3.0001R must breach 3.0000R cap by 0.0001R');
+    expect(resBreach.violations.some((v) => v.code === 'MAX_ACCOUNT_EXPOSURE_EXCEEDED'), 'Must report account cap exceeded');
+    expect(resBreach.violations.some((v) => v.code === 'MAX_LANE_RISK_EXCEEDED'), 'Must report lane cap exceeded');
+
+    // Case C: 5 decimal input (0.00005R) rejected fail-closed under precision contract
+    const resPrecision = validatePositionModification('add_size', posA, config, 0, [posA], 0.00005);
+    expect(!resPrecision.isAllowed, 'Unsupported 5-decimal precision must be rejected');
+    expect(resPrecision.violations[0].code === 'INVALID_POSITION_PARAM', 'Must report invalid param');
+  });
+
+  await test('H1.1.3-AUTH-05: Missing, malformed, or disconnected portfolio inputs fail closed', async () => {
+    const config = { ...INITIAL_OPERATIONAL_RISK_CONFIG };
+    const posValid: Position = { ...INITIAL_POSITIONS[0], id: 'p_valid', allocatedRiskR: 0.5, lane: 'L1' };
+
+    // 1. Missing / undefined portfolioPositions
+    const resNoPort = validatePositionModification('add_size', posValid, config, 0, undefined);
+    expect(!resNoPort.isAllowed, 'Missing portfolioPositions must fail closed');
+
+    // 2. Empty portfolioPositions array
+    const resEmptyPort = validatePositionModification('add_size', posValid, config, 0, []);
+    expect(!resEmptyPort.isAllowed, 'Empty portfolioPositions must fail closed');
+
+    // 3. Target position missing from portfolio snapshot
+    const posOther: Position = { ...INITIAL_POSITIONS[1], id: 'p_other', allocatedRiskR: 0.5, lane: 'L1' };
+    const resNotFound = validatePositionModification('add_size', posValid, config, 0, [posOther]);
+    expect(!resNotFound.isAllowed, 'Target position not in portfolio must fail closed');
+
+    // 4. Target position has missing allocatedRiskR
+    const posNoRisk: Position = { ...INITIAL_POSITIONS[0], id: 'p_norisk', allocatedRiskR: undefined, lane: 'L1' };
+    const resNoRisk = validatePositionModification('add_size', posNoRisk, config, 0, [posNoRisk]);
+    expect(!resNoRisk.isAllowed, 'Position with missing allocatedRiskR must fail closed');
+
+    // 5. Negative incremental risk
+    const resNegDelta = validatePositionModification('add_size', posValid, config, 0, [posValid], -0.2);
+    expect(!resNegDelta.isAllowed, 'Negative incremental risk must fail closed');
+  });
+
+  await test('H1.1.3-AUTH-06: Sequential operations update post-action state and enforce cap on subsequent operation', async () => {
+    setupMount();
+    const testControlRef = React.createRef<AppTestControlHandle | null>();
+
+    // Initial position has 0.8R. Total risk 0.8R. Cap is 1.5R.
+    // Op 1: add_size (+50% -> +0.4R). Projected 1.2R <= 1.5R. Authorized!
+    // Post Op 1 state: position allocatedRiskR becomes 1.2R. Total risk becomes 1.2R.
+    // Op 2: second add_size (+50% of 1.2R -> +0.6R). Projected 1.2R + 0.6R = 1.8R > 1.5R cap!
+    // Op 2 must be REJECTED fail-closed!
+    const singlePos: Position = { ...INITIAL_POSITIONS[0], id: 'pos_seq', allocatedRiskR: 0.8, lane: 'ACT_PRIMARY' };
+
+    act(() => {
+      root!.render(
+        React.createElement(App, {
+          initialPositions: [singlePos],
+          initialRiskConfig: { ...INITIAL_OPERATIONAL_RISK_CONFIG, maxLaneRiskR: 1.5, maxAccountExposureR: 1.5 },
+          testRef: testControlRef,
+        })
+      );
+    });
+
+    const handle = testControlRef.current!;
+    const provider = handle.getSimulationProvider();
+
+    // --- First Operation (Allowed) ---
+    act(() => {
+      handle.triggerAction('add_size', handle.getPositions()[0]);
+    });
+    await act(async () => {
+      await handle.confirmAction();
+    });
+
+    expect(provider.getSimulatedIntents().size === 1, 'Op 1 must be confirmed and submitted');
+    const posAfterOp1 = handle.getPositions().find(p => p.id === 'pos_seq')!;
+    expect(posAfterOp1.allocatedRiskR === 1.2, `Op 1 must scale allocatedRiskR to 1.2R, got: ${posAfterOp1.allocatedRiskR}`);
+    expect(handle.getOpenRiskR() === 1.2, `Op 1 must scale open portfolio risk to 1.2R, got: ${handle.getOpenRiskR()}`);
+
+    // --- Second Operation (Rejected) ---
+    act(() => {
+      handle.triggerAction('add_size', handle.getPositions()[0]);
+    });
+    await act(async () => {
+      await handle.confirmAction();
+    });
+
+    expect(handle.getActiveCommand()?.status === 'REJECTED', 'Op 2 must be REJECTED (1.8R > 1.5R cap)');
+    expect(provider.getSimulatedIntents().size === 1, 'Op 2 must not produce any new provider submission');
+    const posAfterOp2 = handle.getPositions().find(p => p.id === 'pos_seq')!;
+    expect(posAfterOp2.allocatedRiskR === 1.2, 'Position allocatedRiskR must remain strictly unchanged after rejection');
 
     teardownMount();
   });

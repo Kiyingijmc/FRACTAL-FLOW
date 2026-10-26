@@ -105,6 +105,10 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     return JSON.parse(JSON.stringify(this.positions));
   }
 
+  setPositions(positions: Position[]): void {
+    this.positions = JSON.parse(JSON.stringify(positions));
+  }
+
   async getPendingOrders(): Promise<PendingOrder[]> {
     return JSON.parse(JSON.stringify(this.pendingOrders));
   }
@@ -252,6 +256,11 @@ export class SimulationProvider implements IDataProvider, ICommandProvider {
     } else if (intent.actionType === 'ADD_SIZE' || intent.actionType === 'SCALE_IN') {
       if (targetIdx >= 0) {
         this.positions[targetIdx].size = Number((this.positions[targetIdx].size * 1.5).toFixed(2));
+        if (typeof this.positions[targetIdx].allocatedRiskR === 'number') {
+          this.positions[targetIdx].allocatedRiskR = Number(
+            (this.positions[targetIdx].allocatedRiskR * 1.5).toFixed(4)
+          );
+        }
       }
     } else if (intent.actionType === 'KILL_SWITCH') {
       this.positions = [];
