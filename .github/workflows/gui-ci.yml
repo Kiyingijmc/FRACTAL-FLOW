@@ -37,8 +37,8 @@ jobs:
       - name: TypeScript Lint Check
         run: npm run lint
 
-      - name: Automated Invariant & Behavioral Test Suite
-        run: npm test
-
       - name: Build Production Assets
         run: npm run build
+
+      - name: Automated Invariant & Behavioral Test Suite
+        run: npm test
