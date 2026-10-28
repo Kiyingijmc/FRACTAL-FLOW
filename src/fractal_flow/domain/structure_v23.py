@@ -12,7 +12,6 @@ from decimal import Decimal
 from copy import copy, deepcopy
 from typing import Any
 
-from src.fractal_flow.domain.market import Bar
 from src.fractal_flow.domain.structure import StructureEngine, StructureTransitionRecord, SwingRecord
 from src.fractal_flow.persistence.adapter import domain_to_primitive
 
