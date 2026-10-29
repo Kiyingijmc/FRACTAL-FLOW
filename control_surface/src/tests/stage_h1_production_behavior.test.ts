@@ -1,7 +1,7 @@
 /**
  * FRACTAL-FLOW Stage H.1 Production Behavior & Forensic Invariant Test Suite
  * Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY
- * 
+ *
  * Tests real production components rendered in JSDOM, verifies micro-R precision without
  * premature rounding, validates FIPS 180-4 SHA-256 standard known-answer vectors, and
  * enforces fail-closed live execution barriers and state immutability.
@@ -12,9 +12,9 @@ import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
 import { Header } from '../components/Header';
 import { SecondaryViews } from '../components/SecondaryViews';
-import { 
-  evaluatePortfolioRisk, 
-  getValidPositionRiskR, 
+import {
+  evaluatePortfolioRisk,
+  getValidPositionRiskR,
   validateCandidateAgainstRiskConfig,
   validateOperationalRiskConfig
 } from '../utils/riskValidator';

@@ -1,24 +1,24 @@
 /**
  * FRACTAL-FLOW Stage H Forensic Adversarial Invariants Suite
  * Priority: SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY
- * 
+ *
  * Verifies hostile proof invariants HPL-RISK-01..06, HPL-LAT-01..03, HPL-AUD-01..02,
  * HPL-NOT-01..02, HPL-LAB-01, HPL-QUANT-01, HPL-LIVE-01, and HPL-EVID-01.
  */
 
-import { 
-  validateCandidateAgainstRiskConfig, 
-  validateOperationalRiskConfig, 
-  evaluatePortfolioRisk, 
+import {
+  validateCandidateAgainstRiskConfig,
+  validateOperationalRiskConfig,
+  evaluatePortfolioRisk,
   getValidPositionRiskR,
   calculateLaneRiskR,
   calculateAccountExposureR,
   validatePositionModification
 } from '../utils/riskValidator';
 import { computeCanonicalSha256 } from '../utils/crypto';
-import { 
-  INITIAL_OPERATIONAL_RISK_CONFIG, 
-  INITIAL_POSITIONS, 
+import {
+  INITIAL_OPERATIONAL_RISK_CONFIG,
+  INITIAL_POSITIONS,
   GATE_CANDIDATES,
   INITIAL_NOTIFICATIONS,
   INITIAL_QUANT_MODELS,

@@ -270,7 +270,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-2 font-mono text-[11px] text-[#6E7A8A] whitespace-nowrap shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${statusColorClass.split(' ')[0]} inline-block`} />
           <span>
-            {telemetry.status === 'HEALTHY' 
+            {telemetry.status === 'HEALTHY'
               ? `${telemetry.bridgeStatus} · ${telemetry.fenceStatus} · ep ${telemetry.epoch}`
               : `TELEMETRY ${telemetry.status}`
             }
@@ -417,11 +417,11 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Threshold Warning Banner */}
             {isLatencyDelayed && (
-              <div 
+              <div
                 data-testid="latency-dialog-warning"
                 className={`p-2.5 rounded-[2px] border flex items-center gap-2 ${
-                  latency.status === 'EXCEEDED' 
-                    ? 'bg-[#B23B3B]/15 text-[#C25B6B] border-[#B23B3B]/40' 
+                  latency.status === 'EXCEEDED'
+                    ? 'bg-[#B23B3B]/15 text-[#C25B6B] border-[#B23B3B]/40'
                     : 'bg-[#BFA13B]/15 text-[#BFA13B] border-[#BFA13B]/40'
                 }`}
               >

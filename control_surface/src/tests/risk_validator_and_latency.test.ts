@@ -6,16 +6,16 @@
 import React from 'react';
 import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
-import { 
-  validateCandidateAgainstRiskConfig, 
-  calculateLaneRiskR, 
-  calculateAccountExposureR, 
-  validatePositionModification 
+import {
+  validateCandidateAgainstRiskConfig,
+  calculateLaneRiskR,
+  calculateAccountExposureR,
+  validatePositionModification
 } from '../utils/riskValidator';
-import { 
-  INITIAL_OPERATIONAL_RISK_CONFIG, 
-  INITIAL_POSITIONS, 
-  GATE_CANDIDATES 
+import {
+  INITIAL_OPERATIONAL_RISK_CONFIG,
+  INITIAL_POSITIONS,
+  GATE_CANDIDATES
 } from '../data/mockData';
 import { OperationalRiskConfig, GateCandidate, LatencyMetrics } from '../types';
 import { AutomatedRiskValidatorBadge } from '../components/AutomatedRiskValidator';

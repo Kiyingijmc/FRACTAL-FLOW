@@ -14,7 +14,7 @@ export const CriticalBanner: React.FC<CriticalBannerProps> = ({
   if (!criticalAlert || criticalAlert.resolved) return null;
 
   return (
-    <div 
+    <div
       className="bg-[#1A0A0E] border-y border-[#B23B3B] px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
       role="alert"
       aria-live="assertive"

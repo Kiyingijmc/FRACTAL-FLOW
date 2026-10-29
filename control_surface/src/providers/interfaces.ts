@@ -1,14 +1,14 @@
-import { 
-  TelemetryProvenance, 
-  IntentFingerprint, 
+import {
+  TelemetryProvenance,
+  IntentFingerprint,
   CommandResult,
-  CommandLifecycle 
+  CommandLifecycle
 } from '../types/contracts';
-import { 
-  Position, 
-  GateCandidate, 
-  SystemEvent, 
-  ClosedTrade 
+import {
+  Position,
+  GateCandidate,
+  SystemEvent,
+  ClosedTrade
 } from '../types';
 
 export interface CommandProgressUpdate {

@@ -161,7 +161,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       )}
 
       {/* Docked bottom navigation bar for mobile (< 768px) */}
-      <nav 
+      <nav
         className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-[#10151D] border-t border-[#232A35] flex items-stretch justify-around px-1 select-none"
         aria-label="Mobile Navigation"
       >

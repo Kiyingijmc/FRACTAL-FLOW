@@ -1,7 +1,7 @@
 # FRACTAL-FLOW Control Surface — Hostile Proof List (HPL)
 
-**Status:** RECONCILED POST-STAGE D.2 FORENSIC REMEDIATION & COUNTEREXAMPLE ELIMINATION  
-**Governing Standard:** Universal Forensic Engineering Protocol  
+**Status:** RECONCILED POST-STAGE D.2 FORENSIC REMEDIATION & COUNTEREXAMPLE ELIMINATION
+**Governing Standard:** Universal Forensic Engineering Protocol
 **Priority Order:** `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY > SECURITY > RECOVERY > RECONCILIATION > OPERATIONAL ROBUSTNESS > SPEED > PnL`
 
 ---
@@ -259,3 +259,58 @@
 - **Mitigation:** Complete forensic reporting in `STAGE_H_FORENSIC_REMEDIATION_REPORT.md` with verifiable export artifacts.
 - **Disposition:** VERIFIED & EXPORTED.
 
+### GUI-HPL-045: Projected-Risk Authorization Boundary & Inclusive Cap Equality (H1.1.3-AUTH-01..06)
+- **Threat Scenario:** Current allocated risk is strictly below caps, but an operator action (e.g. `ADD_SIZE` / scale-in) increases risk such that projected risk exceeds lane or account exposure caps, allowing an unauthorized risk breach.
+- **Required Invariant:** The real production authorization boundary evaluates post-action projected risk before dispatching command. If projected risk exceeds account exposure cap or lane risk cap, action is rejected fail-closed with zero provider submission. Exact equality ($R_{\text{projected}} = R_{\text{cap}}$) is permitted under inclusive ceiling contract.
+- **Mitigation:** Implemented projected-risk evaluation in `App.tsx` action authorization paths. Validates against `OperationalRiskConfig`.
+- **Test Evidence:** `src/tests/stage_h1_1_production_path.test.ts` H1.1.3-AUTH-01 through H1.1.3-AUTH-06 (6 passing tests).
+- **Disposition:** REAL PRODUCTION PATH VERIFIED (AUTOMATED PASS).
+
+### GUI-HPL-046: Micro-R Integer Scaling & 4-Decimal Precision Enforcement (H1.1-RISK-01..02)
+- **Threat Scenario:** Floating-point arithmetic errors accumulate during portfolio risk summation (e.g. 3 $\times$ 0.005R evaluates to 0.015000000000000002R), or inputs with excessive decimals cause boundary drift.
+- **Required Invariant:** Micro-R integer scaling on a $10^6$ basis. Inputs with $\le 4$ decimal places are accepted; inputs with $5+$ decimal places are strictly rejected fail-closed.
+- **Mitigation:** Implemented `scaleToMicroR` with 4-decimal validation regex in `src/utils/riskValidator.ts`.
+- **Test Evidence:** `src/tests/stage_h1_1_production_path.test.ts` H1.1-RISK-01 and H1.1-RISK-02; `stage_h1_production_behavior.test.ts` H1-RISK-02.
+- **Disposition:** AUTOMATED INVARIANT PASSING.
+
+### GUI-HPL-047: Real Mounted Production Component State Transitions in <App /> (H1.1-TEST-01)
+- **Threat Scenario:** Tests only exercise mock helpers or isolated functions rather than testing real React state machine transitions in the mounted production `<App />` tree.
+- **Required Invariant:** JSDOM test mounts the actual production `<App />` component, mutates position allocated risk from valid to invalid, asserts UI updates to `INVALID` badge and disables risk-increasing buttons, restores valid risk, and asserts UI returns to nominal.
+- **Mitigation:** Tested real mounted `<App />` component in JSDOM using `act()`.
+- **Test Evidence:** `src/tests/stage_h1_1_production_path.test.ts` H1.1-TEST-01.1.
+- **Disposition:** REAL COMPONENT LIFECYCLE VERIFIED (JSDOM).
+
+### GUI-HPL-048: Test Seam Isolation from Production Bundles (H1.1.2-SEAM-01)
+- **Threat Scenario:** Test hooks or test control handles (e.g. `AppTestControlHandle`) leak into production build output, allowing unauthorized client-side state manipulation.
+- **Required Invariant:** Test seam symbols are guarded by `process.env.NODE_ENV !== 'production'` and completely eliminated by dead-code elimination / tree-shaking in `dist/assets/*.js`.
+- **Mitigation:** Production build check asserts that `AppTestControlHandle` is completely absent from all emitted bundle files.
+- **Test Evidence:** `src/tests/stage_h1_1_production_path.test.ts` H1.1.2-SEAM-01.
+- **Disposition:** PRODUCTION BUNDLE AUDITED & VERIFIED.
+
+### GUI-HPL-049: Responsive Viewport Critical Control Preservation (D2-C / SC-03)
+- **Threat Scenario:** On narrow viewports (e.g. 320px mobile screen), critical risk controls, positions tabs, or navigation actions are clipped, occluded, or unclickable.
+- **Required Invariant:** Real React `<App />` rendered across 7 standard viewport widths (320, 360, 390, 430, 768, 1024, 1280px); all navigation destinations reachable; minimum touch targets $\ge 44 \times 44\text{px}$.
+- **Mitigation:** Implemented `MobileBottomNav.tsx` and horizontal scrollable containers with zero clipped elements.
+- **Test Evidence:** `src/tests/responsive_structural.test.ts` (12 passing tests).
+- **Disposition:** BEHAVIORAL VIEWPORT VERIFIED (JSDOM).
+
+### GUI-HPL-050: Keyboard Shortcut Guard in Text Input and Modal Dialogs (D2-B / SC-06)
+- **Threat Scenario:** Operator presses hotkey (e.g. 'C' to close position) while typing in a text field or inside an open dialog, triggering unintended destructive orders.
+- **Required Invariant:** Key event handlers check `event.target.tagName` and presence of open modal; hotkeys are strictly suppressed when focus is inside `INPUT`, `TEXTAREA`, `SELECT`, or when a modal dialog is mounted.
+- **Mitigation:** Implemented keyboard guard in `src/utils/keyboard.ts` and `App.tsx`.
+- **Test Evidence:** `src/tests/modal_focus_behavior.test.ts` and `safety_invariants.test.ts`.
+- **Disposition:** REAL COMPONENT ACCESSIBILITY VERIFIED.
+
+### GUI-HPL-051: Unconfigured Workflow Discrepancy & Active CI Integrity (CI-404)
+- **Threat Scenario:** A CI workflow template resides in a subfolder (e.g. `control_surface/ci/gui-ci.yml.template`) rather than `.github/workflows/`, causing GitHub Actions to skip GUI CI while reporting misleading pipeline statuses.
+- **Required Invariant:** Active GUI CI workflow must be situated in `.github/workflows/gui-ci.yml` with `permissions: contents: read`, pinning Node 22, `npm ci`, `npm run lint`, `npm test`, and `npm run build`. Missing remote execution must be reported truthfully as `NOT RUN / UNAVAILABLE`.
+- **Mitigation:** Preserved canonical `.github/workflows/gui-ci.yml` in PR #29 and working branches. Documented discrepancy truthfully.
+- **Test Evidence:** Local test suite passes 157/157; remote run status documented in reconnaissance report.
+- **Disposition:** INVESTIGATED & DOCUMENTED FAIL-CLOSED.
+
+### GUI-HPL-052: Quarantine of Core Trading Engine Domain Files (SCOPE-01)
+- **Threat Scenario:** Frontend commits modify non-GUI Python files (e.g. `structure_v23.py`, `entry.py`), violating scope boundaries and risking algorithmic trading engine corruption.
+- **Required Invariant:** Frontend control surface commits must touch only `control_surface/` files (React, TypeScript, CSS, UI tests, and GUI docs). Non-GUI files must remain strictly quarantined with zero modifications.
+- **Mitigation:** All Python files from parent commits `f84e0a5` and `fe71fdb` excluded from GUI working branch.
+- **Test Evidence:** Exact changed-file inventory confirms 0 non-GUI files modified.
+- **Disposition:** STRICTLY ENFORCED & QUARANTINED.

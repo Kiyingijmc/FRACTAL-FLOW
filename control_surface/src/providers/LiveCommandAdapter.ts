@@ -1,16 +1,16 @@
 import { ICommandProvider, CommandProgressUpdate } from './interfaces';
-import { 
-  IntentFingerprint, 
-  CommandResult, 
-  LiveExecutionBlockedError 
+import {
+  IntentFingerprint,
+  CommandResult,
+  LiveExecutionBlockedError
 } from '../types/contracts';
 
 /**
  * LiveCommandAdapter
- * 
+ *
  * Boundary adapter for connecting to the FRACTAL-FLOW backend Control Service.
  * Governed by the Universal Forensic Engineering Protocol (Survival > Authority Integrity).
- * 
+ *
  * INVARIANT: Because no backend Control Service or ExecutionGateway daemon is currently
  * provisioned in the repository, any attempt to dispatch live commands MUST fail closed
  * immediately. Live execution can NEVER silently proceed or fake success.

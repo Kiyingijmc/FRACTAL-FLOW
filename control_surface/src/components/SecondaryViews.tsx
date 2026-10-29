@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  ExtendedNavTab, 
-  MarketNewsItem, 
-  NewsImpactLevel, 
+import {
+  ExtendedNavTab,
+  MarketNewsItem,
+  NewsImpactLevel,
   NewsCategory,
   QuantModelRecord,
   ModelAdviceRecord,
@@ -14,9 +14,9 @@ import {
   OperationalRiskConfig
 } from '../types';
 import { evaluatePortfolioRisk } from '../utils/riskValidator';
-import { 
+import {
   INITIAL_POSITIONS,
-  INITIAL_MARKET_NEWS, 
+  INITIAL_MARKET_NEWS,
   INITIAL_CLOSED_TRADES,
   INITIAL_QUANT_MODELS,
   INITIAL_MODEL_ADVICE_STREAM,
@@ -25,12 +25,12 @@ import {
   INITIAL_REMEDIATION_BLOCKERS,
   INITIAL_AUDIT_TRAIL
 } from '../data/mockData';
-import { 
-  ShieldCheck, 
-  Layers, 
-  Database, 
-  FlaskConical, 
-  AlertTriangle, 
+import {
+  ShieldCheck,
+  Layers,
+  Database,
+  FlaskConical,
+  AlertTriangle,
   History,
   Lock,
   Cpu,
@@ -840,7 +840,7 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
           {/* Run comparison cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {labRuns.map((run) => (
-              <div 
+              <div
                 key={run.id}
                 onClick={() => setSelectedLabRunId(run.id)}
                 className={`p-4 border transition-all cursor-pointer ${
@@ -960,7 +960,7 @@ export const SecondaryViews: React.FC<SecondaryViewsProps> = ({
                     <td className="py-2.5 px-3 font-mono text-[11px] text-[#6E7A8A]">{b.category}</td>
                     <td className="py-2.5 px-3">
                       <span className={`font-mono text-[10px] px-1.5 py-0.5 border ${
-                        b.severity === 'P0' 
+                        b.severity === 'P0'
                           ? 'bg-[#B23B3B]/10 text-[#C25B6B] border-[#B23B3B]/30 font-bold'
                           : 'bg-[#BFA13B]/10 text-[#BFA13B] border-[#BFA13B]/30'
                       }`}>

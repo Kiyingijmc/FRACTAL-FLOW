@@ -1,12 +1,12 @@
 # FRACTAL-FLOW Control Surface — Stage H Forensic Remediation Report
 
-**Date:** 2026-10-24  
-**Mission:** Stage H Remediation Mission (F-01 through F-12 Forensic Invariant Hardening)  
-**Governing Standard:** Universal Forensic Engineering Protocol  
-**Priority Order:** `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY > SECURITY > RECOVERY > RECONCILIATION > OPERATIONAL ROBUSTNESS > SPEED > PnL OPTIMIZATION`  
-**Target Repository:** `https://github.com/Kiyingijmc/FRACTAL-FLOW.git`  
-**Canonical Branch:** `work/gui-reconciliation-20261024`  
-**Base Lineage:** Parent `bcf8f41`, base PR #29 (`c392c3e`), starting checkpoint `174344c04962ee737440acf89462f008cc5189fd`  
+**Date:** 2026-10-24
+**Mission:** Stage H Remediation Mission (F-01 through F-12 Forensic Invariant Hardening)
+**Governing Standard:** Universal Forensic Engineering Protocol
+**Priority Order:** `SURVIVAL > CORRECTNESS > AUTHORITY INTEGRITY > DETERMINISM > AUDITABILITY > SECURITY > RECOVERY > RECONCILIATION > OPERATIONAL ROBUSTNESS > SPEED > PnL OPTIMIZATION`
+**Target Repository:** `https://github.com/Kiyingijmc/FRACTAL-FLOW.git`
+**Canonical Branch:** `work/gui-reconciliation-20261024`
+**Base Lineage:** Parent `bcf8f41`, base PR #29 (`c392c3e`), starting checkpoint `174344c04962ee737440acf89462f008cc5189fd`
 
 ---
 
@@ -88,7 +88,7 @@ All 12 findings have been completely remediated, validated against the Universal
 ### F-08: Lab Synthetic Provenance
 - **Defect Identified:** Backtest runs in the LAB secondary view could be mistaken for live execution backtests.
 - **Remediation Implemented:**
-  - Added a prominent amber warning banner to `SecondaryViews.tsx` (LAB):  
+  - Added a prominent amber warning banner to `SecondaryViews.tsx` (LAB):
     `"SYNTHETIC LAB FIXTURES (UNVERIFIED) — Backtest results are simulated analytical artifacts with zero live execution equivalence."`
   - Tagged all lab runs with clear synthetic provenance.
 - **Invariants Enforced:** `EXP-04.1`, `HPL-LAB-01`, `GUI-HPL-040`.

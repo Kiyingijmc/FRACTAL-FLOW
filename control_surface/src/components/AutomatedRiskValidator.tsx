@@ -34,8 +34,8 @@ export const AutomatedRiskValidatorBadge: React.FC<AutomatedRiskValidatorBadgePr
   } else if (isBreached) {
     badgeStyle = 'bg-[#B23B3B]/20 text-[#C25B6B] border-[#B23B3B]/50 hover:bg-[#B23B3B]/30 animate-pulse';
     const violation = validation.violations[0];
-    const shortCode = violation?.code === 'MAX_LANE_RISK_EXCEEDED' 
-      ? `LANE CAP BREACH (${validation.projectedLaneRiskR}R > ${validation.laneRiskCapR}R)` 
+    const shortCode = violation?.code === 'MAX_LANE_RISK_EXCEEDED'
+      ? `LANE CAP BREACH (${validation.projectedLaneRiskR}R > ${validation.laneRiskCapR}R)`
       : violation?.code === 'MAX_ACCOUNT_EXPOSURE_EXCEEDED'
       ? `EXPOSURE CAP BREACH (${validation.projectedAccountExposureR}R > ${validation.accountExposureCapR}R)`
       : violation?.code === 'DAILY_LOSS_LIMIT_EXCEEDED'
@@ -105,7 +105,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
       aria-label="Automated Risk Validator Inspector"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
     >
-      <div 
+      <div
         className="w-full max-w-xl bg-[#10151D] border border-[#232A35] rounded-[3px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
       >
         {/* Header */}
@@ -181,7 +181,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
 
           {/* Violations Alert Box */}
           {validation.violations.length > 0 ? (
-            <div 
+            <div
               data-testid="risk-violations-alert"
               className="p-3 bg-[#B23B3B]/10 border border-[#B23B3B]/40 rounded-[2px] space-y-2"
             >
@@ -204,7 +204,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
               </div>
             </div>
           ) : (
-            <div 
+            <div
               data-testid="risk-clear-notice"
               className="p-3 bg-[#4FAE86]/10 border border-[#4FAE86]/30 rounded-[2px] text-[#4FAE86] flex items-center gap-2"
             >
@@ -224,7 +224,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
                 </span>
               </div>
               <div className="w-full bg-[#161C26] h-2 rounded-[1px] overflow-hidden border border-[#232A35]">
-                <div 
+                <div
                   className={`h-full transition-all duration-300 ${validation.projectedLaneRiskR > validation.laneRiskCapR ? 'bg-[#C25B6B]' : laneRiskPct > 80 ? 'bg-[#BFA13B]' : 'bg-[#4FAE86]'}`}
                   style={{ width: `${Math.min(100, laneRiskPct)}%` }}
                 />
@@ -240,7 +240,7 @@ export const AutomatedRiskValidatorModal: React.FC<AutomatedRiskValidatorModalPr
                 </span>
               </div>
               <div className="w-full bg-[#161C26] h-2 rounded-[1px] overflow-hidden border border-[#232A35]">
-                <div 
+                <div
                   className={`h-full transition-all duration-300 ${validation.projectedAccountExposureR > validation.accountExposureCapR ? 'bg-[#C25B6B]' : expRiskPct > 80 ? 'bg-[#BFA13B]' : 'bg-[#4FAE86]'}`}
                   style={{ width: `${Math.min(100, expRiskPct)}%` }}
                 />

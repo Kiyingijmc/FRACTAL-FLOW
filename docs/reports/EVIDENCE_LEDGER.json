@@ -1,0 +1,115 @@
+{
+  "system": "FRACTAL-FLOW",
+  "document": "EVIDENCE_LEDGER.json",
+  "protocol": "Universal Forensic Engineering Protocol (Survival > Correctness > Authority Integrity > Determinism > Auditability > Security > Recovery > Reconciliation > Operational Robustness > Speed > PnL Optimization)",
+  "timestamp": "2026-10-29T04:48:00Z",
+  "baseline_provenance": {
+    "repository": "https://github.com/Kiyingijmc/FRACTAL-FLOW",
+    "main_head_sha": "74d42bc073f0ece4a3cc86c35dbb93fe08c5f26d",
+    "pr29_review_target_sha": "c392c3e95f8e950cf7552d494a97d8821c2dd158",
+    "pr29_state": "open",
+    "canonical_checkpoint_sha": "719633433bebcf5b78b4dc31af93888e4325a66c",
+    "canonical_branch": "reconciliation/phase9-working-tree-20261028",
+    "working_branch": "work/gui-reconciliation-20261024",
+    "stage_h1_1_3_sha": "9956bcc8fe6ed688d42bda37f71f0840c2931c95"
+  },
+  "test_execution_summary": {
+    "total_suites": 9,
+    "total_tests": 157,
+    "passed": 157,
+    "failed": 0,
+    "pass_rate_percent": 100.0,
+    "type_check_status": "PASS (0 errors, tsc --noEmit)",
+    "production_build_status": "PASS (Vite production bundle built in 1.06s)"
+  },
+  "invariants": [
+    {
+      "id": "GUI-HPL-001..024",
+      "category": "Stage B through D Safety & Responsive Invariants",
+      "severity": "CRITICAL",
+      "test_suite": "src/tests/safety_invariants.test.ts",
+      "test_count": 44,
+      "status": "PASS",
+      "invariant": "Live execution fail-closed, state immutability, gate rendering, and non-authoritative simulation"
+    },
+    {
+      "id": "GUI-HPL-026",
+      "category": "Responsive Layout & Viewport Reachability",
+      "severity": "MEDIUM",
+      "test_suite": "src/tests/responsive_structural.test.ts",
+      "test_count": 12,
+      "status": "PASS",
+      "invariant": "All 8 navigation destinations reachable across 7 viewports (320px to 1280px); touch targets >= 44px"
+    },
+    {
+      "id": "GUI-HPL-027",
+      "category": "Positions Table Multi-Column Sort & Focus",
+      "severity": "MEDIUM",
+      "test_suite": "src/tests/positions_table_sort.test.ts",
+      "test_count": 13,
+      "status": "PASS",
+      "invariant": "Monospace tabular number alignments, multi-column sorting (PnL, Symbol, Size), and active row focus retention"
+    },
+    {
+      "id": "GUI-HPL-028",
+      "category": "Modal Accessibility, Focus Trap & Restoration",
+      "severity": "HIGH",
+      "test_suite": "src/tests/modal_focus_behavior.test.ts",
+      "test_count": 8,
+      "status": "PASS",
+      "invariant": "Accessible focus entry, Tab/Shift+Tab wrapping, Escape key dismissal, and trigger focus restoration"
+    },
+    {
+      "id": "GUI-HPL-029..033",
+      "category": "GUI Expansion Invariants",
+      "severity": "CRITICAL",
+      "test_suite": "src/tests/gui_expansion_invariants.test.ts",
+      "test_count": 9,
+      "status": "PASS",
+      "invariant": "Operational risk cross-field validation, safety notifications non-resolving ack, QUANT strictly NO CREATE, Lab read-only robustness"
+    },
+    {
+      "id": "GUI-HPL-034..035",
+      "category": "Risk Validator & Latency Telemetry Truthfulness",
+      "severity": "HIGH",
+      "test_suite": "src/tests/risk_validator_and_latency.test.ts",
+      "test_count": 8,
+      "status": "PASS",
+      "invariant": "Lane and account risk cap validation, NO_DATA latency cold-start, separation of measured vs injected delay"
+    },
+    {
+      "id": "GUI-HPL-036..042",
+      "category": "Stage H Adversarial Invariants",
+      "severity": "CRITICAL",
+      "test_suite": "src/tests/stage_h_adversarial_invariants.test.ts",
+      "test_count": 17,
+      "status": "PASS",
+      "invariant": "Micro-R integer scaling, FIPS 180-4 standard SHA-256 conformance with NIST vectors, honest anonymous session actor"
+    },
+    {
+      "id": "GUI-HPL-043..044",
+      "category": "Stage H.1 Production Behavior & Precision",
+      "severity": "CRITICAL",
+      "test_suite": "src/tests/stage_h1_production_behavior.test.ts",
+      "test_count": 18,
+      "status": "PASS",
+      "invariant": "Real production Header risk rendering, 3 x 0.005R = 0.015R precision, zero premature rounding, NIST multi-block SHA-256"
+    },
+    {
+      "id": "GUI-HPL-045..048",
+      "category": "Stage H.1.1 Production Path & Projected Risk",
+      "severity": "CRITICAL",
+      "test_suite": "src/tests/stage_h1_1_production_path.test.ts",
+      "test_count": 28,
+      "status": "PASS",
+      "invariant": "Real mounted App state transitions, projected-risk authorization boundary, 4-decimal precision, and test seam isolation"
+    }
+  ],
+  "quarantined_files": [
+    "src/fractal_flow/domain/structure_v23.py",
+    "src/fractal_flow/domain/entry.py",
+    "src/fractal_flow/domain/envelope.py",
+    "src/fractal_flow/domain/models.py",
+    "src/fractal_flow/execution/broker_truth.py"
+  ]
+}

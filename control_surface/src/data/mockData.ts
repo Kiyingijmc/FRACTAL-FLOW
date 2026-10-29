@@ -547,15 +547,15 @@ export const INITIAL_MARKET_NEWS: MarketNewsItem[] = [
 // EXPANDED CAPABILITY FIXTURES (QUANT, NOTIFICATIONS, SETTINGS, LAB, OPS, AUDIT)
 // -----------------------------------------------------------------------------
 
-import { 
-  NotificationEvent, 
-  OperationalRiskConfig, 
-  QuantModelRecord, 
-  ModelAdviceRecord, 
-  RolloutPromotionEvent, 
-  LabRunArtifact, 
-  RemediationBlockerRecord, 
-  AuditTrailRecord 
+import {
+  NotificationEvent,
+  OperationalRiskConfig,
+  QuantModelRecord,
+  ModelAdviceRecord,
+  RolloutPromotionEvent,
+  LabRunArtifact,
+  RemediationBlockerRecord,
+  AuditTrailRecord
 } from '../types';
 
 export const INITIAL_NOTIFICATIONS: NotificationEvent[] = [

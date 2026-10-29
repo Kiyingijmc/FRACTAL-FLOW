@@ -6,20 +6,20 @@
 
 import React from 'react';
 import { JSDOM } from 'jsdom';
-import { 
-  INITIAL_NOTIFICATIONS, 
-  INITIAL_OPERATIONAL_RISK_CONFIG, 
-  INITIAL_QUANT_MODELS, 
-  INITIAL_MODEL_ADVICE_STREAM, 
-  INITIAL_LAB_RUNS, 
+import {
+  INITIAL_NOTIFICATIONS,
+  INITIAL_OPERATIONAL_RISK_CONFIG,
+  INITIAL_QUANT_MODELS,
+  INITIAL_MODEL_ADVICE_STREAM,
+  INITIAL_LAB_RUNS,
   INITIAL_REMEDIATION_BLOCKERS,
-  INITIAL_AUDIT_TRAIL 
+  INITIAL_AUDIT_TRAIL
 } from '../data/mockData';
-import { 
-  NotificationEvent, 
-  OperationalRiskConfig, 
-  QuantModelRecord, 
-  ModelPermittedIntent 
+import {
+  NotificationEvent,
+  OperationalRiskConfig,
+  QuantModelRecord,
+  ModelPermittedIntent
 } from '../types';
 
 let passed = 0;
@@ -49,9 +49,9 @@ async function runExpansionVerification() {
   await test('EXP-01.1: Cross-field invariant: Max Lane Risk cannot exceed Max Account Exposure', () => {
     function validateRiskConfig(draft: OperationalRiskConfig): { valid: boolean; error?: string } {
       if (draft.maxLaneRiskR > draft.maxAccountExposureR) {
-        return { 
-          valid: false, 
-          error: `INVARIANT_VIOLATION: Max Lane Risk (${draft.maxLaneRiskR}R) > Max Account Exposure (${draft.maxAccountExposureR}R)` 
+        return {
+          valid: false,
+          error: `INVARIANT_VIOLATION: Max Lane Risk (${draft.maxLaneRiskR}R) > Max Account Exposure (${draft.maxAccountExposureR}R)`
         };
       }
       if (draft.maxLaneRiskR <= 0 || !Number.isFinite(draft.maxLaneRiskR)) {
@@ -108,7 +108,7 @@ async function runExpansionVerification() {
 
   await test('EXP-02.2: Acknowledgement invariant: Operator Ack sets timestamp but strictly does NOT resolve condition', () => {
     const notif: NotificationEvent = { ...INITIAL_NOTIFICATIONS[0] };
-    
+
     // Simulate operator acknowledgement
     const ackTime = Date.now();
     const ackedNotif: NotificationEvent = {

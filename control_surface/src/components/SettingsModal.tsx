@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Settings, 
-  X, 
-  Sliders, 
-  ShieldAlert, 
-  Database, 
-  Check, 
+import {
+  Settings,
+  X,
+  Sliders,
+  ShieldAlert,
+  Database,
+  Check,
   AlertTriangle,
   Lock,
   Layers
 } from 'lucide-react';
-import { 
-  PresentationPreferences, 
-  OperationalRiskConfig 
+import {
+  PresentationPreferences,
+  OperationalRiskConfig
 } from '../types';
 import { validateOperationalRiskConfig } from '../utils/riskValidator';
 
@@ -34,10 +34,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateRiskConfig
 }) => {
   const [activeTab, setActiveTab] = useState<'preferences' | 'risk_config' | 'calibration'>('preferences');
-  
+
   // Local presentation draft
   const [localPrefs, setLocalPrefs] = useState<PresentationPreferences>(preferences);
-  
+
   // Operational risk draft
   const [riskDraft, setRiskDraft] = useState<OperationalRiskConfig>(riskConfig);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -112,14 +112,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setTimeout(() => setIsSavedFeedback(false), 3000);
   };
 
-  const hasRiskChanges = 
+  const hasRiskChanges =
     riskDraft.maxLaneRiskR !== riskConfig.maxLaneRiskR ||
     riskDraft.maxAccountExposureR !== riskConfig.maxAccountExposureR ||
     riskDraft.dailyLossLimitUsd !== riskConfig.dailyLossLimitUsd ||
     riskDraft.killSwitchThresholdL !== riskConfig.killSwitchThresholdL;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4"
       role="dialog"
       aria-modal="true"

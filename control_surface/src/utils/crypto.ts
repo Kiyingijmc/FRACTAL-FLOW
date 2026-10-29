@@ -2,7 +2,7 @@
  * Deterministic Standard-Compliant SHA-256 and Canonical JSON Utility
  * FRACTAL-FLOW Forensic Engineering (Stage H.1 Corrective Implementation)
  * Priority: SURVIVAL > CORRECTNESS > DETERMINISM > AUDITABILITY
- * 
+ *
  * Complies with FIPS 180-4 standard specification:
  * - Proper UTF-8 byte encoding via TextEncoder
  * - Big-endian 64-bit length padding over 512-bit message blocks

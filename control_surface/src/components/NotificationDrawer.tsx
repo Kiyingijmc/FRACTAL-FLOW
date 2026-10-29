@@ -1,19 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Bell, 
-  X, 
-  AlertOctagon, 
-  ShieldAlert, 
-  Activity, 
-  Layers, 
-  Info, 
-  Check, 
+import {
+  Bell,
+  X,
+  AlertOctagon,
+  ShieldAlert,
+  Activity,
+  Layers,
+  Info,
+  Check,
   Send,
   Lock
 } from 'lucide-react';
-import { 
-  NotificationEvent, 
-  NotificationClass 
+import {
+  NotificationEvent,
+  NotificationClass
 } from '../types';
 
 interface NotificationDrawerProps {
@@ -52,8 +52,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  const filtered = selectedClass === 'all' 
-    ? notifications 
+  const filtered = selectedClass === 'all'
+    ? notifications
     : notifications.filter((n) => n.class === selectedClass);
 
   const getClassIcon = (cls: NotificationClass) => {
@@ -72,7 +72,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-end bg-black/75 backdrop-blur-xs"
       role="dialog"
       aria-modal="true"
@@ -110,8 +110,8 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
         {/* Filter Pills */}
         <div className="p-3 border-b border-[#232A35] bg-[#10151D] flex flex-wrap gap-1.5 text-xs">
           {(['all', 'safety_critical', 'risk_limit', 'trade_lifecycle', 'calibration_rollout', 'informational_daily'] as const).map((cls) => {
-            const count = cls === 'all' 
-              ? notifications.length 
+            const count = cls === 'all'
+              ? notifications.length
               : notifications.filter((n) => n.class === cls).length;
 
             return (
@@ -140,7 +140,7 @@ export const NotificationDrawer: React.FC<NotificationDrawerProps> = ({
             </div>
           ) : (
             filtered.map((item) => (
-              <div 
+              <div
                 key={item.id}
                 className={`p-3.5 border transition-all text-xs ${
                   item.class === 'safety_critical'
