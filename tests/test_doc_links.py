@@ -7,10 +7,19 @@ from pathlib import Path
 def test_markdown_local_links() -> None:
     """Verify that all relative local links in Markdown files resolve to existing files or directories."""
     repo_root = Path(__file__).parent.parent
-    md_files = list(repo_root.glob("**/*.md"))
-
-    # Exclude virtual environments or build caches if any exist
-    md_files = [f for f in md_files if ".venv" not in f.parts and ".pytest_cache" not in f.parts]
+    excluded_dirs = {
+        ".venv",
+        ".pytest_cache",
+        "node_modules",
+        "dist",
+        "build",
+        "__pycache__",
+    }
+    md_files = [
+        f
+        for f in repo_root.glob("**/*.md")
+        if not any(part in excluded_dirs for part in f.relative_to(repo_root).parts)
+    ]
 
     # Pattern matches [text](link) where link is local (not http/https/mailto)
     link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
