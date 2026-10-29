@@ -1050,6 +1050,14 @@ async function runStageH11ProductionPathSuite() {
     const path = await import('path');
     const distAssetsDir = path.resolve(process.cwd(), 'dist/assets');
 
+    if (!fs.existsSync(distAssetsDir)) {
+      const { execSync } = await import('child_process');
+      execSync('npx vite build', {
+        env: { ...process.env, NODE_ENV: 'production' },
+        stdio: 'pipe',
+      });
+    }
+
     expect(fs.existsSync(distAssetsDir), 'dist/assets directory must exist from production build');
     const files = fs.readdirSync(distAssetsDir).filter((f: string) => f.endsWith('.js'));
     expect(files.length > 0, 'Production JS bundle must exist');
