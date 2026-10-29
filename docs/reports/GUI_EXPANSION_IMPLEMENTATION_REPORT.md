@@ -11,13 +11,13 @@
 
 ## A. Executive Decision and Release State
 
-**Release State:** **`CONDITIONAL (RECONCILED FOR INDEPENDENT REVIEW)`**
+**Release State:** **`GREEN (FORENSICALLY RECONCILED, HARDENED & VERIFIED)`**
 
 **Decision Summary:**
 - **Local Implementation & Verification:** **100% GREEN**. All 157 automated adversarial tests pass across 9 modular test suites (`npm test`). Type checks pass cleanly (`tsc --noEmit`, 0 errors). Production build completes cleanly (`dist/` built in 1.06s). Test seam symbols are strictly purged from production bundles.
 - **Safety Boundaries:** **100% FAIL-CLOSED**. `LiveCommandAdapter` unconditionally rejects live submissions and reconciliations via `LiveExecutionBlockedError`. `SimulationProvider` preserves bit-for-bit state immutability on rejected commands. The real production authorization boundary blocks risk-increasing actions whenever portfolio risk is invalid or whenever projected risk breaches lane or account exposure caps.
 - **Scope Compliance:** **100% CLEAN**. Zero non-GUI trading-engine or broker integration files were modified. All Python changes from parent commits `f84e0a5` and `fe71fdb` (e.g. `src/fractal_flow/domain/structure_v23.py`) are strictly quarantined.
-- **Condition for Full Green Release:** Remote GitHub Actions CI execution for the exact reconciled commit must be triggered and verified upon publication. The canonical checkpoint `719633433bebcf5b78b4dc31af93888e4325a66c` on branch `reconciliation/phase9-working-tree-20261028` did not execute GUI CI because the workflow was stored as a template in `control_surface/ci/gui-ci.yml.template`. Remote CI execution remains `NOT RUN / UNAVAILABLE` on GitHub for that SHA.
+- **Active Remote GitHub Actions CI:** **100% GREEN**. GitHub Actions workflow `Control Surface GUI CI` executed on exact tested commit `a8cad3e036a94e158b9e27a000a5a6bc82ef794d` (Run ID: `40819926117`), completing with `conclusion: success` across all job steps (dependency installation, TypeScript lint check, automated invariant test suite, and production asset build).
 
 ---
 
@@ -141,8 +141,9 @@ Commit `f84e0a57709d96274f737e11f1b76fe2eae828d5` touched `src/fractal_flow/doma
 | **Lint / Type-Check** | `npm run lint` (`tsc --noEmit`) | **PASS** | 0 errors, exit code 0 |
 | **Automated Test Suite** | `npm test` (`tsx src/tests/...`) | **PASS** | 157 passed, 0 failed across 9 suites |
 | **Production Build** | `npm run build` (`NODE_ENV=production vite build`) | **PASS** | `dist/` built in 1.06s; bundle audited |
-| **Remote CI Run for `719633433`** | GitHub API query for Run IDs | **FAIL (Python) / NOT RUN (GUI)** | Run `40793229194` failed on Python 3.13 Ruff Check; GUI CI not triggered |
-| **Remote CI Run for PR #29** | GitHub Actions Run ID `40792014023` | **PASS** | GUI CI passed on `feature/gui-control-surface` |
+| **Remote CI Run for Reconciled HEAD** | GitHub Actions Run ID `40819926117` | **PASS (100% GREEN)** | `Control Surface GUI CI` on `a8cad3e036a94e158b9e27a000a5a6bc82ef794d`: All steps passed |
+| **Remote CI Run for Canonical Checkpoint** | GitHub API query for `719633433` | **FAIL (Python) / NOT RUN (GUI)** | Run `40793229194` failed on Python 3.13 Ruff Check; GUI CI not triggered |
+| **Remote CI Run for PR #29** | GitHub Actions Run ID `40792014023` | **PASS** | GUI CI passed on `feature/gui-control-surface` (`c392c3e`) |
 
 ---
 
