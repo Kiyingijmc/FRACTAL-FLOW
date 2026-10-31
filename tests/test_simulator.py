@@ -70,9 +70,9 @@ def test_broker_simulator_network_disconnect_and_reconciliation() -> None:
     status = sim.submit_intent(intent)
     assert status == ExecutionState.EXEC_UNKNOWN
 
-    # Reconcile unknown status
+    # A missing position does not establish that the broker rejected the intent.
     recon_status = sim.reconcile_intent("intent_2")
-    assert recon_status == ExecutionState.EXEC_REJECTED  # No position created during disconnect
+    assert recon_status == ExecutionState.EXEC_UNKNOWN
 
 
 def test_broker_simulator_stop_loss_tighten_ratchet() -> None:

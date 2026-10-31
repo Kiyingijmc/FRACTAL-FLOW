@@ -339,7 +339,7 @@ class DeterministicBrokerSimulator:
                 side=side_val,
                 requested_volume=req_vol_dec,
                 filled_volume=fill_vol,
-                remaining_volume=rem_vol,
+                remaining_volume=fill_vol,
                 entry_price=entry_price_dec,
                 current_sl=sl_dec,
                 lifecycle_state="POS_ACTIVE",
@@ -395,7 +395,7 @@ class DeterministicBrokerSimulator:
             side=side_val,
             requested_volume=req_vol_dec,
             filled_volume=req_vol_dec,
-            remaining_volume=Decimal("0.0"),
+            remaining_volume=req_vol_dec,
             entry_price=entry_price_dec,
             current_sl=sl_dec,
             lifecycle_state="POS_ACTIVE",
@@ -446,27 +446,35 @@ class DeterministicBrokerSimulator:
         if not pos or pos.lifecycle_state == "POS_CLOSED":
             return False
 
-        rem_vol_dec = _to_decimal(pos.remaining_volume)
-        filled_vol_dec = _to_decimal(pos.filled_volume)
+        open_volume_dec = _to_decimal(pos.remaining_volume)
         entry_price_dec = _to_decimal(pos.entry_price)
 
         vol_to_close_dec = (
             _to_decimal(close_volume)
             if close_volume is not None
-            else (rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec)
+            else open_volume_dec
         )
 
-        max_allowed_close = rem_vol_dec if rem_vol_dec > Decimal(0) else filled_vol_dec
-        if vol_to_close_dec > max_allowed_close:
+        if vol_to_close_dec <= Decimal(0):
+            raise ValueError("Close volume must be positive")
+        if vol_to_close_dec > open_volume_dec:
             raise ValueError(
-                f"Cannot close volume {vol_to_close_dec} exceeding active position volume {filled_vol_dec}"
+                f"Cannot close volume {vol_to_close_dec} exceeding open position volume {open_volume_dec}"
             )
 
         close_price_dec = _to_decimal(exit_price) if exit_price is not None else entry_price_dec
 
         contract_size = Decimal("100000.0")
-        if pos.intent_id in self.idempotency_records:
-            snap = self.idempotency_records[pos.intent_id].broker_constraint_snapshot
+        originating_intent = next(
+            (
+                record
+                for record in self.idempotency_records.values()
+                if record.intent_id == pos.intent_id
+            ),
+            None,
+        )
+        if originating_intent is not None:
+            snap = originating_intent.broker_constraint_snapshot
             if "contract_size" in snap:
                 contract_size = Decimal(str(snap["contract_size"]))
 
@@ -491,7 +499,7 @@ class DeterministicBrokerSimulator:
         pos.deals.append(close_deal)
         pos.realized_pnl = _to_decimal(pos.realized_pnl) + pnl
 
-        new_remaining = filled_vol_dec - vol_to_close_dec
+        new_remaining = open_volume_dec - vol_to_close_dec
         if new_remaining == Decimal("0.0"):
             pos.lifecycle_state = "POS_CLOSED"
             pos.remaining_volume = Decimal("0.0")
@@ -509,13 +517,14 @@ class DeterministicBrokerSimulator:
                 if pos.intent_id == intent_id:
                     status = (
                         ExecutionState.EXEC_PARTIAL
-                        if _to_decimal(pos.remaining_volume) > Decimal(0)
+                        if _to_decimal(pos.filled_volume) < _to_decimal(pos.requested_volume)
                         else ExecutionState.EXEC_FILLED
                     )
                     self.client_intent_statuses[intent_id] = status
                     return status
-            self.client_intent_statuses[intent_id] = ExecutionState.EXEC_REJECTED
-            return ExecutionState.EXEC_REJECTED
+            # Absence of a position is not proof of broker rejection.
+            self.client_intent_statuses[intent_id] = ExecutionState.EXEC_UNKNOWN
+            return ExecutionState.EXEC_UNKNOWN
 
         self.client_intent_statuses[intent_id] = broker_status
         return broker_status

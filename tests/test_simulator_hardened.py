@@ -79,7 +79,8 @@ def test_partial_fill_semantics() -> None:
     pos = list(sim.positions.values())[0]
     assert pos.requested_volume == Decimal("1.0")
     assert pos.filled_volume == Decimal("0.30")
-    assert pos.remaining_volume == Decimal("0.70")
+    assert pos.remaining_volume == Decimal("0.30")
+    assert pos.requested_volume - pos.filled_volume == Decimal("0.70")
     assert len(pos.deals) == 1
 
 
@@ -93,6 +94,71 @@ def test_restart_recovery_reconciliation() -> None:
     status = sim.submit_intent(intent)
     assert status == ExecutionState.EXEC_UNKNOWN
 
-    # System restarts and reconciles unknown intent
-    recon_status = sim.reconcile_intent("intent_restart")
-    assert recon_status == ExecutionState.EXEC_REJECTED
+    # No authoritative broker outcome exists; absence is not rejection proof.
+    for _ in range(2):
+        recon_status = sim.reconcile_intent("intent_restart")
+        assert recon_status == ExecutionState.EXEC_UNKNOWN
+        assert sim.client_intent_statuses["intent_restart"] == ExecutionState.EXEC_UNKNOWN
+
+
+def test_reconciliation_preserves_explicit_broker_rejection() -> None:
+    sim = DeterministicBrokerSimulator(
+        config=SimulationConfig(scenario=ExecutionScenario.REJECT)
+    )
+    intent = make_intent("intent_rejected", "key_rejected")
+
+    assert sim.submit_intent(intent) == ExecutionState.EXEC_REJECTED
+    assert sim.broker_intent_statuses["intent_rejected"] == ExecutionState.EXEC_REJECTED
+    assert sim.reconcile_intent("intent_rejected") == ExecutionState.EXEC_REJECTED
+
+
+def test_repeated_partial_closes_conserve_open_volume() -> None:
+    sim = DeterministicBrokerSimulator()
+    intent = make_intent("intent_reclose", "key_reclose", volume=0.1)
+    assert sim.submit_intent(intent) == ExecutionState.EXEC_FILLED
+    pos = list(sim.positions.values())[0]
+
+    assert pos.remaining_volume == Decimal("0.1")
+    assert sim.close_position(pos.position_id, Decimal("1.0860"), Decimal("0.04"))
+    assert pos.remaining_volume == Decimal("0.06")
+
+    assert sim.close_position(pos.position_id, Decimal("1.0860"), Decimal("0.03"))
+    assert pos.remaining_volume == Decimal("0.03")
+
+    assert sim.close_position(pos.position_id, Decimal("1.0860"))
+    assert pos.remaining_volume == Decimal("0")
+    assert pos.lifecycle_state == "POS_CLOSED"
+    assert pos.realized_pnl == Decimal("10.00")
+    assert sim.close_position(pos.position_id, Decimal("1.0860")) is False
+
+
+def test_partial_fill_position_volume_is_not_unfilled_order_volume() -> None:
+    sim = DeterministicBrokerSimulator(
+        config=SimulationConfig(
+            scenario=ExecutionScenario.PARTIAL_FILL,
+            partial_fill_ratio=Decimal("0.3"),
+        )
+    )
+    intent = make_intent("intent_pf_close", "key_pf_close", volume=1.0)
+    assert sim.submit_intent(intent) == ExecutionState.EXEC_PARTIAL
+    pos = list(sim.positions.values())[0]
+
+    assert pos.filled_volume == Decimal("0.30")
+    assert pos.remaining_volume == Decimal("0.30")
+    assert pos.requested_volume - pos.filled_volume == Decimal("0.70")
+
+    assert sim.close_position(pos.position_id, Decimal("1.0860"), Decimal("0.10"))
+    assert pos.remaining_volume == Decimal("0.20")
+    assert pos.lifecycle_state == "POS_ACTIVE"
+
+
+def test_close_uses_contract_size_from_originating_intent() -> None:
+    sim = DeterministicBrokerSimulator()
+    intent = make_intent("intent_contract", "key_contract", volume=0.1)
+    intent.broker_constraint_snapshot["contract_size"] = Decimal("1000")
+
+    assert sim.submit_intent(intent) == ExecutionState.EXEC_FILLED
+    pos = list(sim.positions.values())[0]
+    assert sim.close_position(pos.position_id, Decimal("1.0950"))
+
+    assert pos.realized_pnl == Decimal("1.00")

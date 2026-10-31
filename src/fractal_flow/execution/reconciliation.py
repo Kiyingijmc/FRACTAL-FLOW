@@ -613,7 +613,30 @@ class ReconciliationEngine:
                     )
 
         if matching_pos:
-            resolved_state = ExecutionState.EXEC_PARTIAL if matching_pos.remaining_volume > 0 else ExecutionState.EXEC_FILLED
+            # A position's current/net filled volume can shrink after partial
+            # closes. Determine entry execution state from broker entry deals
+            # when available; do not confuse open exposure with entry fill.
+            entry_roles = {DealEntryRole.OPEN, DealEntryRole.INCREASE}
+            entry_volume = sum(
+                (Decimal(str(deal.volume)) for deal in (broker_deals or {}).values()
+                 if deal.position_id == matching_pos.position_id
+                 and deal.entry_role in entry_roles),
+                Decimal("0"),
+            )
+            if entry_volume > 0:
+                resolved_state = (
+                    ExecutionState.EXEC_PARTIAL
+                    if entry_volume < Decimal(str(matching_pos.requested_volume))
+                    else ExecutionState.EXEC_FILLED
+                )
+            else:
+                # Without entry-deal evidence, retain the position-level
+                # fallback; this does not prove historical partial-close state.
+                resolved_state = (
+                    ExecutionState.EXEC_PARTIAL
+                    if matching_pos.filled_volume < matching_pos.requested_volume
+                    else ExecutionState.EXEC_FILLED
+                )
             mismatch = ReconciliationMismatchType.MATCH if local_intent.status == resolved_state.value else ReconciliationMismatchType.STATE_MISMATCH
             return ReconciliationResult(
                 intent_id=local_intent.intent_id,
@@ -623,7 +646,20 @@ class ReconciliationEngine:
             )
 
         if matching_order:
-            resolved_state = ExecutionState.EXEC_ACCEPTED if matching_order.status == "ACCEPTED" else ExecutionState.EXEC_FILLED
+            status = str(matching_order.status).strip().upper()
+            status_map = {
+                "PENDING": ExecutionState.EXEC_SUBMITTED,
+                "SUBMITTED": ExecutionState.EXEC_SUBMITTED,
+                "ACCEPTED": ExecutionState.EXEC_ACCEPTED,
+                "PARTIAL": ExecutionState.EXEC_PARTIAL,
+                "PARTIAL_FILL": ExecutionState.EXEC_PARTIAL,
+                "PARTIALLY_FILLED": ExecutionState.EXEC_PARTIAL,
+                "FILLED": ExecutionState.EXEC_FILLED,
+                "REJECTED": ExecutionState.EXEC_REJECTED,
+                "CANCELLED": ExecutionState.EXEC_CANCELLED,
+                "CANCELED": ExecutionState.EXEC_CANCELLED,
+            }
+            resolved_state = status_map.get(status, ExecutionState.EXEC_UNKNOWN)
             mismatch = ReconciliationMismatchType.MATCH if local_intent.status == resolved_state.value else ReconciliationMismatchType.STATE_MISMATCH
             return ReconciliationResult(
                 intent_id=local_intent.intent_id,
@@ -633,7 +669,11 @@ class ReconciliationEngine:
             )
 
         # Broker has no record of order or position
-        if query_quality == BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE:
+        if (
+            query_quality == BrokerQueryQuality.NOT_FOUND_AUTHORITATIVE
+            and query_result is not None
+            and query_result.completeness
+        ):
             return ReconciliationResult(
                 intent_id=local_intent.intent_id,
                 mismatch_type=ReconciliationMismatchType.LOCAL_ONLY,
@@ -697,6 +737,7 @@ class ReconciliationEngine:
                 broker_positions=broker_positions,
                 broker_deals=broker_deals,
                 query_quality=q_quality,
+                query_result=query_result,
             )
             results_list.append(res)
 
