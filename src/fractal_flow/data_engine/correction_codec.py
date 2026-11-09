@@ -5,6 +5,7 @@ fields retain the repository's legacy integer-second convention; all causal
 nanoseconds and exact decimals remain in this payload and are validated again
 on decode.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -107,7 +108,12 @@ def _source_payload(source: SourceIdentity) -> dict[str, str | None]:
 
 def _decode_source(value: object) -> SourceIdentity:
     if not isinstance(value, Mapping) or set(value) != {
-        "source_id", "broker_id", "server_id", "lane_scope", "account_id", "lane_id"
+        "source_id",
+        "broker_id",
+        "server_id",
+        "lane_scope",
+        "account_id",
+        "lane_id",
     }:
         raise CorrectionCodecError("source must have exactly the canonical identity fields")
     try:
@@ -144,9 +150,20 @@ def _quote_payload(quote: CanonicalQuote) -> dict[str, Any]:
 
 def _decode_quote(value: object) -> CanonicalQuote:
     required = {
-        "event_id", "source", "native_record_id", "source_sequence", "instrument_id", "source_symbol",
-        "event_time_ns", "received_time_ns", "available_time_ns", "bid", "ask", "volume",
-        "volume_semantics", "raw_payload",
+        "event_id",
+        "source",
+        "native_record_id",
+        "source_sequence",
+        "instrument_id",
+        "source_symbol",
+        "event_time_ns",
+        "received_time_ns",
+        "available_time_ns",
+        "bid",
+        "ask",
+        "volume",
+        "volume_semantics",
+        "raw_payload",
     }
     if not isinstance(value, Mapping) or set(value) != required:
         raise CorrectionCodecError("quote must have exactly the canonical quote fields")
@@ -196,11 +213,17 @@ def _decode_scope(value: object) -> CorrectionScope:
 
 def event_id_for(revision: QuoteRevision, scope: CorrectionScope) -> str:
     return "data-engine-correction-v1:" + _digest(
-        {"revision_id": revision.revision_id, "logical_event_id": revision.logical_event_id, "scope": _scope_payload(scope)}
+        {
+            "revision_id": revision.revision_id,
+            "logical_event_id": revision.logical_event_id,
+            "scope": _scope_payload(scope),
+        }
     )
 
 
-def encode_correction(revision: QuoteRevision, scope: CorrectionScope, aggregate_version: int, parent_event_id: str) -> Event:
+def encode_correction(
+    revision: QuoteRevision, scope: CorrectionScope, aggregate_version: int, parent_event_id: str
+) -> Event:
     """Encode one immutable revision without losing exact Decimal/UTC-ns values."""
     if not isinstance(revision, QuoteRevision) or not isinstance(scope, CorrectionScope):
         raise TypeError("revision and scope must be canonical correction values")
@@ -248,14 +271,23 @@ def decode_correction(record: JournalRecord) -> DecodedCorrection:
     """Decode and fully bind a journal record to the correction schema."""
     event = record.event
     if (
-        event.event_type != CORRECTION_EVENT_TYPE or event.aggregate_type != CORRECTION_AGGREGATE_TYPE
-        or event.actor_id != CORRECTION_ACTOR or event.authority != CORRECTION_AUTHORITY
+        event.event_type != CORRECTION_EVENT_TYPE
+        or event.aggregate_type != CORRECTION_AGGREGATE_TYPE
+        or event.actor_id != CORRECTION_ACTOR
+        or event.authority != CORRECTION_AUTHORITY
     ):
         raise CorrectionCodecError("record is not a Data Engine analytical correction")
     payload = event.payload
     if not isinstance(payload, Mapping) or set(payload) != {
-        "schema_version", "kind", "revision_id", "logical_event_id", "supersedes_revision_id", "operation",
-        "available_at_ns", "scope", "quote",
+        "schema_version",
+        "kind",
+        "revision_id",
+        "logical_event_id",
+        "supersedes_revision_id",
+        "operation",
+        "available_at_ns",
+        "scope",
+        "quote",
     }:
         raise CorrectionCodecError("correction payload has unsupported or ambiguous fields")
     if payload["schema_version"] != CORRECTION_SCHEMA_VERSION or payload["kind"] != "QUOTE_CORRECTION":
@@ -291,7 +323,11 @@ def decode_correction(record: JournalRecord) -> DecodedCorrection:
     else:
         source_ns, event_ns = revision.quote.event_time_ns, revision.quote.received_time_ns
     if (event.source_timestamp, event.event_timestamp, event.processing_timestamp) != (
-        source_ns // 1_000_000_000, event_ns // 1_000_000_000, revision.available_at_ns // 1_000_000_000
+        source_ns // 1_000_000_000,
+        event_ns // 1_000_000_000,
+        revision.available_at_ns // 1_000_000_000,
     ):
         raise CorrectionCodecError("generic seconds envelope does not match exact correction timestamps")
-    return DecodedCorrection(record.sequence_number, event.aggregate_version, event.event_id, event.parent_id, revision, scope)
+    return DecodedCorrection(
+        record.sequence_number, event.aggregate_version, event.event_id, event.parent_id, revision, scope
+    )

@@ -1,4 +1,5 @@
 """Deterministic, read-only analytical reconstruction from correction history."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -63,22 +64,27 @@ class DeterministicReplayConsumer:
             resolved = self._corrections.replay_as_known_at(watermark_ns)
         except Exception as exc:
             raise ReplayConsumerError(f"authoritative correction resolution failed: {exc}") from exc
-        quotes = tuple(sorted(
-            (item for item in resolved if CorrectionScope.from_quote(item.quote) in selected_scopes),
-            key=lambda item: (item.quote.available_time_ns, item.logical_event_id, item.revision_id),
-        ))
+        quotes = tuple(
+            sorted(
+                (item for item in resolved if CorrectionScope.from_quote(item.quote) in selected_scopes),
+                key=lambda item: (item.quote.available_time_ns, item.logical_event_id, item.revision_id),
+            )
+        )
         reasons = ["QUALITY_NOT_DURABLE"]
         for scope in selected_scopes:
-            sequences = sorted({
-                item.revision.quote.source_sequence for item in history.records
-                # History is validated in full above, but a later correction or
-                # source delivery cannot affect what this consumer knew at an
-                # earlier availability watermark.
-                if item.scope == scope
-                and item.revision.available_at_ns <= watermark_ns
-                and item.revision.quote is not None
-                and item.revision.quote.source_sequence is not None
-            })
+            sequences = sorted(
+                {
+                    item.revision.quote.source_sequence
+                    for item in history.records
+                    # History is validated in full above, but a later correction or
+                    # source delivery cannot affect what this consumer knew at an
+                    # earlier availability watermark.
+                    if item.scope == scope
+                    and item.revision.available_at_ns <= watermark_ns
+                    and item.revision.quote is not None
+                    and item.revision.quote.source_sequence is not None
+                }
+            )
             if any(right > left + 1 for left, right in zip(sequences, sequences[1:])):
                 reasons.append("SOURCE_SEQUENCE_GAP")
         scope_ids = tuple(sorted(scope.partition_id for scope in selected_scopes))
@@ -98,13 +104,20 @@ class DeterministicReplayConsumer:
                     "event_time_ns": item.quote.event_time_ns,
                     "received_time_ns": item.quote.received_time_ns,
                     "available_time_ns": item.quote.available_time_ns,
-                    "bid": _decimal(item.quote.bid), "ask": _decimal(item.quote.ask),
-                    "volume": _decimal(item.quote.volume), "volume_semantics": item.quote.volume_semantics.value,
+                    "bid": _decimal(item.quote.bid),
+                    "ask": _decimal(item.quote.ask),
+                    "volume": _decimal(item.quote.volume),
+                    "volume_semantics": item.quote.volume_semantics.value,
                 }
                 for item in quotes
             ],
         }
         return ReplaySnapshot(
-            watermark_ns, scope_ids, quotes, DataStatus.UNAVAILABLE, tuple(sorted(reasons)), False,
+            watermark_ns,
+            scope_ids,
+            quotes,
+            DataStatus.UNAVAILABLE,
+            tuple(sorted(reasons)),
+            False,
             sha256(_wire(payload)).hexdigest(),
         )

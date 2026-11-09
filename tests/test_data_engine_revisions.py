@@ -3,7 +3,14 @@ from decimal import Decimal
 
 import pytest
 
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.revisions import QuoteRevision, RevisionConflict, RevisionOperation, resolve_revisions
 
@@ -11,7 +18,21 @@ from src.fractal_flow.data_engine.revisions import QuoteRevision, RevisionConfli
 def _quote(event_id: str, available_at_ns: int, bid: str = "1.10000") -> CanonicalQuote:
     source = SourceIdentity("source-a", "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(source, event_id, 1, "EURUSD", 100, 110, available_at_ns, bid, "1.10002", "1", VolumeSemantics.TICK_ACTIVITY_COUNT))
+    result = core.ingest(
+        RawQuote(
+            source,
+            event_id,
+            1,
+            "EURUSD",
+            100,
+            110,
+            available_at_ns,
+            bid,
+            "1.10002",
+            "1",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 

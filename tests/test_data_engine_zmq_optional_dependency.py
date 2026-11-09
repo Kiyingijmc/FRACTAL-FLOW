@@ -1,4 +1,5 @@
 """Fail-closed contract for unavailable optional transport dependencies."""
+
 from __future__ import annotations
 
 import importlib.util

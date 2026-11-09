@@ -1,4 +1,5 @@
 """Independent-process hostile proofs for durable G4 checkpoint ownership."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -10,10 +11,17 @@ from queue import Empty
 import pytest
 
 from src.fractal_flow.data_engine.checkpoints import (
-    CheckpointIntegrityError, CheckpointLockError, SubscriberCheckpointStore,
+    CheckpointIntegrityError,
+    CheckpointLockError,
+    SubscriberCheckpointStore,
 )
 from src.fractal_flow.data_engine.contracts import (
-    InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics,
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
 )
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope
@@ -31,24 +39,45 @@ SUBSCRIBER_ID = "checkpoint-process-proof"
 def _quote() -> CanonicalQuote:
     source = SourceIdentity("source-a", "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(
-        source, "n1", 1, "EURUSD", 98, 99, 100, "1.10000", "1.10002", "1",
-        VolumeSemantics.TICK_ACTIVITY_COUNT,
-    ))
+    result = core.ingest(
+        RawQuote(
+            source,
+            "n1",
+            1,
+            "EURUSD",
+            98,
+            99,
+            100,
+            "1.10000",
+            "1.10002",
+            "1",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 
 
-def _setup(tmp_path: Path) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority, Path]:
+def _setup(
+    tmp_path: Path,
+) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority, Path]:
     journal = DurableEventJournal(str(tmp_path / "ownership.journal"))
     corrections = DurableCorrectionJournal(journal)
     quote = _quote()
     corrections.append(QuoteRevision("r1", quote.event_id, None, RevisionOperation.UPSERT, 100, quote))
     scope = CorrectionScope.from_quote(quote)
-    return journal, corrections, scope, JournalReplayAuthority(corrections, {scope.source.key}), tmp_path / "subscriber.checkpoint"
+    return (
+        journal,
+        corrections,
+        scope,
+        JournalReplayAuthority(corrections, {scope.source.key}),
+        tmp_path / "subscriber.checkpoint",
+    )
 
 
-def _reader_components(journal_path: str) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority]:
+def _reader_components(
+    journal_path: str,
+) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority]:
     journal = DurableEventJournal(journal_path)
     corrections = DurableCorrectionJournal.recover(journal)
     record = corrections.snapshot().records[0]
@@ -104,7 +133,9 @@ def _recover_then_commit(journal_path: str, checkpoint_path: str, outcomes: obje
         outcomes.put(f"ERROR:{type(exc).__name__}:{exc}")  # type: ignore[union-attr]
 
 
-def _start(ctx: multiprocessing.context.BaseContext, target: object, args: tuple[object, ...]) -> multiprocessing.Process:
+def _start(
+    ctx: multiprocessing.context.BaseContext, target: object, args: tuple[object, ...]
+) -> multiprocessing.Process:
     process = ctx.Process(target=target, args=args)  # type: ignore[arg-type]
     process.start()
     return process
@@ -119,7 +150,13 @@ def _result(outcomes: multiprocessing.queues.Queue[object]) -> str:
     return value
 
 
-def _seed_checkpoint(journal: DurableEventJournal, corrections: DurableCorrectionJournal, scope: CorrectionScope, authority: JournalReplayAuthority, path: Path) -> None:
+def _seed_checkpoint(
+    journal: DurableEventJournal,
+    corrections: DurableCorrectionJournal,
+    scope: CorrectionScope,
+    authority: JournalReplayAuthority,
+    path: Path,
+) -> None:
     store = SubscriberCheckpointStore(str(path), journal)
     store.commit(SUBSCRIBER_ID, scope, corrections.cursor(scope), authority)
     store.close()
@@ -226,14 +263,18 @@ def test_ownership_transfer_rejects_a_stale_checkpoint_after_journal_replacement
     transferred.close()
 
 
-def test_independent_checkpoint_identities_can_be_owned_concurrently_and_recovery_rejection_repeats(tmp_path: Path) -> None:
+def test_independent_checkpoint_identities_can_be_owned_concurrently_and_recovery_rejection_repeats(
+    tmp_path: Path,
+) -> None:
     journal, corrections, scope, authority, checkpoint = _setup(tmp_path)
     _seed_checkpoint(journal, corrections, scope, authority, checkpoint)
     other = tmp_path / "independent.checkpoint"
     ctx = multiprocessing.get_context("spawn")
     ready_one, release_one, outcomes = ctx.Event(), ctx.Event(), ctx.Queue()
     ready_two, release_two = ctx.Event(), ctx.Event()
-    owner_one = _start(ctx, _hold_owner, (str(journal.journal_file_path), str(checkpoint), ready_one, release_one, outcomes))
+    owner_one = _start(
+        ctx, _hold_owner, (str(journal.journal_file_path), str(checkpoint), ready_one, release_one, outcomes)
+    )
     owner_two = _start(ctx, _hold_owner, (str(journal.journal_file_path), str(other), ready_two, release_two, outcomes))
     assert ready_one.wait(10) and ready_two.wait(10)
     assert {_result(outcomes), _result(outcomes)} == {"OWNED"}

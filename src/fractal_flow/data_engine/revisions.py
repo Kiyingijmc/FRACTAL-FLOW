@@ -1,4 +1,5 @@
 """Immutable quote correction chains, resolved as known at an availability watermark."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

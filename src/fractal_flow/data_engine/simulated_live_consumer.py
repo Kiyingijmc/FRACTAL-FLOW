@@ -6,6 +6,7 @@ execution capability.  It only admits already-authenticated ``JournalDelivery``
 objects through :class:`JournalBackedSubscriber`, and it refuses to emit a
 snapshot unless that subscriber has authoritatively caught up to its partition.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

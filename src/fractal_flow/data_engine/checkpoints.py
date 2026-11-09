@@ -1,4 +1,5 @@
 """Crash-safe, non-authoritative durable checkpoints for G4 subscribers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -71,7 +72,11 @@ class SubscriberCheckpoint:
 
     @classmethod
     def create(
-        cls, subscriber_id: str, scope: CorrectionScope, cursor: CorrectionCursor, journal: DurableEventJournal,
+        cls,
+        subscriber_id: str,
+        scope: CorrectionScope,
+        cursor: CorrectionCursor,
+        journal: DurableEventJournal,
     ) -> "SubscriberCheckpoint":
         if not isinstance(subscriber_id, str) or not subscriber_id or cursor.partition_id != scope.partition_id:
             raise CheckpointIntegrityError("subscriber and cursor partition identity are required")
@@ -104,30 +109,52 @@ class SubscriberCheckpoint:
         try:
             value = json.loads(raw.decode("utf-8"))
             if not isinstance(value, dict) or set(value) != {
-                "schema_version", "subscriber_id", "partition_id", "source_key", "journal", "cursor", "checksum",
+                "schema_version",
+                "subscriber_id",
+                "partition_id",
+                "source_key",
+                "journal",
+                "cursor",
+                "checksum",
             }:
                 raise ValueError("unsupported checkpoint fields")
             journal = value["journal"]
             cursor = value["cursor"]
             source = value["source_key"]
             if (
-                type(value["schema_version"]) is not int or value["schema_version"] != 1
-                or not isinstance(value["subscriber_id"], str) or not value["subscriber_id"]
-                or not isinstance(value["partition_id"], str) or not value["partition_id"]
-                or not isinstance(journal, dict) or set(journal) != {"path", "device", "inode"}
-                or not isinstance(cursor, dict) or set(cursor) != {"partition_id", "journal_sequence", "aggregate_version"}
-                or not isinstance(source, list) or len(source) != 6 or not all(isinstance(item, str) for item in source)
+                type(value["schema_version"]) is not int
+                or value["schema_version"] != 1
+                or not isinstance(value["subscriber_id"], str)
+                or not value["subscriber_id"]
+                or not isinstance(value["partition_id"], str)
+                or not value["partition_id"]
+                or not isinstance(journal, dict)
+                or set(journal) != {"path", "device", "inode"}
+                or not isinstance(cursor, dict)
+                or set(cursor) != {"partition_id", "journal_sequence", "aggregate_version"}
+                or not isinstance(source, list)
+                or len(source) != 6
+                or not all(isinstance(item, str) for item in source)
                 or not isinstance(value["checksum"], str)
-                or not isinstance(journal["path"], str) or type(journal["device"]) is not int or type(journal["inode"]) is not int
+                or not isinstance(journal["path"], str)
+                or type(journal["device"]) is not int
+                or type(journal["inode"]) is not int
             ):
                 raise ValueError("invalid checkpoint types")
             result = cls(
-                1, value["subscriber_id"], value["partition_id"], tuple(source),
+                1,
+                value["subscriber_id"],
+                value["partition_id"],
+                tuple(source),
                 JournalFileIdentity(journal["path"], journal["device"], journal["inode"]),
                 CorrectionCursor(cursor["partition_id"], cursor["journal_sequence"], cursor["aggregate_version"]),
                 value["checksum"],
             )
-            if not isinstance(result.subscriber_id, str) or not result.subscriber_id or not isinstance(result.partition_id, str):
+            if (
+                not isinstance(result.subscriber_id, str)
+                or not result.subscriber_id
+                or not isinstance(result.partition_id, str)
+            ):
                 raise ValueError("invalid checkpoint identity")
             if result.checksum != result.compute_checksum() or result.to_bytes() != raw:
                 raise CheckpointIntegrityError("checkpoint checksum or canonical encoding is invalid")
@@ -195,7 +222,9 @@ class SubscriberCheckpointStore:
                 # Corrupt sidecars must subsequently fail load validation; their
                 # path still receives exclusive recovery ownership here.
                 pass
-        digest = hashlib.sha256(_wire({"journal": self._journal_identity.payload(), "path": str(self.path)})).hexdigest()
+        digest = hashlib.sha256(
+            _wire({"journal": self._journal_identity.payload(), "path": str(self.path)})
+        ).hexdigest()
         return self._lock_directory() / f".fractal-flow-checkpoint-{digest}.lock"
 
     def _semantic_lock_path(self, checkpoint: SubscriberCheckpoint) -> Path:
@@ -338,7 +367,9 @@ class SubscriberCheckpointStore:
                 self._recovery_required = True
                 raise CheckpointDurabilityError(f"checkpoint publication is unacknowledged: {exc}") from exc
 
-    def commit(self, subscriber_id: str, scope: CorrectionScope, cursor: CorrectionCursor, authority: JournalReplayAuthority) -> SubscriberCheckpoint:
+    def commit(
+        self, subscriber_id: str, scope: CorrectionScope, cursor: CorrectionCursor, authority: JournalReplayAuthority
+    ) -> SubscriberCheckpoint:
         try:
             authority.capture(scope, cursor)
         except Exception as exc:
@@ -347,7 +378,9 @@ class SubscriberCheckpointStore:
         self.save(checkpoint)
         return checkpoint
 
-    def load_verified(self, subscriber_id: str, scope: CorrectionScope, authority: JournalReplayAuthority) -> SubscriberCheckpoint | None:
+    def load_verified(
+        self, subscriber_id: str, scope: CorrectionScope, authority: JournalReplayAuthority
+    ) -> SubscriberCheckpoint | None:
         with self._mutex:
             self._verify_lock()
             self._verify_checkpoint_path()

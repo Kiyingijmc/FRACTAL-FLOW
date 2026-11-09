@@ -4,6 +4,7 @@ This adapter neither changes generic journal semantics nor claims cross-process
 writer safety.  Following any append exception it refuses further writes until a
 fresh journal instance has authoritatively replayed the backing history.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,8 +14,12 @@ import json
 from typing import Iterable
 
 from src.fractal_flow.data_engine.correction_codec import (
-    CORRECTION_AGGREGATE_TYPE, CorrectionScope, DecodedCorrection,
-    decode_correction, encode_correction, event_id_for,
+    CORRECTION_AGGREGATE_TYPE,
+    CorrectionScope,
+    DecodedCorrection,
+    decode_correction,
+    encode_correction,
+    event_id_for,
 )
 from src.fractal_flow.data_engine.revisions import QuoteRevision, ResolvedQuote, RevisionConflict, resolve_revisions
 from src.fractal_flow.persistence.journal import DurableEventJournal
@@ -182,15 +187,18 @@ class DurableCorrectionJournal:
         try:
             resolve_revisions(
                 tuple(
-                    item.revision for item in history
+                    item.revision
+                    for item in history
                     if item.scope == scope and item.revision.logical_event_id == revision.logical_event_id
-                ) + (revision,),
+                )
+                + (revision,),
                 2**63 - 1,
             )
         except RevisionConflict as exc:
             raise CorrectionPersistenceError(f"candidate correction lineage is invalid: {exc}") from exc
         event = encode_correction(
-            revision, scope,
+            revision,
+            scope,
             self._journal.get_aggregate_sequence(CORRECTION_AGGREGATE_TYPE, scope.partition_id) + 1,
             parent_event_id,
         )
@@ -203,9 +211,13 @@ class DurableCorrectionJournal:
         except Exception as exc:
             # In particular AFTER_JOURNAL_FSYNC exceptions have an uncertain durable outcome.
             self._state = CorrectionStoreState.RECOVERY_REQUIRED
-            raise CorrectionPersistenceError(f"correction append outcome is uncertain; recovery required: {exc}") from exc
+            raise CorrectionPersistenceError(
+                f"correction append outcome is uncertain; recovery required: {exc}"
+            ) from exc
 
-    def _scope_and_parent(self, revision: QuoteRevision, history: tuple[DecodedCorrection, ...]) -> tuple[CorrectionScope, str]:
+    def _scope_and_parent(
+        self, revision: QuoteRevision, history: tuple[DecodedCorrection, ...]
+    ) -> tuple[CorrectionScope, str]:
         if revision.supersedes_revision_id is None:
             if revision.quote is None:
                 raise CorrectionPersistenceError("root CANCEL is not a correction observation")
@@ -254,12 +266,23 @@ class DurableCorrectionJournal:
         )
         if cursor.aggregate_version > len(records):
             raise CorrectionPersistenceError("cursor aggregate version exceeds authoritative partition history")
-        if cursor.aggregate_version and records[cursor.aggregate_version - 1].journal_sequence != cursor.journal_sequence:
+        if (
+            cursor.aggregate_version
+            and records[cursor.aggregate_version - 1].journal_sequence != cursor.journal_sequence
+        ):
             raise CorrectionPersistenceError("cursor does not match authoritative partition history")
-        end = cursor if not records else CorrectionCursor(
-            scope.partition_id, records[-1].journal_sequence, records[-1].aggregate_version,
+        end = (
+            cursor
+            if not records
+            else CorrectionCursor(
+                scope.partition_id,
+                records[-1].journal_sequence,
+                records[-1].aggregate_version,
+            )
         )
-        return CorrectionReplayBatch(cursor, end, tuple(item for item in records if item.aggregate_version > cursor.aggregate_version))
+        return CorrectionReplayBatch(
+            cursor, end, tuple(item for item in records if item.aggregate_version > cursor.aggregate_version)
+        )
 
     def replay_after(self, scope: CorrectionScope, cursor: CorrectionCursor) -> tuple[DecodedCorrection, ...]:
         """Compatibility wrapper for callers that need only replay records."""

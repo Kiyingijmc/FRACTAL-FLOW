@@ -1,4 +1,5 @@
 """Hostile G4 Unit 2 proofs for durable subscriber checkpoint sidecars."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -6,14 +7,28 @@ from decimal import Decimal
 import pytest
 
 from src.fractal_flow.data_engine.checkpoints import (
-    CheckpointDurabilityError, CheckpointIntegrityError, CheckpointLockError,
-    SubscriberCheckpoint, SubscriberCheckpointStore,
+    CheckpointDurabilityError,
+    CheckpointIntegrityError,
+    CheckpointLockError,
+    SubscriberCheckpoint,
+    SubscriberCheckpointStore,
 )
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope
 from src.fractal_flow.data_engine.correction_persistence import CorrectionCursor, DurableCorrectionJournal
-from src.fractal_flow.data_engine.journal_subscriber import JournalBackedSubscriber, JournalDelivery, JournalReplayAuthority
+from src.fractal_flow.data_engine.journal_subscriber import (
+    JournalBackedSubscriber,
+    JournalDelivery,
+    JournalReplayAuthority,
+)
 from src.fractal_flow.data_engine.revisions import QuoteRevision, RevisionOperation
 from src.fractal_flow.persistence.journal import DurableEventJournal
 
@@ -25,10 +40,21 @@ SUBSCRIBER_ID = "research-ui-eurusd"
 def _quote(native_id: str, available_ns: int, source_id: str = "source-a") -> CanonicalQuote:
     source = SourceIdentity(source_id, "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(
-        source, native_id, 1, "EURUSD", available_ns - 2, available_ns - 1,
-        available_ns, "1.10000", "1.10002", "1", VolumeSemantics.TICK_ACTIVITY_COUNT,
-    ))
+    result = core.ingest(
+        RawQuote(
+            source,
+            native_id,
+            1,
+            "EURUSD",
+            available_ns - 2,
+            available_ns - 1,
+            available_ns,
+            "1.10000",
+            "1.10002",
+            "1",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 
@@ -37,7 +63,9 @@ def _root(quote: CanonicalQuote) -> QuoteRevision:
     return QuoteRevision("r1", quote.event_id, None, RevisionOperation.UPSERT, quote.available_time_ns, quote)
 
 
-def _setup(tmp_path: object) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority, object]:
+def _setup(
+    tmp_path: object,
+) -> tuple[DurableEventJournal, DurableCorrectionJournal, CorrectionScope, JournalReplayAuthority, object]:
     path = tmp_path / "checkpoint.journal"  # type: ignore[operator]
     journal = DurableEventJournal(str(path))
     corrections = DurableCorrectionJournal(journal)
@@ -62,11 +90,15 @@ def test_checkpoint_codec_is_canonical_and_binds_journal_subscriber_scope_and_cu
     store.close()
 
 
-@pytest.mark.parametrize("phase", ["BEFORE_CHECKPOINT_WRITE", "AFTER_CHECKPOINT_FILE_FSYNC", "BEFORE_CHECKPOINT_RENAME"])
+@pytest.mark.parametrize(
+    "phase", ["BEFORE_CHECKPOINT_WRITE", "AFTER_CHECKPOINT_FILE_FSYNC", "BEFORE_CHECKPOINT_RENAME"]
+)
 def test_crash_before_rename_never_acknowledges_checkpoint(tmp_path: object, phase: str) -> None:
     journal, corrections, scope, authority, path = _setup(tmp_path)
     store = SubscriberCheckpointStore(str(path), journal)
-    store.set_fault_hook(lambda current, _checkpoint: (_ for _ in ()).throw(RuntimeError(current)) if current == phase else None)
+    store.set_fault_hook(
+        lambda current, _checkpoint: (_ for _ in ()).throw(RuntimeError(current)) if current == phase else None
+    )
     with pytest.raises(CheckpointDurabilityError, match="unacknowledged"):
         store.commit(SUBSCRIBER_ID, scope, corrections.cursor(scope), authority)
     assert not path.exists()  # type: ignore[union-attr]
@@ -78,7 +110,9 @@ def test_crash_before_rename_never_acknowledges_checkpoint(tmp_path: object, pha
 def test_post_rename_uncertainty_requires_fresh_recovery_and_never_acknowledges(tmp_path: object, phase: str) -> None:
     journal, corrections, scope, authority, path = _setup(tmp_path)
     store = SubscriberCheckpointStore(str(path), journal)
-    store.set_fault_hook(lambda current, _checkpoint: (_ for _ in ()).throw(RuntimeError(current)) if current == phase else None)
+    store.set_fault_hook(
+        lambda current, _checkpoint: (_ for _ in ()).throw(RuntimeError(current)) if current == phase else None
+    )
     with pytest.raises(CheckpointDurabilityError, match="unacknowledged"):
         store.commit(SUBSCRIBER_ID, scope, corrections.cursor(scope), authority)
     assert store.recovery_required
@@ -145,11 +179,19 @@ def test_restart_replays_post_checkpoint_correction_and_accepts_verified_duplica
     store = SubscriberCheckpointStore(str(path), journal)
     store.commit(SUBSCRIBER_ID, scope, corrections.cursor(scope), authority)
     first = corrections.replay_batch_after(scope, CorrectionCursor(scope.partition_id, 0, 0)).records[0]
-    second = corrections.append(QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None))
+    second = corrections.append(
+        QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None)
+    )
     store.close()
     restarted_store = SubscriberCheckpointStore(str(path), journal)
     subscriber = JournalBackedSubscriber.restart_from_checkpoint(
-        SECRET, scope, {scope.source.key}, authority, restarted_store, SUBSCRIBER_ID, known_at_ns=200,
+        SECRET,
+        scope,
+        {scope.source.key},
+        authority,
+        restarted_store,
+        SUBSCRIBER_ID,
+        known_at_ns=200,
     )
     assert subscriber.checkpoint.aggregate_version == 2
     subscriber.receive(JournalDelivery.from_correction(first, SECRET), authority)
@@ -158,11 +200,17 @@ def test_restart_replays_post_checkpoint_correction_and_accepts_verified_duplica
     restarted_store.close()
 
 
-def test_directory_durability_unsupported_and_repeated_interrupted_recovery_fail_closed(tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_directory_durability_unsupported_and_repeated_interrupted_recovery_fail_closed(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
     journal, corrections, scope, authority, path = _setup(tmp_path)
     for _ in range(2):
         store = SubscriberCheckpointStore(str(path), journal)
-        monkeypatch.setattr(store, "_fsync_directory", lambda: (_ for _ in ()).throw(CheckpointDurabilityError("directory fsync unsupported")))
+        monkeypatch.setattr(
+            store,
+            "_fsync_directory",
+            lambda: (_ for _ in ()).throw(CheckpointDurabilityError("directory fsync unsupported")),
+        )
         with pytest.raises(CheckpointDurabilityError, match="unacknowledged"):
             store.commit(SUBSCRIBER_ID, scope, corrections.cursor(scope), authority)
         assert store.recovery_required

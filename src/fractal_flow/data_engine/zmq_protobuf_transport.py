@@ -9,6 +9,7 @@ Only ``inproc://`` endpoints are enabled here.  TCP deployment requires a
 separately-owned CURVE/ZAP key-distribution and endpoint-authorisation design;
 failing closed is safer than exposing an unauthenticated production socket.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +59,17 @@ class ProtobufJournalEnvelopeCodec:
         try:
             message.ParseFromString(raw)
             value = json.loads(message.value.decode("ascii"))
-            required = {"v", "partition", "journal_sequence", "aggregate_version", "event_id", "available_at_ns", "source", "payload_hash", "mac"}
+            required = {
+                "v",
+                "partition",
+                "journal_sequence",
+                "aggregate_version",
+                "event_id",
+                "available_at_ns",
+                "source",
+                "payload_hash",
+                "mac",
+            }
             if set(value) != required:
                 raise ValueError("unexpected envelope fields")
             source = value["source"]
@@ -71,8 +82,15 @@ class ProtobufJournalEnvelopeCodec:
             if any(not isinstance(value[key], str) or not value[key] for key in text_keys):
                 raise ValueError("envelope text field is malformed")
             return JournalEnvelope(
-                value["v"], value["partition"], value["journal_sequence"], value["aggregate_version"],
-                value["event_id"], value["available_at_ns"], tuple(source), value["payload_hash"], value["mac"],
+                value["v"],
+                value["partition"],
+                value["journal_sequence"],
+                value["aggregate_version"],
+                value["event_id"],
+                value["available_at_ns"],
+                tuple(source),
+                value["payload_hash"],
+                value["mac"],
             )
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
             raise ZmqProtobufTransportError(f"malformed protobuf journal envelope: {exc}") from exc
@@ -109,7 +127,13 @@ class ZeroMqJournalSubscriber:
     """Bounded local receiver; it validates a hint but never applies one directly."""
 
     def __init__(
-        self, endpoint: str, secret: bytes, allowed_sources: set[SourceKey], *, context: Any | None = None, max_queue: int = 256,
+        self,
+        endpoint: str,
+        secret: bytes,
+        allowed_sources: set[SourceKey],
+        *,
+        context: Any | None = None,
+        max_queue: int = 256,
     ) -> None:
         _require_inproc(endpoint)
         zmq, _bytes_value = _dependencies()
@@ -134,7 +158,11 @@ class ZeroMqJournalSubscriber:
             json.dumps(envelope.unsigned(), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        if envelope.schema_version != 2 or envelope.source_key not in self._allowed or not hmac.compare_digest(expected, envelope.mac):
+        if (
+            envelope.schema_version != 2
+            or envelope.source_key not in self._allowed
+            or not hmac.compare_digest(expected, envelope.mac)
+        ):
             raise ZmqProtobufTransportError("unauthorized, incompatible, or tampered journal hint")
         return envelope
 

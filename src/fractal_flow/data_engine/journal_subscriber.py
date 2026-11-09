@@ -4,6 +4,7 @@ This module deliberately models local harness semantics only.  The durable
 journal, rather than a publisher sequence, authorizes every transition back to
 LIVE.  It does not provide exactly-once delivery or an execution authority.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -16,7 +17,10 @@ from typing import Any
 
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope, DecodedCorrection
 from src.fractal_flow.data_engine.correction_persistence import (
-    CorrectionCursor, CorrectionPersistenceError, CorrectionReplayBatch, DurableCorrectionJournal,
+    CorrectionCursor,
+    CorrectionPersistenceError,
+    CorrectionReplayBatch,
+    DurableCorrectionJournal,
 )
 
 
@@ -143,11 +147,15 @@ class JournalDelivery:
 
     @classmethod
     def with_payload_hash(cls, delivery: "JournalDelivery", payload_hash: str, secret: bytes) -> "JournalDelivery":
-        return cls(delivery.correction, JournalEnvelope.sign(replace(delivery.envelope, payload_hash=payload_hash), secret))
+        return cls(
+            delivery.correction, JournalEnvelope.sign(replace(delivery.envelope, payload_hash=payload_hash), secret)
+        )
 
     @classmethod
     def with_partition(cls, delivery: "JournalDelivery", partition_id: str, secret: bytes) -> "JournalDelivery":
-        return cls(delivery.correction, JournalEnvelope.sign(replace(delivery.envelope, partition_id=partition_id), secret))
+        return cls(
+            delivery.correction, JournalEnvelope.sign(replace(delivery.envelope, partition_id=partition_id), secret)
+        )
 
     @classmethod
     def with_source(cls, delivery: "JournalDelivery", source_key: SourceKey, secret: bytes) -> "JournalDelivery":
@@ -155,12 +163,17 @@ class JournalDelivery:
 
     @classmethod
     def with_sequence(
-        cls, delivery: "JournalDelivery", journal_sequence: int, aggregate_version: int, secret: bytes,
+        cls,
+        delivery: "JournalDelivery",
+        journal_sequence: int,
+        aggregate_version: int,
+        secret: bytes,
     ) -> "JournalDelivery":
         return cls(
             delivery.correction,
             JournalEnvelope.sign(
-                replace(delivery.envelope, journal_sequence=journal_sequence, aggregate_version=aggregate_version), secret,
+                replace(delivery.envelope, journal_sequence=journal_sequence, aggregate_version=aggregate_version),
+                secret,
             ),
         )
 
@@ -191,8 +204,14 @@ class JournalBackedSubscriber:
     """Fail-closed local subscriber that resumes only through journal replay."""
 
     def __init__(
-        self, secret: bytes, scope: CorrectionScope, allowed_sources: set[SourceKey], *,
-        known_at_ns: int = 0, max_queue: int = 256, checkpoint: CorrectionCursor | None = None,
+        self,
+        secret: bytes,
+        scope: CorrectionScope,
+        allowed_sources: set[SourceKey],
+        *,
+        known_at_ns: int = 0,
+        max_queue: int = 256,
+        checkpoint: CorrectionCursor | None = None,
         initial_recovery: bool = False,
     ) -> None:
         if not secret or not isinstance(scope, CorrectionScope) or scope.source.key not in allowed_sources:
@@ -207,7 +226,9 @@ class JournalBackedSubscriber:
         self._checkpoint = checkpoint or CorrectionCursor(scope.partition_id, 0, 0)
         if self._checkpoint.partition_id != scope.partition_id:
             raise ValueError("checkpoint partition does not match subscriber scope")
-        self._state = ContinuityState.DEGRADED if initial_recovery or self._checkpoint.aggregate_version else ContinuityState.LIVE
+        self._state = (
+            ContinuityState.DEGRADED if initial_recovery or self._checkpoint.aggregate_version else ContinuityState.LIVE
+        )
         self._held: list[JournalDelivery] = []
         self._retained: dict[int, JournalDelivery] = {}
         self._lock = threading.RLock()
@@ -223,7 +244,8 @@ class JournalBackedSubscriber:
     def visible(self) -> tuple[DecodedCorrection, ...]:
         with self._lock:
             return tuple(
-                delivery.correction for _, delivery in sorted(self._retained.items())
+                delivery.correction
+                for _, delivery in sorted(self._retained.items())
                 if delivery.correction.revision.available_at_ns <= self._known_at_ns
             )
 
@@ -275,7 +297,11 @@ class JournalBackedSubscriber:
         item = delivery.correction
         if item.aggregate_version <= self._checkpoint.aggregate_version:
             previous = self._retained.get(item.aggregate_version)
-            if previous is not None and previous.envelope == delivery.envelope and self._same_record(previous.correction, item):
+            if (
+                previous is not None
+                and previous.envelope == delivery.envelope
+                and self._same_record(previous.correction, item)
+            ):
                 return
             self._fail("conflicting duplicate or stale durable delivery")
         if item.aggregate_version != self._checkpoint.aggregate_version + 1:
@@ -299,7 +325,9 @@ class JournalBackedSubscriber:
         """A post-restart duplicate is safe only after journal-history proof."""
         origin = CorrectionCursor(self._scope.partition_id, 0, 0)
         history = authority.capture(self._scope, origin).records
-        matching = next((item for item in history if item.aggregate_version == delivery.correction.aggregate_version), None)
+        matching = next(
+            (item for item in history if item.aggregate_version == delivery.correction.aggregate_version), None
+        )
         if matching is None or not self._same_record(matching, delivery.correction):
             self._fail("duplicate delivery conflicts with authoritative history")
         self._retained.setdefault(delivery.correction.aggregate_version, delivery)
@@ -394,14 +422,27 @@ class JournalBackedSubscriber:
 
     @classmethod
     def restart_from_checkpoint(
-        cls, secret: bytes, scope: CorrectionScope, allowed_sources: set[SourceKey], authority: JournalReplayAuthority,
-        checkpoint_store: Any, subscriber_id: str, *, known_at_ns: int = 0, max_queue: int = 256,
+        cls,
+        secret: bytes,
+        scope: CorrectionScope,
+        allowed_sources: set[SourceKey],
+        authority: JournalReplayAuthority,
+        checkpoint_store: Any,
+        subscriber_id: str,
+        *,
+        known_at_ns: int = 0,
+        max_queue: int = 256,
     ) -> "JournalBackedSubscriber":
         """Fail closed until the loaded sidecar cursor is replay-verified."""
         checkpoint = checkpoint_store.load_verified(subscriber_id, scope, authority)
         subscriber = cls(
-            secret, scope, allowed_sources, known_at_ns=known_at_ns, max_queue=max_queue,
-            checkpoint=None if checkpoint is None else checkpoint.cursor, initial_recovery=True,
+            secret,
+            scope,
+            allowed_sources,
+            known_at_ns=known_at_ns,
+            max_queue=max_queue,
+            checkpoint=None if checkpoint is None else checkpoint.cursor,
+            initial_recovery=True,
         )
         subscriber.recover(authority)
         subscriber.persist_checkpoint(checkpoint_store, authority, subscriber_id)

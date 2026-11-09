@@ -4,6 +4,7 @@ The generic journal remains the durability authority.  Exact nanosecond times ar
 kept in the payload because the legacy generic Event timestamp fields are seconds
 domain and are not a substitute for this data contract's causal timestamps.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -180,7 +181,9 @@ class DataJournalAdapter:
             quote = CanonicalQuote(
                 event_id=event_id,
                 source=source,
-                native_record_id=None if quote_payload.get("native_record_id") is None else str(quote_payload["native_record_id"]),
+                native_record_id=None
+                if quote_payload.get("native_record_id") is None
+                else str(quote_payload["native_record_id"]),
                 source_sequence=cls._optional_nonnegative_int(quote_payload.get("source_sequence"), "source_sequence"),
                 instrument_id=str(quote_payload["instrument_id"]),
                 source_symbol=str(quote_payload["source_symbol"]),
@@ -189,7 +192,9 @@ class DataJournalAdapter:
                 available_time_ns=cls._nonnegative_int(quote_payload["available_time_ns"], "available_time_ns"),
                 bid=strict_decimal(quote_payload["bid"], "bid"),
                 ask=strict_decimal(quote_payload["ask"], "ask"),
-                volume=None if quote_payload.get("volume") is None else strict_decimal(quote_payload["volume"], "volume"),
+                volume=None
+                if quote_payload.get("volume") is None
+                else strict_decimal(quote_payload["volume"], "volume"),
                 volume_semantics=VolumeSemantics(str(quote_payload["volume_semantics"])),
                 raw_payload={str(key): str(value) for key, value in dict(quote_payload.get("raw_payload", {})).items()},
             )
@@ -238,7 +243,9 @@ class DataJournalAdapter:
                     raise DataPersistenceConflict("data event identity reused with different canonical payload")
                 return persisted
         partition = self._partition_id(quote)
-        event = self._event_for(quote, assessment, self._journal.get_aggregate_sequence(self.AGGREGATE_TYPE, partition) + 1)
+        event = self._event_for(
+            quote, assessment, self._journal.get_aggregate_sequence(self.AGGREGATE_TYPE, partition) + 1
+        )
         try:
             record = self._journal.append(event)
         except Exception as exc:
@@ -255,4 +262,6 @@ class DataJournalAdapter:
             if record.event.aggregate_type == self.AGGREGATE_TYPE
         ]
         visible = [record for record in records if record.quote.available_time_ns <= available_at_ns]
-        return tuple(sorted(visible, key=lambda item: (item.quote.available_time_ns, item.journal_sequence, item.quote.event_id)))
+        return tuple(
+            sorted(visible, key=lambda item: (item.quote.available_time_ns, item.journal_sequence, item.quote.event_id))
+        )

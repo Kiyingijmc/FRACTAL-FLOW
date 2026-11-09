@@ -4,6 +4,7 @@ This is a pure analytical boundary.  It has no dependency on execution, broker
 truth, FFBP, or persistence and therefore cannot authorize an order or claim a
 durable append.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -156,9 +157,13 @@ class DataCore:
         try:
             alias = self._registry.resolve(raw.source, raw.source_symbol, raw.event_time_ns)
         except UnknownInstrumentAlias:
-            return IngestResult(IngestDisposition.QUARANTINED, None, self._quality(DataStatus.INVALID, "UNKNOWN_INSTRUMENT_ALIAS"))
+            return IngestResult(
+                IngestDisposition.QUARANTINED, None, self._quality(DataStatus.INVALID, "UNKNOWN_INSTRUMENT_ALIAS")
+            )
         except AmbiguousInstrumentAlias:
-            return IngestResult(IngestDisposition.QUARANTINED, None, self._quality(DataStatus.CONFLICT, "AMBIGUOUS_INSTRUMENT_ALIAS"))
+            return IngestResult(
+                IngestDisposition.QUARANTINED, None, self._quality(DataStatus.CONFLICT, "AMBIGUOUS_INSTRUMENT_ALIAS")
+            )
 
         invalid_reason = self._invalid_quote_reason(raw, alias)
         if invalid_reason is not None:
@@ -197,10 +202,17 @@ class DataCore:
                 self._last_sequences[sequence_key] = raw.source_sequence
 
         if raw.native_record_id is not None:
-            event_id = _digest({"namespace": "data-engine-v1", "source": raw.source.key, "native_id": raw.native_record_id})
+            event_id = _digest(
+                {"namespace": "data-engine-v1", "source": raw.source.key, "native_id": raw.native_record_id}
+            )
         else:
             event_id = _digest(
-                {"namespace": "data-engine-v1", "source": raw.source.key, "delivery_index": self._ingest_sequence, "raw": fingerprint}
+                {
+                    "namespace": "data-engine-v1",
+                    "source": raw.source.key,
+                    "delivery_index": self._ingest_sequence,
+                    "raw": fingerprint,
+                }
             )
         bid = strict_decimal(raw.bid, "bid")
         ask = strict_decimal(raw.ask, "ask")

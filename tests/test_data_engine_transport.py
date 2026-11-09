@@ -2,7 +2,14 @@ from decimal import Decimal
 
 import pytest
 
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import DataCore
 from src.fractal_flow.data_engine.persistence import PersistedQuote
 from src.fractal_flow.data_engine.transport import GapDetected, LocalPublisher, LocalSubscriber, TransportError
@@ -10,7 +17,9 @@ from src.fractal_flow.data_engine.transport import GapDetected, LocalPublisher, 
 
 def _record() -> PersistedQuote:
     source = SourceIdentity("source", "broker", "server", LaneScope.REPLAY)
-    result = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)])).ingest(
+    result = DataCore(
+        InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)])
+    ).ingest(
         RawQuote(source, "record", 1, "EURUSD", 1, 2, 3, "1.10000", "1.10002", "1", VolumeSemantics.TICK_ACTIVITY_COUNT)
     )
     assert result.quote is not None

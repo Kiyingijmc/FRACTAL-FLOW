@@ -1,4 +1,5 @@
 """Hostile G4 proofs for journal-backed local subscriber continuity."""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -6,13 +7,25 @@ from decimal import Decimal
 
 import pytest
 
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope, encode_correction
 from src.fractal_flow.data_engine.correction_persistence import DurableCorrectionJournal
 from src.fractal_flow.data_engine.journal_subscriber import (
-    ContinuityError, ContinuityState, GapDetected, JournalBackedSubscriber,
-    JournalDelivery, JournalReplayAuthority, RecoveryAuthorizationError,
+    ContinuityError,
+    ContinuityState,
+    GapDetected,
+    JournalBackedSubscriber,
+    JournalDelivery,
+    JournalReplayAuthority,
+    RecoveryAuthorizationError,
 )
 from src.fractal_flow.data_engine.revisions import QuoteRevision, RevisionOperation
 from src.fractal_flow.persistence.journal import DurableEventJournal
@@ -21,10 +34,21 @@ from src.fractal_flow.persistence.journal import DurableEventJournal
 def _quote(native_id: str, available_ns: int, source_id: str = "source-a") -> CanonicalQuote:
     source = SourceIdentity(source_id, "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(
-        source, native_id, 1, "EURUSD", available_ns - 2, available_ns - 1,
-        available_ns, "1.10000", "1.10002", "1", VolumeSemantics.TICK_ACTIVITY_COUNT,
-    ))
+    result = core.ingest(
+        RawQuote(
+            source,
+            native_id,
+            1,
+            "EURUSD",
+            available_ns - 2,
+            available_ns - 1,
+            available_ns,
+            "1.10000",
+            "1.10002",
+            "1",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 
@@ -33,7 +57,9 @@ def _root(quote: CanonicalQuote, revision_id: str = "r1") -> QuoteRevision:
     return QuoteRevision(revision_id, quote.event_id, None, RevisionOperation.UPSERT, quote.available_time_ns, quote)
 
 
-def _setup(tmp_path: object, known_at_ns: int = 10_000) -> tuple[DurableCorrectionJournal, CorrectionScope, JournalBackedSubscriber, JournalReplayAuthority]:
+def _setup(
+    tmp_path: object, known_at_ns: int = 10_000
+) -> tuple[DurableCorrectionJournal, CorrectionScope, JournalBackedSubscriber, JournalReplayAuthority]:
     journal = DurableEventJournal(str(tmp_path / "continuity.journal"))  # type: ignore[operator]
     store = DurableCorrectionJournal(journal)
     quote = _quote("n1", 100)
@@ -52,9 +78,13 @@ def test_disconnect_gap_replays_authoritative_history_and_returns_live(tmp_path:
     store, scope, subscriber, authority = _setup(tmp_path)
     first = store.replay_batch_after(scope, subscriber.checkpoint).records[0]
     subscriber.receive(_delivery(first), authority)
-    second = store.append(QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None))
+    second = store.append(
+        QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None)
+    )
     third_quote = _quote("n2", 300)
-    third = store.append(QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, third_quote))
+    third = store.append(
+        QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, third_quote)
+    )
     with pytest.raises(GapDetected):
         subscriber.receive(_delivery(third), authority)
     assert subscriber.state is ContinuityState.DEGRADED
@@ -86,7 +116,9 @@ def test_partition_and_source_lane_mismatches_fail_closed(tmp_path: object, fiel
     if field == "partition_id":
         bad = JournalDelivery.with_partition(delivery, "foreign-partition", b"g4-test-secret")
     else:
-        bad = JournalDelivery.with_source(delivery, ("foreign", "broker", "server", "REPLAY", "", ""), b"g4-test-secret")
+        bad = JournalDelivery.with_source(
+            delivery, ("foreign", "broker", "server", "REPLAY", "", ""), b"g4-test-secret"
+        )
     with pytest.raises(ContinuityError):
         subscriber.receive(bad, authority)
     assert subscriber.state is ContinuityState.FAILED
@@ -100,7 +132,9 @@ def test_missing_journal_event_and_stale_cursor_cannot_resume_live(tmp_path: obj
     with pytest.raises(GapDetected, match="authoritative"):
         subscriber.receive(forged, authority)
     assert subscriber.state is ContinuityState.DEGRADED
-    restarted = JournalBackedSubscriber(b"g4-test-secret", scope, {scope.source.key}, checkpoint=replace(subscriber.checkpoint, aggregate_version=9))
+    restarted = JournalBackedSubscriber(
+        b"g4-test-secret", scope, {scope.source.key}, checkpoint=replace(subscriber.checkpoint, aggregate_version=9)
+    )
     with pytest.raises(ContinuityError, match="cursor"):
         restarted.recover(authority)
     assert restarted.state is ContinuityState.FAILED
@@ -110,14 +144,20 @@ def test_recovery_holds_live_delivery_and_closes_replay_live_race(tmp_path: obje
     store, scope, subscriber, authority = _setup(tmp_path)
     first = store.replay_batch_after(scope, subscriber.checkpoint).records[0]
     subscriber.receive(_delivery(first), authority)
-    second = store.append(QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None))
-    third = store.append(QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, _quote("n3", 300)))
+    second = store.append(
+        QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None)
+    )
+    third = store.append(
+        QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, _quote("n3", 300))
+    )
     with pytest.raises(GapDetected):
         subscriber.receive(_delivery(third), authority)
     subscriber.begin_recovery(authority)
     subscriber.receive(_delivery(second), authority)
     subscriber.receive(_delivery(third), authority)
-    fourth = store.append(QuoteRevision("r4", first.revision.logical_event_id, "r3", RevisionOperation.CANCEL, 400, None))
+    fourth = store.append(
+        QuoteRevision("r4", first.revision.logical_event_id, "r3", RevisionOperation.CANCEL, 400, None)
+    )
     subscriber.receive(_delivery(fourth), authority)
     subscriber.complete_recovery(authority)
     assert subscriber.state is ContinuityState.LIVE
@@ -128,8 +168,12 @@ def test_recovery_queue_saturation_and_interrupted_restart_require_replay(tmp_pa
     store, scope, subscriber, authority = _setup(tmp_path)
     first = store.replay_batch_after(scope, subscriber.checkpoint).records[0]
     subscriber.receive(_delivery(first), authority)
-    second = store.append(QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None))
-    third = store.append(QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, _quote("n3", 300)))
+    second = store.append(
+        QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None)
+    )
+    third = store.append(
+        QuoteRevision("r3", first.revision.logical_event_id, "r2", RevisionOperation.UPSERT, 300, _quote("n3", 300))
+    )
     with pytest.raises(GapDetected):
         subscriber.receive(_delivery(third), authority)
     subscriber.begin_recovery(authority, max_holdback=1)
@@ -147,7 +191,9 @@ def test_recovery_queue_saturation_and_interrupted_restart_require_replay(tmp_pa
 def test_unauthorized_replay_and_future_available_records_do_not_leak(tmp_path: object) -> None:
     store, scope, subscriber, authority = _setup(tmp_path, known_at_ns=100)
     first = store.replay_batch_after(scope, subscriber.checkpoint).records[0]
-    future = store.append(QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None))
+    future = store.append(
+        QuoteRevision("r2", first.revision.logical_event_id, "r1", RevisionOperation.CANCEL, 200, None)
+    )
     subscriber.degrade("disconnect")
     subscriber.recover(authority)
     assert subscriber.checkpoint.aggregate_version == 2

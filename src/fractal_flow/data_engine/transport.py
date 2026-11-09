@@ -1,4 +1,5 @@
 """Dependency-free G4 local transport harness; not a ZeroMQ/Protobuf substitute."""
+
 from __future__ import annotations
 
 from collections import deque
@@ -33,9 +34,15 @@ class TransportEnvelope:
     mac: str
 
     def unsigned(self) -> dict[str, object]:
-        return {"v": self.schema_version, "partition": self.partition_id, "seq": self.sequence,
-                "event_id": self.event_id, "available_time_ns": self.available_time_ns,
-                "payload_hash": self.payload_hash, "source": self.source_key}
+        return {
+            "v": self.schema_version,
+            "partition": self.partition_id,
+            "seq": self.sequence,
+            "event_id": self.event_id,
+            "available_time_ns": self.available_time_ns,
+            "payload_hash": self.payload_hash,
+            "source": self.source_key,
+        }
 
 
 def _wire(value: object) -> bytes:
@@ -44,6 +51,7 @@ def _wire(value: object) -> bytes:
 
 class LocalPublisher:
     """Single-process fanout with explicit bounded subscriber queues and HMAC envelopes."""
+
     def __init__(self, secret: bytes) -> None:
         if not secret:
             raise ValueError("non-empty local transport secret is required")
@@ -59,12 +67,25 @@ class LocalPublisher:
         sequence = self._next.get(partition, 0) + 1
         self._next[partition] = sequence
         payload_hash = hashlib.sha256(repr(record.quote).encode()).hexdigest()
-        unsigned = {"v": 1, "partition": partition, "seq": sequence, "event_id": record.quote.event_id,
-                    "available_time_ns": record.quote.available_time_ns, "payload_hash": payload_hash,
-                    "source": record.quote.source.key}
-        envelope = TransportEnvelope(1, partition, sequence, record.quote.event_id, record.quote.available_time_ns,
-                                     payload_hash, record.quote.source.key,
-                                     hmac.new(self._secret, _wire(unsigned), hashlib.sha256).hexdigest())
+        unsigned = {
+            "v": 1,
+            "partition": partition,
+            "seq": sequence,
+            "event_id": record.quote.event_id,
+            "available_time_ns": record.quote.available_time_ns,
+            "payload_hash": payload_hash,
+            "source": record.quote.source.key,
+        }
+        envelope = TransportEnvelope(
+            1,
+            partition,
+            sequence,
+            record.quote.event_id,
+            record.quote.available_time_ns,
+            payload_hash,
+            record.quote.source.key,
+            hmac.new(self._secret, _wire(unsigned), hashlib.sha256).hexdigest(),
+        )
         for subscriber in self._subscribers:
             subscriber.accept(envelope)
         return envelope
@@ -72,6 +93,7 @@ class LocalPublisher:
 
 class LocalSubscriber:
     """Read-only envelope receiver.  Saturation rejects; it never silently drops."""
+
     def __init__(self, secret: bytes, allowed_sources: set[SourceKey], max_queue: int = 256) -> None:
         if not secret or max_queue < 1:
             raise ValueError("secret and positive max_queue are required")

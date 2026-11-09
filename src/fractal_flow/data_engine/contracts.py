@@ -4,6 +4,7 @@ The repository's legacy ``Event``, ``Tick``, and ``Bar`` contracts use seconds-d
 timestamps.  These types do not reinterpret those fields: ``*_ns`` is an explicit,
 separate UTC-nanosecond causal contract for the Data Engine boundary.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

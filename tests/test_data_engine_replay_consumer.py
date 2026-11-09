@@ -1,11 +1,19 @@
 """Hostile G5 Unit 1 proof for deterministic read-only correction replay."""
+
 from __future__ import annotations
 
 from decimal import Decimal
 
 import pytest
 
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope
 from src.fractal_flow.data_engine.correction_persistence import DurableCorrectionJournal
@@ -18,8 +26,21 @@ from src.fractal_flow.persistence.journal import DurableEventJournal
 def _quote(native: str, sequence: int, available: int, source_name: str = "source-a") -> CanonicalQuote:
     source = SourceIdentity(source_name, "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(source, native, sequence, "EURUSD", available - 2, available - 1, available,
-        "1.10000", "1.10002", "0.123456789123456789", VolumeSemantics.TICK_ACTIVITY_COUNT))
+    result = core.ingest(
+        RawQuote(
+            source,
+            native,
+            sequence,
+            "EURUSD",
+            available - 2,
+            available - 1,
+            available,
+            "1.10000",
+            "1.10002",
+            "0.123456789123456789",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 

@@ -1,4 +1,5 @@
 """G5 Unit 2 hostile proofs for the read-only simulated-live consumer."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -6,7 +7,14 @@ from decimal import Decimal
 import pytest
 
 from src.fractal_flow.data_engine.checkpoints import SubscriberCheckpointStore
-from src.fractal_flow.data_engine.contracts import InstrumentAlias, InstrumentRegistry, LaneScope, RawQuote, SourceIdentity, VolumeSemantics
+from src.fractal_flow.data_engine.contracts import (
+    InstrumentAlias,
+    InstrumentRegistry,
+    LaneScope,
+    RawQuote,
+    SourceIdentity,
+    VolumeSemantics,
+)
 from src.fractal_flow.data_engine.core import CanonicalQuote, DataCore
 from src.fractal_flow.data_engine.correction_codec import CorrectionScope
 from src.fractal_flow.data_engine.correction_persistence import DurableCorrectionJournal
@@ -23,10 +31,21 @@ SECRET = b"g5-simulated-live-test-secret"
 def _quote(native: str, sequence: int, available: int, source_name: str = "source-a") -> CanonicalQuote:
     source = SourceIdentity(source_name, "broker", "server", LaneScope.REPLAY)
     core = DataCore(InstrumentRegistry([InstrumentAlias(source, "EURUSD", "FX:EURUSD", Decimal("0.00001"), 0)]))
-    result = core.ingest(RawQuote(
-        source, native, sequence, "EURUSD", available - 2, available - 1, available,
-        "1.10000", "1.10002", "0.123456789123456789", VolumeSemantics.TICK_ACTIVITY_COUNT,
-    ))
+    result = core.ingest(
+        RawQuote(
+            source,
+            native,
+            sequence,
+            "EURUSD",
+            available - 2,
+            available - 1,
+            available,
+            "1.10000",
+            "1.10002",
+            "0.123456789123456789",
+            VolumeSemantics.TICK_ACTIVITY_COUNT,
+        )
+    )
     assert result.quote is not None
     return result.quote
 
@@ -35,7 +54,9 @@ def _root(quote: CanonicalQuote, revision_id: str = "r1") -> QuoteRevision:
     return QuoteRevision(revision_id, quote.event_id, None, RevisionOperation.UPSERT, quote.available_time_ns, quote)
 
 
-def _setup(known_at: int = 100) -> tuple[DurableCorrectionJournal, CorrectionScope, SimulatedLiveConsumer, CanonicalQuote]:
+def _setup(
+    known_at: int = 100,
+) -> tuple[DurableCorrectionJournal, CorrectionScope, SimulatedLiveConsumer, CanonicalQuote]:
     store = DurableCorrectionJournal(DurableEventJournal())
     quote = _quote("n1", 1, 100)
     store.append(_root(quote))
@@ -106,7 +127,13 @@ def test_checkpoint_restart_and_crash_style_handover_reconstruct_same_state(tmp_
     scope = CorrectionScope.from_quote(quote)
     with SubscriberCheckpointStore(str(checkpoint_path), journal) as checkpoints:
         first = SimulatedLiveConsumer(
-            store, scope, SECRET, {scope.source.key}, subscriber_id="sim-1", checkpoint_store=checkpoints, known_at_ns=100,
+            store,
+            scope,
+            SECRET,
+            {scope.source.key},
+            subscriber_id="sim-1",
+            checkpoint_store=checkpoints,
+            known_at_ns=100,
         )
         first.start()
         assert first.snapshot().fingerprint == DeterministicReplayConsumer(store).replay(100, {scope}).fingerprint
@@ -115,11 +142,20 @@ def test_checkpoint_restart_and_crash_style_handover_reconstruct_same_state(tmp_
     replacement = DurableCorrectionJournal.recover(replacement_journal)
     with SubscriberCheckpointStore(str(checkpoint_path), replacement_journal) as checkpoints:
         restarted = SimulatedLiveConsumer(
-            replacement, scope, SECRET, {scope.source.key}, subscriber_id="sim-1", checkpoint_store=checkpoints, known_at_ns=100,
+            replacement,
+            scope,
+            SECRET,
+            {scope.source.key},
+            subscriber_id="sim-1",
+            checkpoint_store=checkpoints,
+            known_at_ns=100,
         )
         restarted.start()
         assert restarted.state is ContinuityState.LIVE
-        assert restarted.snapshot().fingerprint == DeterministicReplayConsumer(replacement).replay(100, {scope}).fingerprint
+        assert (
+            restarted.snapshot().fingerprint
+            == DeterministicReplayConsumer(replacement).replay(100, {scope}).fingerprint
+        )
     replacement_journal.close()
 
 

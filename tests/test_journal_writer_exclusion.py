@@ -1,4 +1,5 @@
 """Linux hostile proofs for inode-bound DurableEventJournal writer authority."""
+
 from __future__ import annotations
 
 import multiprocessing
