@@ -253,6 +253,12 @@ def test_c8_corrupted_snapshot_and_truncated_tail_recovery() -> None:
 
         snapshot_engine.save_snapshot("Market", "EURUSD", version=2, last_seq=2, payload={"state": "S2"})
 
+        # Recovery is a replacement-writer operation.  The original writer
+        # must relinquish inode-bound authority before a recovery instance can
+        # validate and truncate the uncertain tail.
+        journal.close()
+        assert journal._writer_fd is None
+
         # Corrupt snapshot file on disk
         snap_file = snapshot_engine._get_snapshot_file_path("Market", "EURUSD")
         with open(snap_file, "w", encoding="utf-8") as f:

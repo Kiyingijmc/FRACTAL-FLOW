@@ -345,6 +345,7 @@ def test_journal_genuine_truncation_recovery_matrix(truncated_fragment: str) -> 
         with open(path, "a", encoding="utf-8") as f:
             f.write(truncated_fragment)
 
+        journal.close()  # explicit writer handover before mutating recovery
         recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
         assert len(recovered.get_all_records()) == 2
         assert recovered._global_sequence == 2
@@ -377,6 +378,7 @@ def test_journal_malformed_eof_fails_closed_matrix(malformed_fragment: str) -> N
         with open(path, "a", encoding="utf-8") as f:
             f.write(malformed_fragment)
 
+        journal.close()  # recovery is a replacement writer operation
         # Must FAIL CLOSED even when truncate_corrupted_tail=True!
         with pytest.raises(JournalCorruptionException):
             DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
@@ -405,6 +407,7 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
 
         assert os.path.getsize(path) > expected_valid_size
 
+        journal.close()  # explicit handover before tail truncation
         # Recover with truncate_corrupted_tail=True
         recovered = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
         assert len(recovered.get_all_records()) == 2
@@ -418,6 +421,7 @@ def test_journal_physical_file_truncation_proof_and_bytes_match() -> None:
         assert actual_bytes == expected_valid_bytes
 
         # Verify recovery idempotency: reloading clean file does not perform further truncation
+        recovered.close()
         reloaded = DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
         assert len(reloaded.get_all_records()) == 2
         assert os.path.getsize(path) == expected_valid_size
@@ -438,6 +442,7 @@ def test_journal_tail_recovery_fsync_durability_and_failure(monkeypatch: pytest.
         with open(path, "a", encoding="utf-8") as f:
             f.write('{"sequence_number": 2, "event": {"event_id": "e2"')
 
+        journal.close()  # tail recovery needs replacement writer authority
         # Mock fsync during tail recovery to raise OSError
         def mock_fsync_fail(fd: int) -> None:
             raise OSError("I/O error during tail recovery fsync")
@@ -465,6 +470,7 @@ def test_journal_tail_recovery_matrix_valid_json_bad_checksum_fails() -> None:
             evt_json = '{"sequence_number": 2, "event": {"event_id": "e2", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 2, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "bad_checksum_hash"}\n'
             f.write(evt_json)
 
+        journal.close()  # corrupted history is recovered by a replacement writer
         # Valid JSON with bad checksum at EOF MUST FAIL CLOSED even when truncate_corrupted_tail=True!
         with pytest.raises(JournalCorruptionException) as exc:
             DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)
@@ -491,6 +497,7 @@ def test_journal_corrupted_middle_record_fail_closed() -> None:
             evt_json = '{"sequence_number": 3, "event": {"event_id": "e3", "event_type": "TEST_EVENT", "aggregate_type": "Opportunity", "aggregate_id": "agg_1", "root_id": "r1", "parent_id": "p1", "aggregate_version": 2, "source_timestamp": 1000, "event_timestamp": 1000, "processing_timestamp": 1000, "payload": {}}, "checksum": "abc"}\n'
             f.write(evt_json)
 
+        journal.close()  # recovery must not overlap the previous writer
         # Middle corruption fails closed even when truncate_corrupted_tail=True
         with pytest.raises(JournalCorruptionException):
             DurableEventJournal(journal_file_path=path, truncate_corrupted_tail=True)

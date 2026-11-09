@@ -1,12 +1,17 @@
 """Durable Event Journal abstraction with append-only file/memory persistence, global/aggregate sequence enforcement, event uniqueness, failure atomicity, and conservative crash-tail recovery policy."""
 
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Set
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Any, Tuple
 import json
 import hashlib
 import os
 import threading
 from pathlib import Path
+
+try:  # ``fcntl`` is intentionally optional: unsupported platforms fail closed.
+    import fcntl
+except ImportError:  # pragma: no cover - exercised only on non-POSIX platforms.
+    fcntl = None  # type: ignore[assignment]
 
 from src.fractal_flow.domain.event import Event, InvalidEventVersionException
 
@@ -18,6 +23,11 @@ class JournalCorruptionException(Exception):
 
 class JournalDurabilityException(Exception):
     """Raised when filesystem write, flush, fsync, or physical rollback fails, placing the journal in a faulted state."""
+    pass
+
+
+class JournalWriterLockException(JournalDurabilityException):
+    """Exclusive durable-writer authority cannot be acquired or retained."""
     pass
 
 
@@ -35,7 +45,13 @@ class JournalRecord:
 
 
 class DurableEventJournal:
-    """Thread-safe, crash-safe, append-only event journal enforcing monotonic sequence numbers, event ID uniqueness, checksums, and physical append failure atomicity."""
+    """Append-only journal with byte-complete writes and POSIX writer exclusion.
+
+    File-backed instances are readers until their first append.  That append
+    acquires an advisory exclusive lock on the *journal inode* and retains it for
+    the writer lifetime.  Unsupported platforms fail closed for file-backed
+    writes rather than silently reducing the single-writer guarantee.
+    """
 
     def __init__(self, journal_file_path: Optional[str] = None, truncate_corrupted_tail: bool = False) -> None:
         self.journal_file_path = Path(journal_file_path) if journal_file_path else None
@@ -45,11 +61,94 @@ class DurableEventJournal:
         self._event_ids: Dict[str, int] = {}  # event_id -> global_sequence mapping
         self._global_sequence: int = 0
         self._faulted: bool = False
+        self._recovery_required: bool = False
         self._lock = threading.Lock()
         self._fault_hook: Optional[Any] = None
+        self._writer_fd: Optional[int] = None
+        self._writer_identity: Optional[Tuple[int, int]] = None
 
-        if self.journal_file_path and self.journal_file_path.exists():
-            self._load_from_file()
+        try:
+            if self.journal_file_path and self.journal_file_path.exists():
+                # Tail truncation is a mutation and therefore must hold writer
+                # authority for its entire recovery operation.
+                if self.truncate_corrupted_tail:
+                    self._acquire_writer_authority()
+                self._load_from_file()
+        except Exception:
+            self._release_writer_authority()
+            raise
+
+    def close(self) -> None:
+        """Release writer authority explicitly; callers use this for handover."""
+        with self._lock:
+            self._release_writer_authority()
+
+    def __enter__(self) -> "DurableEventJournal":
+        return self
+
+    def __exit__(self, _type: Any, _value: Any, _traceback: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:  # pragma: no cover - interpreter shutdown timing.
+        self._release_writer_authority()
+
+    @staticmethod
+    def _identity_for_fd(fd: int) -> Tuple[int, int]:
+        stat_result = os.fstat(fd)
+        return (stat_result.st_dev, stat_result.st_ino)
+
+    def _release_writer_authority(self) -> None:
+        fd = self._writer_fd
+        self._writer_fd = None
+        self._writer_identity = None
+        if fd is None:
+            return
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def _acquire_writer_authority(self) -> bool:
+        """Acquire an inode-bound lock, returning true on first acquisition."""
+        if self.journal_file_path is None:
+            return False
+        if self._writer_fd is not None:
+            self._verify_writer_identity()
+            return False
+        if fcntl is None:
+            raise JournalWriterLockException("File-backed journal writer locking is unsupported on this platform.")
+        canonical_path = self.journal_file_path.resolve(strict=False)
+        try:
+            fd = os.open(canonical_path, os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as exc:
+            raise JournalWriterLockException(f"Cannot open canonical journal for exclusive writing: {exc}") from exc
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(fd)
+            raise JournalWriterLockException(
+                f"Exclusive writer authority is already held or cannot be established for '{canonical_path}'."
+            ) from exc
+        self._writer_fd = fd
+        self._writer_identity = self._identity_for_fd(fd)
+        self.journal_file_path = canonical_path
+        try:
+            self._verify_writer_identity()
+        except Exception:
+            self._release_writer_authority()
+            raise
+        return True
+
+    def _verify_writer_identity(self) -> None:
+        if self.journal_file_path is None or self._writer_fd is None or self._writer_identity is None:
+            return
+        try:
+            current = os.stat(self.journal_file_path)
+        except OSError as exc:
+            raise JournalWriterLockException(f"Canonical journal path is unavailable while writer lock is held: {exc}") from exc
+        if (current.st_dev, current.st_ino) != self._writer_identity:
+            raise JournalWriterLockException("Journal path no longer identifies the inode holding writer authority.")
 
     def set_fault_hook(self, hook: Optional[Any]) -> None:
         """Sets a deterministic fault injection hook for persistence crash testing."""
@@ -58,7 +157,7 @@ class DurableEventJournal:
 
     def append(self, event: Event) -> JournalRecord:
         with self._lock:
-            if self._faulted:
+            if self._faulted or self._recovery_required:
                 raise JournalDurabilityException("Journal is in a faulted/unrecoverable state. Appends prohibited.")
 
             if event.event_id in self._event_ids:
@@ -79,8 +178,35 @@ class DurableEventJournal:
             checksum = JournalRecord.compute_checksum(next_global_seq, event)
             record = JournalRecord(sequence_number=next_global_seq, event=event, checksum=checksum)
 
-            if self.journal_file_path:
-                self._append_to_file_atomically(record)
+            try:
+                if self.journal_file_path:
+                    acquired = self._acquire_writer_authority()
+                    # A writer that was only a reader until now must replay the
+                    # locked inode before deriving a new sequence number.
+                    if acquired:
+                        self._load_from_file()
+                        if event.event_id in self._event_ids:
+                            raise JournalCorruptionException(
+                                f"Duplicate event_id '{event.event_id}' detected after writer recovery."
+                            )
+                        key = f"{event.aggregate_type}:{event.aggregate_id}"
+                        expected_seq = self._aggregate_sequences.get(key, 0) + 1
+                        if event.aggregate_version != expected_seq:
+                            raise InvalidEventVersionException(
+                                f"Aggregate '{key}' version changed during writer recovery."
+                            )
+                        next_global_seq = self._global_sequence + 1
+                        checksum = JournalRecord.compute_checksum(next_global_seq, event)
+                        record = JournalRecord(sequence_number=next_global_seq, event=event, checksum=checksum)
+                    self._append_to_file_atomically(record)
+            except Exception:
+                # A caller cannot distinguish an exception before acknowledgement
+                # from an interrupted write without authoritative replay. Release
+                # ownership so a fresh recovery process can acquire it.
+                if self.journal_file_path:
+                    self._recovery_required = True
+                    self._release_writer_authority()
+                raise
 
             # In-memory publication barrier: updated ONLY after file write + flush + fsync succeed
             self._records.append(record)
@@ -88,6 +214,12 @@ class DurableEventJournal:
             self._aggregate_sequences[key] = event.aggregate_version
             self._global_sequence = next_global_seq
             return record
+
+    def get_aggregate_sequence(self, aggregate_type: str, aggregate_id: str) -> int:
+        """Return the indexed last aggregate version, or zero when absent."""
+        key = f"{aggregate_type}:{aggregate_id}"
+        with self._lock:
+            return self._aggregate_sequences.get(key, 0)
 
     def get_events_for_aggregate(self, aggregate_type: str, aggregate_id: str) -> List[Event]:
         with self._lock:
@@ -102,6 +234,9 @@ class DurableEventJournal:
 
     def _append_to_file_atomically(self, record: JournalRecord) -> None:
         assert self.journal_file_path is not None
+        if self._writer_fd is None:
+            raise JournalWriterLockException("Append requires retained exclusive writer authority.")
+        self._verify_writer_identity()
 
         if self._fault_hook:
             self._fault_hook("BEFORE_JOURNAL_WRITE", record)
@@ -111,30 +246,29 @@ class DurableEventJournal:
             "event": asdict(record.event),
             "checksum": record.checksum,
         }
-        line = json.dumps(rec_data, sort_keys=True) + "\n"
+        # Preserve the historic JSON text exactly while explicitly operating in
+        # bytes. ``os.write`` reports bytes, not Unicode code points.
+        line = (json.dumps(rec_data, sort_keys=True) + "\n").encode("utf-8")
 
         orig_offset = None
         try:
-            with open(self.journal_file_path, "a+", encoding="utf-8") as f:
-                f.seek(0, os.SEEK_END)
-                orig_offset = f.tell()
-
-                if self._fault_hook:
-                    self._fault_hook("BEFORE_JOURNAL_FSYNC", record)
-
-                f.write(line)
-                f.flush()
-                os.fsync(f.fileno())
+            orig_offset = os.lseek(self._writer_fd, 0, os.SEEK_END)
+            written = 0
+            while written < len(line):
+                progress = os.write(self._writer_fd, line[written:])
+                if type(progress) is not int or progress <= 0 or progress > len(line) - written:
+                    raise JournalDurabilityException("Journal write made zero or invalid progress.")
+                written += progress
+            if self._fault_hook:
+                self._fault_hook("BEFORE_JOURNAL_FSYNC", record)
+            os.fsync(self._writer_fd)
         except Exception as write_err:
             # Physical append failed: attempt durable rollback to orig_offset
             rollback_succeeded = False
-            if orig_offset is not None and self.journal_file_path.exists():
+            if orig_offset is not None and self._writer_fd is not None:
                 try:
-                    with open(self.journal_file_path, "a+", encoding="utf-8") as rf:
-                        rf.seek(orig_offset)
-                        rf.truncate()
-                        rf.flush()
-                        os.fsync(rf.fileno())
+                    os.ftruncate(self._writer_fd, orig_offset)
+                    os.fsync(self._writer_fd)
                     rollback_succeeded = True
                 except Exception:
                     rollback_succeeded = False
